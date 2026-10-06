@@ -280,17 +280,25 @@ function Save-Ordered($xl, $wb, $rg, $plan, $numCol, $live) {
     finally { try { $xl.DisplayAlerts = $alerts } catch {} }
 }
 
+# The workbook if it is already open in this Excel. Files synced by OneDrive / SharePoint report a URL
+# (https://...) as FullName, so match those by file name: one Excel can't open two workbooks with the same name.
+function Find-Open($xl, $file) {
+    $name = ([string]$file -split '[\\/]')[-1]
+    foreach ($w in $xl.Workbooks) {
+        $full = [string]$w.FullName
+        if ($full -ieq $file) { return $w }
+        if ($full -match '^https?://' -and ([string]$w.Name) -ieq $name) { return $w }
+    }
+    return $null
+}
+
 $job = [IO.File]::ReadAllText($jobFile, [Text.Encoding]::UTF8) | ConvertFrom-Json
 $xl = $null; $wb = $null; $own = $false; $live = $false
 
 try {
     # If the workbook is already open in Excel, use that instance (includes unsaved edits).
     try { $xl = [Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application') } catch { $xl = $null }
-    if ($xl) {
-        foreach ($w in $xl.Workbooks) {
-            if ($w.FullName -ieq $job.path) { $wb = $w; break }
-        }
-    }
+    if ($xl) { $wb = Find-Open $xl $job.path }
     if ($wb) {
         $live = $true
     } else {
@@ -298,7 +306,9 @@ try {
         $own = $true
         $xl.Visible = $false
         $xl.DisplayAlerts = $false
-        $wb = $xl.Workbooks.Open($job.path, 0, (-not $job.write))
+        if ($job.write) { try { $wb = $xl.Workbooks.Open($job.path, 0, $false) } catch { $wb = $null } }
+        # In use somewhere else: open read-only. The table can still be shown, the file just isn't sorted.
+        if (-not $wb) { $wb = $xl.Workbooks.Open($job.path, 0, $true) }
     }
     Say @{ ev = 'ready'; live = $live }
 
@@ -311,7 +321,7 @@ try {
             # No range given: use what is selected in Excel right now, like copy/paste.
             if (-not $it.range -and $live) {
                 try {
-                    if ($xl.ActiveWorkbook.FullName -ieq $job.path) {
+                    if (([string]$xl.ActiveWorkbook.Name) -ieq ([string]$wb.Name)) {
                         $sel = $xl.Selection
                         [void]$sel.Address(0, 0)
                         $rg = $sel

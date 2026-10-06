@@ -561,7 +561,7 @@
     status = String(status || '');
     if (status === 'saved') lines.push(['ok', 'Excel 檔案已依標註排序並存檔']);
     else if (status === 'unsaved') lines.push(['warn', 'Excel 已依標註排序，但檔案還有其他未存檔的修改，請在 Excel 存檔']);
-    else if (status === 'readonly') lines.push(['warn', 'Excel 檔案是唯讀，或被其他程式開啟，沒有修改']);
+    else if (status === 'readonly') lines.push(['warn', 'Excel 檔案在別的地方開著（例如另一個 Excel 視窗）或是唯讀，這次沒有修改 Excel 檔']);
     else if (status) lines.push(['warn', 'Excel 檔案沒有修改（' + psMessage(status.replace(/^error:/, '')) + '）']);
   }
 
