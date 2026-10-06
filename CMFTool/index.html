@@ -209,6 +209,11 @@
       </div>
       <label class="check"><input type="checkbox" id="cmfAuto" checked>編號變更時自動排序</label>
       <label class="check" title="Excel 檔案也一起排序、改寫序號並存檔。Excel 開著且有其他未存檔的修改時，排好後留給你自己存檔"><input type="checkbox" id="cmfWrite" checked>同步修改 Excel 檔</label>
+      <div class="row" id="cmfFileRow">
+        <label for="cmfFile">修改範圍</label>
+        <input id="cmfFile" class="namebox" type="text" spellcheck="false" placeholder="整個表格"
+               title="Excel 檔只在這個範圍內排序、改序號，範圍外的儲存格不會動。例如 A3:F12，或 A:F（列跟表格相同）。留空 = 整個表格">
+      </div>
       <div class="cmf-foot">
         <span id="cmfInfo"></span>
         <button class="btn" id="btnCmfMatch" title="還沒對應的編號，對應到 Excel 中序號相同的物件">依序號對應</button>

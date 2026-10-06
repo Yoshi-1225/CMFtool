@@ -24,6 +24,7 @@
     rangeRef: $('rangeRef'), btnImport: $('btnImport'), chkGrid: $('chkGrid'),
     cmfTable: $('cmfTable'), cmfFields: $('cmfFields'), cmfNum: $('cmfNum'), cmfName: $('cmfName'),
     cmfHead: $('cmfHead'), cmfRest: $('cmfRest'), cmfAuto: $('cmfAuto'), cmfWrite: $('cmfWrite'), cmfInfo: $('cmfInfo'),
+    cmfFile: $('cmfFile'), cmfFileRow: $('cmfFileRow'),
     btnCmfMatch: $('btnCmfMatch')
   };
 
@@ -455,6 +456,8 @@
       fill(ui.cmfName, info.cfg.name);
       if (document.activeElement !== ui.cmfHead) ui.cmfHead.value = info.cfg.head == null ? '' : String(info.cfg.head);
       if (document.activeElement !== ui.cmfRest) ui.cmfRest.value = info.cfg.rest;
+      if (document.activeElement !== ui.cmfFile) ui.cmfFile.value = info.cfg.file || '';
+      ui.cmfFile.placeholder = '整個表格 ' + info.label.replace(/^.*!/, '');
       ui.cmfInfo.textContent = info.error ? info.error : info.names.length + ' 個物件';
       ui.cmfInfo.title = info.error ? '' : info.names.map(function (n) { return n.name; }).join('、');
     });
@@ -465,7 +468,37 @@
       num: parseInt(ui.cmfNum.value, 10) || 0,
       name: ui.cmfName.value === '' ? 1 : parseInt(ui.cmfName.value, 10),
       head: ui.cmfHead.value === '' ? null : parseInt(ui.cmfHead.value, 10),
-      rest: ui.cmfRest.value || 'continue'
+      rest: ui.cmfRest.value || 'continue',
+      file: normFileRange(ui.cmfFile.value)
+    };
+  }
+
+  // 「修改範圍」寫法統一成大寫、去掉 $；看不懂的照原樣留著，交給 fileTarget 回報
+  function normFileRange(v) {
+    v = String(v || '').trim();
+    var cols = /^\$?([A-Za-z]{1,3}):\$?([A-Za-z]{1,3})$/.exec(v);
+    if (cols) return cols[1].toUpperCase() + ':' + cols[2].toUpperCase();
+    var p = v && Table.parseRange(v);
+    return p ? (p.sheet ? Table.quoteSheet(p.sheet) + '!' : '') + XLSX.utils.encode_range(p.s, p.e) : v;
+  }
+
+  // Excel 檔可以修改的範圍：{ range: 'A3:F12', num, name（範圍內第幾欄，從 1 起算）, same（就是整個表格） }
+  function fileTarget(t, cfg) {
+    var sel = Table.parseRange(t.label), w = sel, input = cfg.file || '';
+    var cols = /^([A-Z]{1,3}):([A-Z]{1,3})$/.exec(input);
+    if (cols) {
+      var c1 = XLSX.utils.decode_col(cols[1]), c2 = XLSX.utils.decode_col(cols[2]);
+      w = { sheet: sel.sheet, s: { r: sel.s.r, c: Math.min(c1, c2) }, e: { r: sel.e.r, c: Math.max(c1, c2) } };
+    } else if (input) {
+      w = Table.parseRange(input);
+      if (!w) throw new Error('修改範圍的格式不對，例如 A3:F12 或 A:F');
+      if (w.sheet && w.sheet !== (sel.sheet || w.sheet)) throw new Error('修改範圍要跟表格在同一個工作表');
+    }
+    var num = sel.s.c + cfg.num, name = sel.s.c + cfg.name;
+    if (num < w.s.c || num > w.e.c || name < w.s.c || name > w.e.c) throw new Error('修改範圍要包含序號欄和名稱欄');
+    return {
+      range: XLSX.utils.encode_range(w.s, w.e), num: num - w.s.c + 1, name: name - w.s.c + 1,
+      same: w.s.r === sel.s.r && w.e.r === sel.e.r && w.s.c === sel.s.c && w.e.c === sel.e.c
     };
   }
 
@@ -490,7 +523,12 @@
 
   function onCmfField() {
     var t = cmfTableOf(state.tables);
-    if (t) saveCmf(t.label, readCmfForm());
+    if (!t) return;
+    var cfg = readCmfForm();
+    try { fileTarget(t, Table.cmfConfig(cfg, rangeWidth(Table.parseRange(t.label)))); }
+    catch (e) { showError(e); ui.cmfFile.focus(); return; }
+    ui.cmfFile.value = cfg.file;
+    saveCmf(t.label, cfg);
   }
 
   // 標註分頁每次重新整理編號表時呼叫：對應有變就重排表格
@@ -620,12 +658,21 @@
             if (skipped) lines.push(['warn', '這台電腦無法透過 Excel 複製，略過 ' + skipped + ' 個表格']);
             fallback = cmfExcel.slice();
           } else {
-            var items = excelTables.map(function (t) {
+            var targets = {};      // 修改 Excel 檔的範圍
+            var items = excelTables.map(function (t, i) {
               var p = Table.parseRange(t.label);
               var item = { sheet: p.sheet, range: XLSX.utils.encode_range(p.s, p.e) };
               if (t.cmf) {
                 var cfg = Table.cmfConfig(t.cmf, rangeWidth(p));
                 item.cmf = { num: cfg.num + 1, name: cfg.name + 1 };
+                if (writeFile) {
+                  try {
+                    var ft = targets[i] = fileTarget(t, cfg);
+                    item.cmf.file = ft.range;
+                    item.cmf.fnum = ft.num;
+                    item.cmf.fname = ft.name;
+                  } catch (e) { lines.push(['warn', 'Excel 檔案沒有修改（' + e.message + '）']); }
+                }
               }
               return item;
             });
@@ -643,21 +690,27 @@
               });
             }, function (i, msg) {
               var t = excelTables[i], rows = [].concat(msg.rows || []), plan;
-              if (msg.after) {
+              // 1. 先排 Excel 檔本身（修改範圍內的列）
+              if (msg.phase === 'file') {
+                try {
+                  var ft = targets[i], cfg = Table.cmfConfig(t.cmf, rangeWidth(Table.parseRange(t.label)));
+                  var fp = Table.cmfFilePlan(rows, { num: ft.num - 1, name: ft.name - 1, head: ft.same ? cfg.head : null,
+                                                     rest: cfg.rest }, links);
+                  if (!fp.changed) return null;
+                  state.selfSave = Date.now();
+                  return { write: { head: fp.head, order: fp.order, serial: fp.serial } };
+                } catch (e) {
+                  lines.push(['warn', 'Excel 檔案沒有修改（' + e.message + '）']);
+                  return null;
+                }
+              }
+              // 2. 再決定 Illustrator 裡的表格怎麼排（Excel 檔排好之後通常不用再排）
+              if (msg.write) {
                 state.selfSave = Date.now();
                 writeReport(msg.write, lines);
               }
-              try {
-                // 先排 Excel 檔本身；排好之後 Excel 會再回報一次列的內容，照那個顯示
-                if (t.cmf && writeFile && !msg.after) {
-                  var fp = Table.cmfFilePlan(rows, Table.cmfConfig(t.cmf, rangeWidth(Table.parseRange(t.label))), links);
-                  if (fp.changed) {
-                    state.selfSave = Date.now();
-                    return { write: { head: fp.head, order: fp.order, serial: fp.serial } };
-                  }
-                }
-                plan = planFor(t, rows);
-              } catch (e) { planError[i] = true; throw e; }
+              try { plan = planFor(t, rows); }
+              catch (e) { planError[i] = true; throw e; }
               return plan.changed ? { head: plan.head, order: plan.order, serial: plan.serial, edge: plan.edge } : null;
             }, writeFile).then(function (res) {
               var fatalShown = false;
@@ -828,7 +881,7 @@
   // excel-copy.ps1 的錯誤是「步驟@行號: 訊息」
   var PS_STEPS = { workbook: '建立暫存活頁簿', widths: '欄寬', rows: '複製列', heights: '列高', formulas: '公式',
                    serial: '序號', borders: '框線', range: '範圍', copy: '複製', sort: '排序', save: '存檔',
-                   merge: '合併儲存格' };
+                   merge: '合併儲存格', hidden: '隱藏列' };
   function psMessage(m) {
     return String(m).replace(/^(\w+)@(\d+): /, function (all, step, line) {
       return (PS_STEPS[step] || step) + '，第 ' + line + ' 行：';
@@ -962,7 +1015,10 @@
   });
   ui.cmfWrite.addEventListener('change', function () {
     try { localStorage.setItem('cmftool:cmfWrite', ui.cmfWrite.checked ? '1' : '0'); } catch (e) {}
+    ui.cmfFile.disabled = !ui.cmfWrite.checked;
   });
+  ui.cmfFile.addEventListener('change', onCmfField);
+  ui.cmfFile.addEventListener('keydown', function (e) { if (e.key === 'Enter') ui.cmfFile.blur(); });
   ui.btnCmfMatch.addEventListener('click', autoMatch);
 
   // CEP 沒有「選取改變」事件，所以滑鼠移進面板時更新一次
@@ -975,7 +1031,8 @@
   try { ui.chkAuto.checked = localStorage.getItem('excelsync:auto') === '1'; } catch (e) {}
   try { ui.cmfAuto.checked = localStorage.getItem('cmftool:cmfAuto') !== '0'; } catch (e) {}
   try { ui.cmfWrite.checked = localStorage.getItem('cmftool:cmfWrite') !== '0'; } catch (e) {}
-  if (!IS_WIN) ui.cmfWrite.parentNode.hidden = true;  // 修改 Excel 檔需要透過 Windows 的 Excel
+  if (!IS_WIN) ui.cmfWrite.parentNode.hidden = ui.cmfFileRow.hidden = true;  // 修改 Excel 檔需要透過 Windows 的 Excel
+  ui.cmfFile.disabled = !ui.cmfWrite.checked;
   if (IS_WIN) ui.chkGrid.parentNode.hidden = true;   // 透過 Excel 複製時，外觀完全照 Excel
   refresh();
 })();

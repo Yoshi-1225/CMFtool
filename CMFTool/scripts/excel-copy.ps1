@@ -2,15 +2,18 @@
 # Protocol (stdout = JSON lines, stdin = one reply line per question):
 #   {"ev":"ready"}
 #   for each item:
-#     item.cmf only: {"ev":"rows","i":0,"rows":[...]}  <- SKIP | PASS | STOP | {"head":..,"order":[..],"serial":[..],"edge":[..]}
-#                                                        | {"write":{"head":..,"order":[..],"serial":[..]}}
-#        after a "write" reply: {"ev":"rows","i":0,"after":true,"write":"saved|unsaved|readonly|error:..","rows":[...]}
-#                                                     <- SKIP | PASS | STOP | {"head":..,...}
+#     item.cmf + job.write: {"ev":"rows","i":0,"phase":"file","rows":[...]}   (rows of item.cmf.file)
+#                           <- SKIP | PASS | STOP | {"write":{"head":..,"order":[..],"serial":[..]}}
+#     item.cmf:             {"ev":"rows","i":0,"phase":"show","write":"saved|unsaved|readonly|error:..","rows":[...]}
+#                           <- SKIP | PASS | STOP | {"head":..,"order":[..],"serial":[..],"edge":[..]}
 #     {"ev":"copied","i":0,...}                        <- NEXT | STOP
 #   {"ev":"end"}
-# item.cmf = { num, name }: 1-based columns (inside the range) of the serial number and the object name.
-# A "write" reply sorts the rows of the workbook itself (job.write = open it writable) and saves it.
-# Any other plan reorders only the copy: it is built in a temporary workbook.
+#   {"ev":"busy"} may come at any time during long work.
+# item.cmf = { num, name, file, fnum, fname }: num / name = 1-based columns of the serial number and the object
+# name inside the range; file = the part of the sheet the workbook may be sorted in (e.g. A3:F12), with the same
+# two columns counted inside it (fnum / fname). The "write" reply sorts those rows of the workbook itself
+# (job.write = open it writable) and saves it. The "show" plan reorders only the copy, built in a temporary
+# workbook.
 param([string]$jobFile)
 
 $ErrorActionPreference = 'Stop'
@@ -226,8 +229,9 @@ function Merge-Row($sws, $row, $m) {
 }
 
 # Sort the rows of the user's workbook into the planned order with Excel's own Sort (like sorting by hand),
-# then write the serial numbers. Row heights and hidden rows travel with their rows; top/bottom borders
-# stay at their positions, so a thick bottom border stays at the bottom.
+# then write the serial numbers. Only cells inside $rg change; row heights stay as they are (like Excel's sort),
+# hidden rows travel with their content, top/bottom borders stay at their positions (a thick bottom border stays
+# at the bottom).
 function Write-Ordered($rg, $plan, $numCol) {
     $sws = $rg.Worksheet
     $row0 = [int]$rg.Row; $col0 = [int]$rg.Column
@@ -241,19 +245,6 @@ function Write-Ordered($rg, $plan, $numCol) {
 
     $target = @{}
     for ($j = $head; $j -lt $rows; $j++) { $target[[int]$order[$j]] = $j }
-
-    $hidden = @{}; $height = @{}; $orig = @{}; $edges = @{}
-    $formulas = Column-Values $rg $numCol -formula
-    for ($k = $head; $k -lt $rows; $k++) {
-        Beat
-        $row = $sws.Rows.Item($row0 + $k)
-        $hidden[$k] = [bool]$row.Hidden
-        if ($hidden[$k]) { $row.Hidden = $false }   # sorting skips hidden rows
-        $height[$k] = Num $row.RowHeight 15
-        $orig[$k] = $formulas[$k + 1]
-        $line = $rg.Rows.Item($k + 1)
-        $edges[$k] = @((Get-RowEdge $line $cols 8), (Get-RowEdge $line $cols 9))
-    }
 
     # Merged cells in the data rows: Excel's Sort refuses merged cells of different sizes, so unmerge
     # them and merge them again at the rows' new positions after sorting.
@@ -269,12 +260,27 @@ function Write-Ordered($rg, $plan, $numCol) {
             $area = $cell.MergeArea
             $w = [int]$area.Columns.Count
             if ([int]$area.Rows.Count -gt 1) { throw "merge@0: row $($row0 + $k) has cells merged across rows" }
+            if ([int]$area.Column -lt $col0 -or ([int]$area.Column + $w) -gt ($col0 + $cols)) {
+                throw "merge@0: row $($row0 + $k) has merged cells that reach outside the range"
+            }
             if ([int]$area.Row -eq ($row0 + $k) -and [int]$area.Column -eq ($col0 + $c)) {
                 [void]$merges.Add(@{ k = $k; c = $col0 + $c; n = $w })
                 $c += [Math]::Max(1, $w)
             } else { $c++ }
         }
     }
+    $hidden = @{}; $orig = @{}; $edges = @{}
+    $formulas = Column-Values $rg $numCol -formula
+    for ($k = $head; $k -lt $rows; $k++) {
+        Beat
+        $row = $sws.Rows.Item($row0 + $k)
+        $hidden[$k] = [bool]$row.Hidden
+        if ($hidden[$k]) { $row.Hidden = $false }   # sorting skips hidden rows
+        $orig[$k] = $formulas[$k + 1]
+        $line = $rg.Rows.Item($k + 1)
+        $edges[$k] = @((Get-RowEdge $line $cols 8), (Get-RowEdge $line $cols 9))
+    }
+
     $data = $sws.Range($sws.Cells.Item($r1, $col0), $sws.Cells.Item($r2, $col0 + $cols - 1))
 
     try {
@@ -314,8 +320,7 @@ function Write-Ordered($rg, $plan, $numCol) {
             else { $cell.Value2 = [double]$sv }
         } catch { throw (Describe 'serial' $_) }
         $row = $sws.Rows.Item($row0 + $j)
-        try { $row.RowHeight = $height[$k] } catch { Warn 'heights' $_ }
-        if ($hidden[$k]) { try { $row.Hidden = $true } catch { Warn 'heights' $_ } }
+        if ($hidden[$k]) { try { $row.Hidden = $true } catch { Warn 'hidden' $_ } }
         $line = $rg.Rows.Item($j + 1)
         Set-RowEdge $line $cols 8 $edges[$j][0]
         Set-RowEdge $line $cols 9 $edges[$j][1]
@@ -400,31 +405,38 @@ try {
             $copyRg = $rg
             if ($it.cmf) {
                 $numCol = [int]$it.cmf.num; $nameCol = [int]$it.cmf.name
-                $after = $false; $written = $null; $stop = $false; $pass = $false
-                while ($true) {
-                    $rows = Get-Rows $rg $numCol $nameCol
-                    $msg = @{ ev = 'rows'; i = $i; sheet = $rg.Worksheet.Name; range = $rg.Address(0, 0); rows = $rows; after = $after }
-                    if ($after) { $msg.write = $written }
-                    Say $msg
+                $written = $null
+
+                # 1. The workbook itself (only when asked): sort the rows inside cmf.file and save.
+                if ($job.write -and $it.cmf.file) {
+                    $frg = $rg.Worksheet.Range([string]$it.cmf.file)
+                    $fnum = [int]$it.cmf.fnum
+                    $rows = Get-Rows $frg $fnum ([int]$it.cmf.fname)
+                    Say @{ ev = 'rows'; i = $i; phase = 'file'; rows = $rows }
                     $reply = [Console]::In.ReadLine()
-                    if ($null -eq $reply -or $reply -eq 'STOP') { $stop = $true; break }
-                    if ($reply -eq 'PASS') { $pass = $true; break }
-                    if ($reply -eq 'SKIP') { break }
-                    $plan = $reply | ConvertFrom-Json
-                    if ($plan.write -and -not $after) {
-                        # Sort the workbook itself, then ask again how to show the (now sorted) rows.
-                        $written = Save-Ordered $xl $wb $rg $plan.write $numCol $live
-                        $after = $true
-                        continue
+                    if ($null -eq $reply -or $reply -eq 'STOP') { break }
+                    if ($reply -eq 'PASS') { continue }
+                    if ($reply -ne 'SKIP') {
+                        $plan = $reply | ConvertFrom-Json
+                        $written = Save-Ordered $xl $wb $frg $plan.write $fnum $live
                     }
+                }
+
+                # 2. The copy for Illustrator: how to show the rows of the table range.
+                $rows = Get-Rows $rg $numCol $nameCol
+                $msg = @{ ev = 'rows'; i = $i; phase = 'show'; sheet = $rg.Worksheet.Name; range = $rg.Address(0, 0); rows = $rows }
+                if ($written) { $msg.write = $written }
+                Say $msg
+                $reply = [Console]::In.ReadLine()
+                if ($null -eq $reply -or $reply -eq 'STOP') { break }
+                if ($reply -eq 'PASS') { continue }
+                if ($reply -ne 'SKIP') {
+                    $plan = $reply | ConvertFrom-Json
                     $xl.ScreenUpdating = $false
                     try { $built = Build-Ordered $xl $rg $plan $numCol } finally { $xl.ScreenUpdating = $true }
                     $tmp = $built.wb
                     $copyRg = $built.range
-                    break
                 }
-                if ($stop) { break }
-                if ($pass) { continue }
             }
 
             [void]$copyRg.Copy()

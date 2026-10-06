@@ -317,7 +317,8 @@ module.exports = function (XLSX) {
       num: clamp(cfg.num, 0),
       name: clamp(cfg.name, 1),
       head: head >= 0 ? head : null,
-      rest: cfg.rest === 'blank' || cfg.rest === 'hide' ? cfg.rest : 'continue'
+      rest: cfg.rest === 'blank' || cfg.rest === 'hide' ? cfg.rest : 'continue',
+      file: typeof cfg.file === 'string' ? cfg.file.trim() : ''     // 修改 Excel 檔的範圍（空白 = 整個表格）
     };
   }
 
