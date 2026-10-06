@@ -763,7 +763,7 @@
       var jobFile = path.join(os.tmpdir(), 'excelsync-job-' + Date.now() + '.json');
       fs.writeFileSync(jobFile, JSON.stringify({ path: path.resolve(file), items: items, write: !!write }), 'utf8');
 
-      var result = { ready: false, live: false, errors: {}, fatal: null };
+      var result = { ready: false, live: false, errors: {}, fatal: null, ended: false };
       var finished = false, buffer = '', timer = null;
       var child = childProcess.spawn('powershell.exe',
         ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
@@ -776,15 +776,17 @@
         clearTimeout(timer);
         try { fs.unlinkSync(jobFile); } catch (e) {}
         if (!result.ready && !result.fatal) result.fatal = '無法啟動 Excel';
+        if (result.ready && !result.ended) restoreExcel();   // 中途結束：Excel 的畫面更新可能還關著
         resolve(result);
       }
+      // 腳本處理大表格時會定時回報 busy；超過兩分鐘完全沒消息才停止
       function watchdog() {
         clearTimeout(timer);
         timer = setTimeout(function () {
-          if (!result.ready) result.fatal = 'Excel 太久沒有回應';
+          if (!result.fatal) result.fatal = 'Excel 太久沒有回應';
           try { child.kill(); } catch (e) {}
           finish();
-        }, 60000);
+        }, 120000);
       }
       function reply(text) { try { child.stdin.write(text + '\n'); } catch (e) {} }
 
@@ -803,7 +805,7 @@
         }
         else if (msg.ev === 'error') result.errors[msg.i] = msg.message;
         else if (msg.ev === 'fatal') result.fatal = msg.message;
-        else if (msg.ev === 'end') { try { child.stdin.end(); } catch (e) {} }
+        else if (msg.ev === 'end') { result.ended = true; try { child.stdin.end(); } catch (e) {} }
       }
 
       child.stdout.setEncoding('utf8');
@@ -831,6 +833,15 @@
     return String(m).replace(/^(\w+)@(\d+): /, function (all, step, line) {
       return (PS_STEPS[step] || step) + '，第 ' + line + ' 行：';
     });
+  }
+
+  // 把 Excel 的畫面更新、警告視窗打開（腳本被中途停止時，避免 Excel 看起來像當掉）
+  function restoreExcel() {
+    try {
+      childProcess.spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command',
+        "try { $x = [Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); " +
+        "$x.ScreenUpdating = $true; $x.DisplayAlerts = $true } catch {}"], { windowsHide: true });
+    } catch (e) {}
   }
 
   function excelLabel(msg) {

@@ -23,23 +23,47 @@ function Say($obj) {
 
 function Is-Empty($v) { return ($null -eq $v) -or ($v -is [DBNull]) }
 
+# Long Excel work: tell the panel we're still alive (it stops the script after a long silence).
+$script:lastBeat = [DateTime]::Now
+function Beat {
+    if (([DateTime]::Now - $script:lastBeat).TotalSeconds -ge 3) {
+        Say @{ ev = 'busy' }
+        $script:lastBeat = [DateTime]::Now
+    }
+}
+
+# Values (Value2) or formulas of one column of the range in a single call, indexed 1..rows.
+function Column-Values($rg, $col, [switch]$formula) {
+    $n = [int]$rg.Rows.Count
+    $part = $rg.Columns.Item($col)
+    # Assign directly: an array produced inside "$x = if (...) { }" would be unrolled into a flat list.
+    if ($formula) { $v = $part.Formula } else { $v = $part.Value2 }
+    $out = New-Object object[] ($n + 1)
+    if ($n -eq 1) { $out[1] = $v } else { for ($r = 1; $r -le $n; $r++) { $out[$r] = $v[$r, 1] } }
+    return ,$out
+}
+
 # Serial text, object name, hidden flag and "part of a vertical merge" for every row of the range.
 function Get-Rows($rg, $numCol, $nameCol) {
     $list = New-Object System.Collections.ArrayList
-    $rows = $rg.Rows.Count
+    $rows = [int]$rg.Rows.Count
+    $nums = Column-Values $rg $numCol
+    $names = Column-Values $rg $nameCol
     for ($r = 1; $r -le $rows; $r++) {
+        Beat
         $row = $rg.Rows.Item($r)
-        $sc = $rg.Cells.Item($r, $numCol)
-        $v = $sc.Value2
         # Use the value for numbers: a narrow column shows "##" as its text.
-        if ($v -is [double]) { $s = [string]$v } else { $s = [string]$sc.Text }
+        $v = $nums[$r]
+        if ($v -is [double] -or $v -is [string] -or (Is-Empty $v)) { $s = [string]$v } else { $s = [string]$rg.Cells.Item($r, $numCol).Text }
+        $nv = $names[$r]
+        if ($nv -is [string] -or (Is-Empty $nv)) { $name = [string]$nv } else { $name = [string]$rg.Cells.Item($r, $nameCol).Text }
         $vm = $false
         if ($row.MergeCells -ne $false) {
             foreach ($cell in $row.Cells) {
                 if ($cell.MergeCells -and $cell.MergeArea.Rows.Count -gt 1) { $vm = $true; break }
             }
         }
-        [void]$list.Add(@{ s = $s; n = [string]$rg.Cells.Item($r, $nameCol).Text; h = [bool]$row.EntireRow.Hidden; v = $vm })
+        [void]$list.Add(@{ s = $s; n = $name; h = [bool]$row.EntireRow.Hidden; v = $vm })
     }
     return ,$list
 }
@@ -62,15 +86,37 @@ function Num($v, $default) {
     return [double]$v
 }
 
-function Copy-Edge($src, $dst, $idx) {
+function Read-Border($b) { return ,@($b.LineStyle, $b.Weight, $b.Color) }
+
+function Write-Border($b, $e) {
+    if ($null -eq $e) { return }
+    if ((Is-Empty $e[0]) -or $e[0] -eq -4142) { $b.LineStyle = -4142; return }
+    $b.LineStyle = $e[0]
+    if (-not (Is-Empty $e[1])) { $b.Weight = $e[1] }
+    if (-not (Is-Empty $e[2])) { $b.Color = $e[2] }
+}
+
+# Top (8) or bottom (9) border of one row of a table: read once for the whole row when every cell
+# has the same border (the usual case), otherwise cell by cell.
+function Get-RowEdge($line, $cols, $idx) {
     try {
-        $s = $src.Borders.Item($idx)
-        $d = $dst.Borders.Item($idx)
-        $ls = $s.LineStyle
-        if ((Is-Empty $ls) -or $ls -eq -4142) { $d.LineStyle = -4142; return }
-        $d.LineStyle = $ls
-        if (-not (Is-Empty $s.Weight)) { $d.Weight = $s.Weight }
-        if (-not (Is-Empty $s.Color)) { $d.Color = $s.Color }
+        $e = Read-Border ($line.Borders.Item($idx))
+        if (-not ((Is-Empty $e[0]) -or (Is-Empty $e[1]) -or (Is-Empty $e[2]))) { return @{ all = $e } }
+        $cells = New-Object object[] $cols
+        for ($c = 1; $c -le $cols; $c++) {
+            try { $cells[$c - 1] = Read-Border ($line.Cells.Item(1, $c).Borders.Item($idx)) } catch {}
+        }
+        return @{ cells = $cells }
+    } catch { Warn 'borders' $_; return $null }
+}
+
+function Set-RowEdge($line, $cols, $idx, $rec) {
+    if ($null -eq $rec) { return }
+    try {
+        if ($rec.ContainsKey('all')) { Write-Border ($line.Borders.Item($idx)) $rec.all; return }
+        for ($c = 1; $c -le $cols; $c++) {
+            if ($null -ne $rec.cells[$c - 1]) { Write-Border ($line.Cells.Item(1, $c).Borders.Item($idx)) $rec.cells[$c - 1] }
+        }
     } catch { Warn 'borders' $_ }
 }
 
@@ -111,6 +157,7 @@ function Build-Ordered($xl, $rg, $plan, $numCol) {
                 [void]$blk.Copy($ws.Cells.Item(1, 1))
             }
             for ($i = $head; $i -lt $n; $i++) {
+                Beat
                 [void]$rg.Rows.Item([int]$order[$i] + 1).Copy($ws.Cells.Item($i + 1, 1))
             }
         } catch { throw (Describe 'rows' $_) }
@@ -128,7 +175,9 @@ function Build-Ordered($xl, $rg, $plan, $numCol) {
         try { $hasFormula = $rg.HasFormula -ne $false } catch {}
         if ($hasFormula) {
             for ($i = 0; $i -lt $n; $i++) {
+                Beat
                 $k = [int]$order[$i] + 1
+                try { if ($rg.Rows.Item($k).HasFormula -eq $false) { continue } } catch {}
                 for ($c = 1; $c -le $cols; $c++) {
                     try {
                         $sc = $rg.Cells.Item($k, $c)
@@ -156,13 +205,11 @@ function Build-Ordered($xl, $rg, $plan, $numCol) {
         # Top/bottom borders stay where they were, so a thick bottom border stays at the bottom.
         for ($i = $head; $i -lt $n; $i++) {
             if (Is-Empty $edge[$i]) { continue }
-            $p = [int]$edge[$i] + 1
-            for ($c = 1; $c -le $cols; $c++) {
-                $sc = $rg.Cells.Item($p, $c)
-                $dc = $ws.Cells.Item($i + 1, $c)
-                Copy-Edge $sc $dc 8   # xlEdgeTop
-                Copy-Edge $sc $dc 9   # xlEdgeBottom
-            }
+            Beat
+            $src = $rg.Rows.Item([int]$edge[$i] + 1)
+            $dst = $ws.Range($ws.Cells.Item($i + 1, 1), $ws.Cells.Item($i + 1, $cols))
+            Set-RowEdge $dst $cols 8 (Get-RowEdge $src $cols 8)    # xlEdgeTop
+            Set-RowEdge $dst $cols 9 (Get-RowEdge $src $cols 9)    # xlEdgeBottom
         }
 
         try { $out = $ws.Range($ws.Cells.Item(1, 1), $ws.Cells.Item($n, $cols)) } catch { throw (Describe 'range' $_) }
@@ -171,24 +218,6 @@ function Build-Ordered($xl, $rg, $plan, $numCol) {
         try { $tmp.Close($false) } catch {}
         throw
     }
-}
-
-function Get-Edge($cell, $idx) {
-    try {
-        $b = $cell.Borders.Item($idx)
-        return ,@($b.LineStyle, $b.Weight, $b.Color)
-    } catch { return $null }
-}
-
-function Set-Edge($cell, $idx, $e) {
-    if ($null -eq $e) { return }
-    try {
-        $b = $cell.Borders.Item($idx)
-        if ((Is-Empty $e[0]) -or $e[0] -eq -4142) { $b.LineStyle = -4142; return }
-        $b.LineStyle = $e[0]
-        if (-not (Is-Empty $e[1])) { $b.Weight = $e[1] }
-        if (-not (Is-Empty $e[2])) { $b.Color = $e[2] }
-    } catch { Warn 'borders' $_ }
 }
 
 function Merge-Row($sws, $row, $m) {
@@ -214,31 +243,36 @@ function Write-Ordered($rg, $plan, $numCol) {
     for ($j = $head; $j -lt $rows; $j++) { $target[[int]$order[$j]] = $j }
 
     $hidden = @{}; $height = @{}; $orig = @{}; $edges = @{}
+    $formulas = Column-Values $rg $numCol -formula
     for ($k = $head; $k -lt $rows; $k++) {
+        Beat
         $row = $sws.Rows.Item($row0 + $k)
         $hidden[$k] = [bool]$row.Hidden
         if ($hidden[$k]) { $row.Hidden = $false }   # sorting skips hidden rows
         $height[$k] = Num $row.RowHeight 15
-        $orig[$k] = $sws.Cells.Item($row0 + $k, $sc).Formula
-        for ($c = 0; $c -lt $cols; $c++) {
-            $cell = $sws.Cells.Item($row0 + $k, $col0 + $c)
-            $edges["$k,$c"] = @((Get-Edge $cell 8), (Get-Edge $cell 9))
-        }
+        $orig[$k] = $formulas[$k + 1]
+        $line = $rg.Rows.Item($k + 1)
+        $edges[$k] = @((Get-RowEdge $line $cols 8), (Get-RowEdge $line $cols 9))
     }
 
     # Merged cells in the data rows: Excel's Sort refuses merged cells of different sizes, so unmerge
     # them and merge them again at the rows' new positions after sorting.
     $merges = New-Object System.Collections.ArrayList
     for ($k = $head; $k -lt $rows; $k++) {
-        $line = $sws.Range($sws.Cells.Item($row0 + $k, $col0), $sws.Cells.Item($row0 + $k, $col0 + $cols - 1))
+        Beat
+        $line = $rg.Rows.Item($k + 1)
         if ($line.MergeCells -eq $false) { continue }
-        for ($c = 0; $c -lt $cols; $c++) {
+        $c = 0
+        while ($c -lt $cols) {
             $cell = $sws.Cells.Item($row0 + $k, $col0 + $c)
-            if ($cell.MergeCells -ne $true) { continue }
+            if ($cell.MergeCells -ne $true) { $c++; continue }
             $area = $cell.MergeArea
-            if ([int]$area.Row -ne ($row0 + $k) -or [int]$area.Column -ne ($col0 + $c)) { continue }
+            $w = [int]$area.Columns.Count
             if ([int]$area.Rows.Count -gt 1) { throw "merge@0: row $($row0 + $k) has cells merged across rows" }
-            [void]$merges.Add(@{ k = $k; c = $col0 + $c; n = [int]$area.Columns.Count })
+            if ([int]$area.Row -eq ($row0 + $k) -and [int]$area.Column -eq ($col0 + $c)) {
+                [void]$merges.Add(@{ k = $k; c = $col0 + $c; n = $w })
+                $c += [Math]::Max(1, $w)
+            } else { $c++ }
         }
     }
     $data = $sws.Range($sws.Cells.Item($r1, $col0), $sws.Cells.Item($r2, $col0 + $cols - 1))
@@ -270,6 +304,7 @@ function Write-Ordered($rg, $plan, $numCol) {
     foreach ($m in $merges) { Merge-Row $sws ($row0 + $target[$m.k]) $m }
 
     for ($j = $head; $j -lt $rows; $j++) {
+        Beat
         $k = [int]$order[$j]
         try {
             $cell = $sws.Cells.Item($row0 + $j, $sc)
@@ -281,12 +316,9 @@ function Write-Ordered($rg, $plan, $numCol) {
         $row = $sws.Rows.Item($row0 + $j)
         try { $row.RowHeight = $height[$k] } catch { Warn 'heights' $_ }
         if ($hidden[$k]) { try { $row.Hidden = $true } catch { Warn 'heights' $_ } }
-        for ($c = 0; $c -lt $cols; $c++) {
-            $cell = $sws.Cells.Item($row0 + $j, $col0 + $c)
-            $e = $edges["$j,$c"]
-            Set-Edge $cell 8 $e[0]
-            Set-Edge $cell 9 $e[1]
-        }
+        $line = $rg.Rows.Item($j + 1)
+        Set-RowEdge $line $cols 8 $edges[$j][0]
+        Set-RowEdge $line $cols 9 $edges[$j][1]
     }
 }
 
