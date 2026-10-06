@@ -464,7 +464,8 @@ function es_rebuildTables(dataJson) {
                 if (old.pathItems[k].name === "xlframe") { frame = old.pathItems[k]; break; }
             }
             var gb = (frame || old).geometricBounds;          // [左, 上, 右, 下]
-            var scale = (frame && meta && meta.w) ? (gb[2] - gb[0]) / meta.w : 1;
+            // 從 Excel 貼上的表格沒有外框，用貼上時的寬度算縮放
+            var scale = (meta && meta.w && (frame || meta.mode === "excel")) ? (gb[2] - gb[0]) / meta.w : 1;
             if (meta && meta.hasOwnProperty("grid")) t.grid = meta.grid;
 
             var fresh = _buildTable(t, gb[0], gb[1], missing);
@@ -482,6 +483,12 @@ function es_rebuildTables(dataJson) {
             }
             fresh.move(old, ElementPlacement.PLACEBEFORE);
             _keepCmf(fresh, meta);
+            if (t.keepExcel) {
+                // 暫時用內建方式畫（Excel 這次無法排序）；下次更新仍然先試著透過 Excel 複製
+                var fm = _meta(fresh);
+                fm.mode = "excel";
+                fresh.note = _json(fm);
+            }
             old.remove();
             done++;
         } catch (err) {

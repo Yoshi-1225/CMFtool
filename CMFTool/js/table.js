@@ -390,9 +390,11 @@ module.exports = function (XLSX) {
       } else numOf[k] = n;
     });
 
-    var linked = [], rest = [], found = Object.create(null), maxNum = 0;
+    // 名稱空白的列（例如表格下方預留的空列）不算物件：放在最後，序號清空
+    var linked = [], rest = [], blank = [], found = Object.create(null), maxNum = 0;
     d.items.forEach(function (it) {
-      var n = it.name ? numOf[it.name] : null;
+      if (!it.name) { blank.push(it); return; }
+      var n = numOf[it.name];
       if (n != null) { linked.push({ it: it, num: n }); found[it.name] = true; if (n > maxNum) maxNum = n; }
       else rest.push(it);
     });
@@ -403,7 +405,7 @@ module.exports = function (XLSX) {
     });
 
     var plan = { changed: false, head: head, order: [], serial: [], edge: [], linked: linked.length,
-                 total: d.items.length, missing: missing, dup: dup };
+                 total: linked.length + rest.length, missing: missing, dup: dup };
     if (!linked.length) return plan;            // 還沒有任何對應：維持 Excel 原本的樣子
 
     linked.sort(function (a, b) { return a.num - b.num || a.it.i - b.it.i; });
@@ -413,6 +415,7 @@ module.exports = function (XLSX) {
     if (cfg.rest !== 'hide') {
       rest.forEach(function (it) { plan.order.push(it.i); plan.serial.push(cfg.rest === 'blank' ? '' : next++); });
     }
+    blank.forEach(function (it) { plan.order.push(it.i); plan.serial.push(''); });
 
     // 跟 Excel 原本的排列比較：順序或序號有變才需要重排
     var natural = [];

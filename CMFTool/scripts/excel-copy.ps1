@@ -41,6 +41,24 @@ function Get-Rows($rg, $numCol, $nameCol) {
     return ,$list
 }
 
+# First problem per step, reported to the panel as "step@line: message".
+$script:warned = @{}
+function Describe($step, $err) {
+    $msg = $err.Exception.Message
+    if ($msg -match '^\w+@\d+: ') { return $msg }
+    return "$step@$($err.InvocationInfo.ScriptLineNumber): $msg"
+}
+function Warn($step, $err) {
+    if (-not $script:warned.ContainsKey($step)) { $script:warned[$step] = (Describe $step $err) }
+}
+
+# Number from a COM property. Excel returns DBNull when the value is mixed (e.g. merged cells),
+# and assigning DBNull to another property fails with "Specified cast is not valid".
+function Num($v, $default) {
+    if (Is-Empty $v) { return $default }
+    return [double]$v
+}
+
 function Copy-Edge($src, $dst, $idx) {
     try {
         $s = $src.Borders.Item($idx)
@@ -48,71 +66,89 @@ function Copy-Edge($src, $dst, $idx) {
         $ls = $s.LineStyle
         if ((Is-Empty $ls) -or $ls -eq -4142) { $d.LineStyle = -4142; return }
         $d.LineStyle = $ls
-        $d.Weight = $s.Weight
-        $d.Color = $s.Color
-    } catch {}
+        if (-not (Is-Empty $s.Weight)) { $d.Weight = $s.Weight }
+        if (-not (Is-Empty $s.Color)) { $d.Color = $s.Color }
+    } catch { Warn 'borders' $_ }
 }
 
 # Rebuild the range in a temporary workbook with its rows in the planned order.
+# Sizes are read from whole rows and columns of the source sheet: they never come back mixed.
 function Build-Ordered($xl, $rg, $plan, $numCol) {
-    $cols = $rg.Columns.Count
+    $sws = $rg.Worksheet
+    $row0 = [int]$rg.Row; $col0 = [int]$rg.Column
+    $cols = [int]$rg.Columns.Count
     $order = @($plan.order); $serial = @($plan.serial); $edge = @($plan.edge)
     $n = $order.Count
     $head = [int]$plan.head
 
-    $tmp = $xl.Workbooks.Add()
+    try { $tmp = $xl.Workbooks.Add() } catch { throw (Describe 'workbook' $_) }
     try { $tmp.Windows.Item(1).Visible = $false } catch {}
     $ws = $tmp.Worksheets.Item(1)
 
     try {
-        # ColumnWidth depends on the workbook's default font, so adjust until the widths in points match.
+        # Column widths in points. ColumnWidth depends on the workbook's default font, so scale until they match.
         for ($c = 1; $c -le $cols; $c++) {
-            $src = $rg.Columns.Item($c)
-            $dst = $ws.Columns.Item($c)
-            if ($src.EntireColumn.Hidden) { $dst.Hidden = $true; continue }
-            $dst.ColumnWidth = $src.ColumnWidth
-            for ($k = 0; $k -lt 3 -and $dst.Width -gt 0 -and [Math]::Abs($dst.Width - $src.Width) -gt 0.3; $k++) {
-                $dst.ColumnWidth = [Math]::Min(255, $dst.ColumnWidth * $src.Width / $dst.Width)
-            }
+            try {
+                $src = $sws.Columns.Item($col0 + $c - 1)
+                $dst = $ws.Columns.Item($c)
+                if ($src.Hidden) { $dst.Hidden = $true; continue }
+                $want = Num $src.Width 0
+                for ($k = 0; $k -lt 4; $k++) {
+                    $have = Num $dst.Width 0
+                    if ($have -le 0 -or [Math]::Abs($have - $want) -le 0.3) { break }
+                    $dst.ColumnWidth = [Math]::Min([double]255, (Num $dst.ColumnWidth 8.43) * $want / $have)
+                }
+            } catch { Warn 'widths' $_ }
         }
 
         # Header rows stay on top; copy them as one block so merged cells survive.
-        if ($head -gt 0) {
-            $blk = $rg.Worksheet.Range($rg.Cells.Item(1, 1), $rg.Cells.Item($head, $cols))
-            [void]$blk.Copy($ws.Cells.Item(1, 1))
-        }
+        try {
+            if ($head -gt 0) {
+                $blk = $sws.Range($sws.Cells.Item($row0, $col0), $sws.Cells.Item($row0 + $head - 1, $col0 + $cols - 1))
+                [void]$blk.Copy($ws.Cells.Item(1, 1))
+            }
+            for ($i = $head; $i -lt $n; $i++) {
+                [void]$rg.Rows.Item([int]$order[$i] + 1).Copy($ws.Cells.Item($i + 1, 1))
+            }
+        } catch { throw (Describe 'rows' $_) }
+
         for ($i = 0; $i -lt $n; $i++) {
-            $srcRow = $rg.Rows.Item([int]$order[$i] + 1)
-            if ($i -ge $head) { [void]$srcRow.Copy($ws.Cells.Item($i + 1, 1)) }
-            $dstRow = $ws.Rows.Item($i + 1)
-            if ($srcRow.EntireRow.Hidden) { $dstRow.Hidden = $true } else { $dstRow.RowHeight = $srcRow.RowHeight }
+            try {
+                $src = $sws.Rows.Item($row0 + [int]$order[$i])
+                $dst = $ws.Rows.Item($i + 1)
+                if ($src.Hidden) { $dst.Hidden = $true } else { $dst.RowHeight = Num $src.RowHeight 15 }
+            } catch { Warn 'heights' $_ }
         }
 
         # Formulas may point at rows that moved: keep the values Excel shows instead.
-        if ($rg.HasFormula -ne $false) {
+        $hasFormula = $true
+        try { $hasFormula = $rg.HasFormula -ne $false } catch {}
+        if ($hasFormula) {
             for ($i = 0; $i -lt $n; $i++) {
                 $k = [int]$order[$i] + 1
                 for ($c = 1; $c -le $cols; $c++) {
-                    $sc = $rg.Cells.Item($k, $c)
-                    if ($sc.HasFormula -ne $true) { continue }
-                    $dc = $ws.Cells.Item($i + 1, $c)
-                    $v = $sc.Value2
                     try {
+                        $sc = $rg.Cells.Item($k, $c)
+                        if ($sc.HasFormula -ne $true) { continue }
+                        $dc = $ws.Cells.Item($i + 1, $c)
+                        $v = $sc.Value2
                         if ($v -is [int]) { $dc.Value2 = [string]$sc.Text }   # error values such as #N/A
                         elseif (Is-Empty $v) { $dc.Value2 = '' }
                         else { $dc.Value2 = $v }
-                    } catch {}
+                    } catch { Warn 'formulas' $_ }
                 }
             }
         }
 
         # Serial number column = callout numbers. The cell keeps its number format (e.g. 00 -> 01).
-        for ($i = 0; $i -lt $n; $i++) {
-            $sv = $serial[$i]
-            if (Is-Empty $sv) { continue }
-            $dc = $ws.Cells.Item($i + 1, $numCol)
-            if ([string]$sv -eq '') { $dc.Value2 = '' } else { $dc.Value2 = [double]$sv }
-        }
+        try {
+            for ($i = 0; $i -lt $n; $i++) {
+                $sv = $serial[$i]
+                if (Is-Empty $sv) { continue }
+                $dc = $ws.Cells.Item($i + 1, $numCol)
+                if ([string]$sv -eq '') { $dc.Value2 = '' } else { $dc.Value2 = [double]$sv }
+            }
+        } catch { throw (Describe 'serial' $_) }
 
         # Top/bottom borders stay where they were, so a thick bottom border stays at the bottom.
         for ($i = $head; $i -lt $n; $i++) {
@@ -126,7 +162,8 @@ function Build-Ordered($xl, $rg, $plan, $numCol) {
             }
         }
 
-        return @{ wb = $tmp; range = $ws.Range($ws.Cells.Item(1, 1), $ws.Cells.Item($n, $cols)) }
+        try { $out = $ws.Range($ws.Cells.Item(1, 1), $ws.Cells.Item($n, $cols)) } catch { throw (Describe 'range' $_) }
+        return @{ wb = $tmp; range = $out }
     } catch {
         try { $tmp.Close($false) } catch {}
         throw
@@ -158,6 +195,7 @@ try {
     for ($i = 0; $i -lt @($job.items).Count; $i++) {
         $it = @($job.items)[$i]
         $tmp = $null
+        $script:warned = @{}
         try {
             $rg = $null
             # No range given: use what is selected in Excel right now, like copy/paste.
@@ -195,11 +233,12 @@ try {
             }
 
             [void]$copyRg.Copy()
-            Say @{ ev = 'copied'; i = $i; sheet = $rg.Worksheet.Name; range = $rg.Address(0, 0); ordered = [bool]$tmp }
+            Say @{ ev = 'copied'; i = $i; sheet = $rg.Worksheet.Name; range = $rg.Address(0, 0); ordered = ($null -ne $tmp);
+                   warn = @($script:warned.Values) }
             $reply = [Console]::In.ReadLine()
             if ($reply -ne 'NEXT') { break }
         } catch {
-            Say @{ ev = 'error'; i = $i; message = $_.Exception.Message }
+            Say @{ ev = 'error'; i = $i; message = (Describe 'copy' $_) }
         } finally {
             if ($tmp) {
                 try { $xl.CutCopyMode = $false } catch {}

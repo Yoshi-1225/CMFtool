@@ -214,10 +214,7 @@ summary .count { font-weight: 400; color: var(--muted); }
 .file-info { flex: 1; min-width: 0; }
 .file-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-name.is-empty { font-weight: 400; color: var(--muted); }
-.file-dir {
-  color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  direction: rtl; text-align: left;
-}
+.file-dir { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .choices { margin-top: 6px; border-color: var(--accent); }
 .source-row { display: flex; gap: 8px; align-items: baseline; margin: 4px 0 10px; color: var(--muted); }
 .source-row:empty { display: none; }

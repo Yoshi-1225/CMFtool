@@ -199,11 +199,13 @@
       ui.fileName.classList.add('is-empty');
       ui.fileName.title = '';
       ui.fileDir.textContent = '';
+      ui.fileDir.title = '';
     } else {
       ui.fileName.textContent = path.basename(f);
       ui.fileName.classList.toggle('is-empty', false);
       ui.fileName.title = f;
-      ui.fileDir.textContent = '\u200E' + path.dirname(f) + '\u200E';   // 路徑太長時從左邊省略；前後加 LRM，斜線才不會跑到另一邊
+      ui.fileDir.title = path.dirname(f);
+      ui.fileDir.textContent = path.basename(path.dirname(f));   // 只顯示資料夾名稱，完整路徑在提示裡
     }
 
     var msg = '';
@@ -470,7 +472,7 @@
   function saveCmf(label, cfg, restore) {
     return host('es_setCmf', [label || '', cfg ? JSON.stringify(cfg) : '']).then(function (r) {
       if (r.error) throw new Error(r.error);
-      return refreshContext();
+      return Promise.all([refreshContext(), rememberNumbers()]);   // 記下目前的對應，避免標註分頁重新整理時又排一次
     }).then(function () {
       App.emit('numbers');
       if (label) return update(false, label);
@@ -586,24 +588,26 @@
 
       var excelTables = tables.filter(function (t) { return t.mode === 'excel'; });
       var builtTables = tables.filter(function (t) { return t.mode !== 'excel'; });
-      var cmfLines = [];
+      var cmfExcel = excelTables.filter(function (t) { return t.cmf; });
+      var plans = {}, done = {};      // CMF 清單的排序；done = 表格已經換成新的
       var planFor = function (t, rows) {
         var sel = Table.parseRange(t.label);
-        var plan = Table.cmfPlan(rows, Table.cmfConfig(t.cmf, rangeWidth(sel)), links);
-        cmfReport(plan, cmfLines);
-        return plan;
+        return (plans[t.label] = Table.cmfPlan(rows, Table.cmfConfig(t.cmf, rangeWidth(sel)), links));
       };
 
-      return readWorkbook(file, builtTables.length > 0).then(function (wb) {
+      return readWorkbook(file, builtTables.length > 0 || cmfExcel.length > 0).then(function (wb) {
         var lines = [['time', new Date().toLocaleTimeString() + (auto ? '（自動）' : '')]];
         var fonts = {};
         var addFonts = function (list) { (list || []).forEach(function (f) { fonts[f] = true; }); };
+        var fallback = [];              // Excel 無法排序的 CMF 清單：這次改用內建方式畫
 
         // 0. 從 Excel 複製的表格：重新複製貼上（CMF 清單由 Excel 先排好再複製）
         var excelStep = Promise.resolve();
         if (excelTables.length) {
           if (!IS_WIN) {
-            lines.push(['warn', '這台電腦無法透過 Excel 複製，略過 ' + excelTables.length + ' 個表格']);
+            var skipped = excelTables.length - cmfExcel.length;
+            if (skipped) lines.push(['warn', '這台電腦無法透過 Excel 複製，略過 ' + skipped + ' 個表格']);
+            fallback = cmfExcel.slice();
           } else {
             var items = excelTables.map(function (t) {
               var p = Table.parseRange(t.label);
@@ -614,28 +618,48 @@
               }
               return item;
             });
-            var replaced = 0, failedLabels = [];
-            excelStep = excelCopy(file, items, function (i) {
-              return host('es_pasteTable', [excelTables[i].label, 'replace']).then(function (res) {
+            var replaced = 0, failedLabels = [], planError = {};
+            excelStep = excelCopy(file, items, function (i, msg) {
+              var t = excelTables[i];
+              [].concat(msg.warn || []).forEach(function (w) {
+                lines.push(['warn', t.label + '：部分格式沒有複製（' + psMessage(w) + '）']);
+              });
+              return host('es_pasteTable', [t.label, 'replace']).then(function (res) {
                 if (res.error) throw new Error(res.error);
                 replaced += res.count;
                 failedLabels = failedLabels.concat(res.failed);
+                if (res.count) done[t.label] = true;
               });
             }, function (i, msg) {
-              var plan = planFor(excelTables[i], [].concat(msg.rows || []));
+              var plan;
+              try { plan = planFor(excelTables[i], [].concat(msg.rows || [])); }
+              catch (e) { planError[i] = true; throw e; }
               return plan.changed ? { head: plan.head, order: plan.order, serial: plan.serial, edge: plan.edge } : null;
             }).then(function (res) {
-              if (res.fatal) lines.push(['error', '無法透過 Excel 更新表格：' + res.fatal]);
+              var fatalShown = false;
+              excelTables.forEach(function (t, i) {
+                if (done[t.label]) return;
+                var why = res.errors[i] || res.fatal;
+                if (!why) return;
+                if (t.cmf && !planError[i]) {
+                  fallback.push(t);
+                  lines.push(['warn', '無法透過 Excel 排序（' + psMessage(why) + '），這次改用內建方式畫表格']);
+                } else if (res.errors[i]) {
+                  lines.push(['error', t.label + '：' + psMessage(res.errors[i])]);
+                } else if (!fatalShown) {
+                  fatalShown = true;
+                  lines.push(['error', '無法透過 Excel 更新表格：' + res.fatal]);
+                }
+              });
               if (replaced && !only) lines.push(['ok', '從 Excel 更新了 ' + replaced + ' 個表格']);
-              Object.keys(res.errors).forEach(function (i) { lines.push(['error', excelTables[i].label + '：' + res.errors[i]]); });
               if (failedLabels.length) lines.push(['error', '表格無法修改（可能被鎖定或隱藏）：' + failedLabels.join('、')]);
             });
           }
         }
 
         // 1. 內建方式畫的表格：依 Excel 重建（內容、字型、顏色、框線）
-        var tableData = {}, tableErrors = [], hasTables = false;
-        builtTables.forEach(function (t) {
+        var tableData = {}, tableErrors = [];
+        var addBuilt = function (t, keepExcel) {
           try {
             var sel = Table.parseRange(t.label);
             if (!sel) throw new Error('範圍格式不對');
@@ -645,23 +669,28 @@
               opts.plan = planFor(t, Table.cmfRows(wb, sel, cfg));
               opts.numCol = cfg.num;
             }
-            tableData[t.label] = Table.buildTable(wb, sel, opts);
-            hasTables = true;
+            var data = Table.buildTable(wb, sel, opts);
+            if (keepExcel) data.keepExcel = true;    // 下次更新仍然先試著透過 Excel 複製
+            tableData[t.label] = data;
           } catch (e) { tableErrors.push(t.label + '：' + e.message); }
-        });
+        };
         var step = excelStep.then(function () {
-          return hasTables ? host('es_rebuildTables', [JSON.stringify(tableData)]) : null;
+          builtTables.forEach(function (t) { addBuilt(t, false); });
+          fallback.forEach(function (t) { addBuilt(t, true); });
+          return Object.keys(tableData).length ? host('es_rebuildTables', [JSON.stringify(tableData)]) : null;
         });
 
         return step.then(function (tr) {
           if (tr && tr.error) throw new Error(tr.error);
           if (tr) {
-            if (!only) lines.push(['ok', '重建了 ' + tr.count + ' 個表格']);
+            Object.keys(tableData).forEach(function (l) { if (tr.failed.indexOf(l) < 0) done[l] = true; });
+            if (!only && tr.count) lines.push(['ok', '重建了 ' + tr.count + ' 個表格']);
             if (tr.failed.length) lines.push(['error', '表格無法修改（可能被鎖定或隱藏）：' + tr.failed.join('、')]);
             addFonts(tr.missingFonts);
           }
           tableErrors.forEach(function (m) { lines.push(['error', m]); });
-          lines = lines.concat(cmfLines);
+          // CMF 清單：表格真的換成新的才回報排序結果
+          tables.forEach(function (t) { if (t.cmf && done[t.label] && plans[t.label]) cmfReport(plans[t.label], lines); });
 
           // 2. 個別綁定的文字：只換內容
           if (!refs.length) return null;
@@ -766,6 +795,15 @@
       child.on('error', function (err) { result.fatal = err.message; finish(); });
       child.on('exit', finish);
       watchdog();
+    });
+  }
+
+  // excel-copy.ps1 的錯誤是「步驟@行號: 訊息」
+  var PS_STEPS = { workbook: '建立暫存活頁簿', widths: '欄寬', rows: '複製列', heights: '列高', formulas: '公式',
+                   serial: '序號', borders: '框線', range: '範圍', copy: '複製' };
+  function psMessage(m) {
+    return String(m).replace(/^(\w+)@(\d+): /, function (all, step, line) {
+      return (PS_STEPS[step] || step) + '，第 ' + line + ' 行：';
     });
   }
 
