@@ -2,6 +2,9 @@
  * CMF Callout - Illustrator ExtendScript 核心
  * 對外函式接收 JSON 字串、回傳 JSON 字串：{"ok":true,"msg":"...","next":5,"state":"done"}
  * 注意：ExtendScript 是 ES3，沒有 JSON / let / 箭頭函式 / Array.indexOf
+ *
+ * 每個標註是一個群組，備註（note）存著：CMF_CALLOUT|編號|k=對應的物件名稱|樣式 JSON
+ * 「k=」那一段只有對應過 Excel 清單的物件才有，名稱用 encodeURIComponent 編碼。
  */
 $.global.CMF = (function () {
     var LAYER_NAME = "CMF Callouts";
@@ -12,7 +15,10 @@ $.global.CMF = (function () {
     // ---------- 共用 ----------
     function parse(s) { return eval("(" + s + ")"); }
 
-    function esc(s) { return String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, " "); }
+    function esc(s) {
+        return String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\r\n\t]+/g, " ")
+            .replace(/[\x00-\x1f]/g, "");
+    }
 
     function res(ok, msg, next, state) {
         var out = '{"ok":' + (ok ? "true" : "false") + ',"msg":"' + esc(msg) + '"';
@@ -58,9 +64,20 @@ $.global.CMF = (function () {
     }
 
     function noteParts(g) {
-        var p = String(g.note).split("|");
-        return { num: parseInt(p[1], 10), style: p.slice(2).join("|") };
+        var p = String(g.note).split("|"), rest = p.slice(2), key = "";
+        if (rest.length > 1 && rest[0].indexOf("k=") === 0) {
+            try { key = decodeURIComponent(rest[0].substring(2)); } catch (e) { key = ""; }
+            rest = rest.slice(1);
+        }
+        return { num: parseInt(p[1], 10), key: key, style: rest.join("|") };
     }
+
+    function makeNote(num, key, styleStr) {
+        return TAG + "|" + num + "|" + (key ? "k=" + encodeURIComponent(key) + "|" : "") + styleStr;
+    }
+
+    // 圖層面板上顯示：CMF 3 外殼
+    function groupName(num, key) { return "CMF " + num + (key ? " " + key : ""); }
 
     function findChild(g, name) {
         for (var i = 0; i < g.pageItems.length; i++) if (g.pageItems[i].name === name) return g.pageItems[i];
@@ -164,7 +181,8 @@ $.global.CMF = (function () {
     // ---------- 建立單一標註 ----------
     // line：開放路徑，第一個錨點 = 編號端，最後一個錨點 = 指向產品端
     // （使用者畫的方向相反，呼叫前會先 reversePath）
-    function buildCallout(d, line, num, styleStr, container) {
+    // key：對應的物件名稱（可省略）
+    function buildCallout(d, line, num, styleStr, container, key) {
         var o = parse(styleStr);
         var pts = line.pathPoints, n = pts.length;
         var S = pts[0].anchor, S1 = pts[1].anchor;
@@ -172,8 +190,8 @@ $.global.CMF = (function () {
         var lineColor = hexToColor(o.lineColor, d);
 
         var g = container.groupItems.add();
-        g.name = "CMF " + num;
-        g.note = TAG + "|" + num + "|" + styleStr;
+        g.name = groupName(num, key);
+        g.note = makeNote(num, key, styleStr);
 
         line.move(g, ElementPlacement.PLACEATEND);
         line.name = "CMF_Line";
@@ -259,8 +277,9 @@ $.global.CMF = (function () {
         return g;
     }
 
-    // 拆掉舊標註，用同一條線重建
-    function rebuild(d, g, num, styleStr) {
+    // 拆掉舊標註，用同一條線重建；沒指定 key 時保留原本對應的物件
+    function rebuild(d, g, num, styleStr, key) {
+        if (key === undefined) key = noteParts(g).key;
         var line = findChild(g, "CMF_Line");
         if (!line) return null;
         var end = findChild(g, "CMF_End");
@@ -274,7 +293,7 @@ $.global.CMF = (function () {
         container.visible = true; // 隱藏圖層中的物件無法修改
         line.move(g, ElementPlacement.PLACEBEFORE);
         g.remove();
-        return buildCallout(d, line, num, styleStr, container);
+        return buildCallout(d, line, num, styleStr, container, key);
     }
 
     function nextNumber(d, o) {
@@ -462,30 +481,92 @@ $.global.CMF = (function () {
 
     function setNumber(optStr) {
         try {
-            var d = getDoc(), o = parse(optStr), cs = selectedCallouts(d), made = [];
+            var d = getDoc(), o = parse(optStr), cs = selectedCallouts(d), made = [], i;
             if (cs.length === 0) return res(false, "請先選取標註");
             var n = parseInt(o.num, 10);
             if (!(n > 0)) return res(false, "編號需為正整數");
-            for (var i = 0; i < cs.length; i++) made.push(rebuild(d, cs[i], n, noteParts(cs[i]).style));
+            // 這個編號已經對應某個物件時，選取的標註也改成對應它
+            var others = calloutsWithNumber(d, n), key;
+            for (i = 0; i < others.length; i++) {
+                if (!contains(cs, others[i]) && noteParts(others[i]).key) { key = noteParts(others[i]).key; break; }
+            }
+            for (i = 0; i < cs.length; i++) made.push(rebuild(d, cs[i], n, noteParts(cs[i]).style, key));
             d.selection = made;
             return res(true, "已將 " + made.length + " 個標註設為 " + n);
         } catch (e) { return res(false, e.message); }
     }
 
-    // 編號表：列出每個編號與數量
+    function docKey(d) {
+        try { return d.fullName.fsName; } catch (e) { return d.name; }
+    }
+
+    // 編號表：列出每個編號、數量和對應的物件
     function listNumbers() {
         try {
-            if (app.documents.length === 0) return '{"ok":true,"items":[]}';
-            var cs = allCallouts(app.activeDocument), nums = [], counts = {}, i;
+            if (app.documents.length === 0) return '{"ok":true,"doc":null,"items":[]}';
+            var d = app.activeDocument, cs = allCallouts(d), nums = [], counts = {}, keys = {}, i;
             for (i = 0; i < cs.length; i++) {
-                var n = noteParts(cs[i]).num;
-                if (counts[n] === undefined) { counts[n] = 0; nums.push(n); }
+                var p = noteParts(cs[i]), n = p.num;
+                if (counts[n] === undefined) { counts[n] = 0; keys[n] = ""; nums.push(n); }
                 counts[n]++;
+                if (!keys[n] && p.key) keys[n] = p.key;
             }
             nums.sort(function (a, b) { return a - b; });
             var parts = [];
-            for (i = 0; i < nums.length; i++) parts.push('{"num":' + nums[i] + ',"count":' + counts[nums[i]] + '}');
-            return '{"ok":true,"items":[' + parts.join(",") + ']}';
+            for (i = 0; i < nums.length; i++) {
+                parts.push('{"num":' + nums[i] + ',"count":' + counts[nums[i]] + ',"key":"' + esc(keys[nums[i]]) + '"}');
+            }
+            return '{"ok":true,"doc":"' + esc(docKey(d)) + '","items":[' + parts.join(",") + ']}';
+        } catch (e) { return res(false, e.message); }
+    }
+
+    // ---------- 對應 Excel 清單的物件 ----------
+    // 只改備註和名稱，不重建標註
+    function setKey(g, key) {
+        var p = noteParts(g);
+        if (p.key === key) return;
+        try { g.layer.locked = false; } catch (e) {}
+        g.note = makeNote(p.num, key, p.style);
+        g.name = groupName(p.num, key);
+    }
+
+    // 物件名稱：換行和連續空白收成一個空白（跟面板比對名稱的方式一致）
+    function cleanKey(k) { return String(k || "").replace(/\s+/g, " ").replace(/^ | $/g, ""); }
+
+    // 一個物件只對應一個編號：其他編號原本對到它的，取消對應
+    function applyLink(d, num, key) {
+        var cs = allCallouts(d), hit = 0, freed = {}, freedList = [];
+        for (var i = 0; i < cs.length; i++) {
+            var p = noteParts(cs[i]);
+            if (p.num === num) { setKey(cs[i], key); hit++; }
+            else if (key && p.key === key) {
+                setKey(cs[i], "");
+                if (!freed[p.num]) { freed[p.num] = true; freedList.push(p.num); }
+            }
+        }
+        return { hit: hit, freed: freedList };
+    }
+
+    // o = { num, key }；key 空字串 = 取消對應
+    function setLink(optStr) {
+        try {
+            var d = getDoc(), o = parse(optStr), num = parseInt(o.num, 10), key = cleanKey(o.key);
+            var r = applyLink(d, num, key);
+            if (!r.hit) return res(false, "找不到編號 " + num);
+            if (!key) return res(true, "編號 " + num + " 已取消對應");
+            return res(true, "編號 " + num + " 對應「" + key + "」" +
+                (r.freed.length ? "（編號 " + r.freed.join("、") + " 改為未對應）" : ""));
+        } catch (e) { return res(false, e.message); }
+    }
+
+    // o = { links: [{ num, key }] }：一次設定多個（自動對應用）
+    function setLinks(optStr) {
+        try {
+            var d = getDoc(), o = parse(optStr), n = 0;
+            for (var i = 0; i < o.links.length; i++) {
+                if (applyLink(d, parseInt(o.links[i].num, 10), cleanKey(o.links[i].key)).hit) n++;
+            }
+            return res(true, n ? "已自動對應 " + n + " 個編號" : "沒有可以自動對應的編號");
         } catch (e) { return res(false, e.message); }
     }
 
@@ -663,6 +744,20 @@ $.global.CMF = (function () {
     }
 
     // ---------- 設定檔（給快捷鍵腳本使用） ----------
+    // 面板第一次開啟（還沒有自己的設定）時，沿用快捷鍵腳本用的設定檔
+    function loadSettings() {
+        try {
+            var file = new File(SETTINGS_FILE);
+            if (!file.exists) return res(false, "");
+            file.encoding = "UTF-8";
+            file.open("r");
+            var str = file.read();
+            file.close();
+            parse(str); // 確認是有效的 JSON
+            return '{"ok":true,"settings":' + str + '}';
+        } catch (e) { return res(false, ""); }
+    }
+
     function saveSettings(str) {
         try {
             var f = new Folder(SETTINGS_DIR);
@@ -694,6 +789,9 @@ $.global.CMF = (function () {
         beginPick: beginPick,
         pollPick: pollPick,
         endPick: endPick,
+        setLink: setLink,
+        setLinks: setLinks,
+        loadSettings: loadSettings,
         saveSettings: saveSettings
     };
 })();

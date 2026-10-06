@@ -3,6 +3,10 @@
  * 綁定方式：文字物件的「名稱」設為  xl:儲存格位址
  *   例：xl:B3、xl:工作表1!B3、xl:'價格 表'!C12
  * 名稱會顯示在圖層面板，可以直接在那裡檢查或手動修改。
+ * 表格是一個群組，名稱為 xltable:範圍，備註（note）存 JSON：
+ *   { mode: "excel" | "build", w, h, grid, cmf: { num, name, head, rest } }
+ *   cmf：這個表格是 CMF 清單，依標註編號排序（見 js/table.js 的 cmfPlan）
+ * 由 CMF Tool 面板在啟動時載入（$.evalFile）。
  */
 
 var XL_PREFIX = "xl:";
@@ -30,6 +34,21 @@ function _arr(list) {
     var parts = [];
     for (var i = 0; i < list.length; i++) parts.push(_q(list[i]));
     return "[" + parts.join(",") + "]";
+}
+
+/* 簡單的 JSON 輸出（數字、字串、布林、null、陣列、物件） */
+function _json(v) {
+    if (v === null || v === undefined) return "null";
+    if (typeof v === "number") return isFinite(v) ? String(v) : "null";
+    if (typeof v === "boolean") return v ? "true" : "false";
+    if (typeof v === "string") return _q(v);
+    var parts = [], k;
+    if (v instanceof Array) {
+        for (k = 0; k < v.length; k++) parts.push(_json(v[k]));
+        return "[" + parts.join(",") + "]";
+    }
+    for (k in v) if (v.hasOwnProperty(k) && v[k] !== undefined) parts.push(_q(k) + ":" + _json(v[k]));
+    return "{" + parts.join(",") + "}";
 }
 
 function _refOf(item) {
@@ -119,15 +138,15 @@ function es_refs() {
         var r = _refOf(tf);
         if (r !== null && !seen[r] && !_inTable(tf)) { seen[r] = true; refs.push(r); }
     }
-    var tables = [], tseen = {}, groups = _tableGroups(doc);
+    // 同一個範圍可能有好幾個表格（例如複製到別的工作區域），只要其中一個是 CMF 清單就算
+    var tables = [], byLabel = {}, groups = _tableGroups(doc);
     for (var g = 0; g < groups.length; g++) {
-        var label = groups[g].name.substring(XL_TABLE.length);
-        if (!tseen[label]) {
-            tseen[label] = true;
-            tables.push('{"label":' + _q(label) + ',"mode":' + _q(_tableMode(groups[g])) + "}");
-        }
+        var label = groups[g].name.substring(XL_TABLE.length), meta = _meta(groups[g]);
+        var t = byLabel.hasOwnProperty(label) ? byLabel[label] : null;
+        if (!t) { t = byLabel[label] = { label: label, mode: meta.mode || "build", cmf: null }; tables.push(t); }
+        if (!t.cmf && meta.cmf) t.cmf = meta.cmf;
     }
-    return '{"doc":' + _q(_docKey(doc)) + ',"refs":' + _arr(refs) + ',"tables":[' + tables.join(",") + "]}";
+    return '{"doc":' + _q(_docKey(doc)) + ',"refs":' + _arr(refs) + ',"tables":' + _json(tables) + "}";
 }
 
 /* 把值寫進文字物件。values = { "B3": "1,280", ... } */
@@ -187,12 +206,25 @@ function _inTable(item) {
     return false;
 }
 
-/* "excel" = 由 Excel 複製貼上；"build" = 外掛自己畫的 */
-function _tableMode(g) {
+/* 表格群組備註裡的 JSON；讀不到就回傳空物件 */
+function _meta(g) {
     try {
         var m = eval("(" + g.note + ")");
-        return (m && m.mode) ? m.mode : "build";
-    } catch (e) { return "build"; }
+        return (m && typeof m === "object") ? m : {};
+    } catch (e) { return {}; }
+}
+
+/* "excel" = 由 Excel 複製貼上；"build" = 外掛自己畫的 */
+function _tableMode(g) {
+    return _meta(g).mode || "build";
+}
+
+/* 換掉表格時，沿用舊表格的 CMF 清單設定 */
+function _keepCmf(fresh, oldMeta) {
+    if (!oldMeta || !oldMeta.cmf) return;
+    var m = _meta(fresh);
+    m.cmf = oldMeta.cmf;
+    fresh.note = _json(m);
 }
 
 function _tableGroups(doc) {
@@ -449,6 +481,7 @@ function es_rebuildTables(dataJson) {
                 }
             }
             fresh.move(old, ElementPlacement.PLACEBEFORE);
+            _keepCmf(fresh, meta);
             old.remove();
             done++;
         } catch (err) {
@@ -458,6 +491,21 @@ function es_rebuildTables(dataJson) {
     }
     app.redraw();
     return '{"count":' + done + ',"failed":' + _arr(failed) + ',"missingFonts":' + _arr(_missingList(missing)) + "}";
+}
+
+/* 指定 CMF 清單（依標註排序）的表格。cfgJson 空字串 = 取消
+ * 一份文件只有一個 CMF 清單：其他表格的設定會被清掉 */
+function es_setCmf(label, cfgJson) {
+    if (app.documents.length === 0) return '{"error":"沒有開啟的文件"}';
+    var cfg = cfgJson ? eval("(" + cfgJson + ")") : null;
+    var groups = _tableGroups(app.activeDocument), n = 0, failed = 0;
+    for (var i = 0; i < groups.length; i++) {
+        var g = groups[i], m = _meta(g), mine = cfg && g.name === XL_TABLE + label;
+        if (!mine && !m.cmf) continue;
+        if (mine) m.cmf = cfg; else delete m.cmf;
+        try { g.note = _json(m); if (mine) n++; } catch (e) { failed++; }
+    }
+    return '{"count":' + n + ',"failed":' + failed + "}";
 }
 
 function es_selectTable(label) {
@@ -525,6 +573,7 @@ function es_pasteTable(label, mode) {
             copy.translate(ob[0] - nb[0], ob[1] - nb[1]);       // 對齊原本的左上角
             copy.name = pasted.name;
             copy.note = pasted.note;
+            _keepCmf(copy, meta);
             old.remove();
             done++;
         } catch (err) {

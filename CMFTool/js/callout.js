@@ -1,310 +1,6 @@
-<!DOCTYPE html>
-<html lang="zh-Hant">
-<head>
-<meta charset="UTF-8">
-<title>CMF Callout</title>
-<style>
-  :root {
-    --bg: #323232;
-    --fg: #d8d8d8;
-    --muted: #8f8f8f;
-    --field: #262626;
-    --line: #444444;
-    --accent: #2680eb; /* 介面按鈕固定色，不跟引線顏色變動 */
-    --product: #5a5a5a;
-    --rowhover: rgba(255,255,255,.05);
-  }
-  :root.light {
-    --fg: #2a2a2a;
-    --muted: #6e6e6e;
-    --field: #fafafa;
-    --line: #c8c8c8;
-    --product: #b9b9b9;
-    --rowhover: rgba(0,0,0,.05);
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--bg); color: var(--fg); }
-  body {
-    font: 11px/1.4 "Adobe Clean", "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
-    padding: 10px 10px 34px;
-    user-select: none;
-  }
-
-  /* 預覽：跟著樣式即時變化 */
-  .preview {
-    background: var(--field);
-    border: 1px solid var(--line);
-    border-radius: 3px;
-    height: 84px;
-    margin-bottom: 8px;
-  }
-  .preview svg { width: 100%; height: 100%; display: block; }
-
-  .add {
-    width: 100%;
-    height: 32px;
-    border: 0;
-    border-radius: 3px;
-    background: var(--accent);
-    color: #fff;
-    font: inherit;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .add:hover { filter: brightness(1.1); }
-  .add.active {
-    background: transparent;
-    color: var(--accent);
-    box-shadow: inset 0 0 0 2px var(--accent);
-    animation: pulse 1.4s ease-in-out infinite;
-  }
-  @keyframes pulse { 50% { box-shadow: inset 0 0 0 2px transparent; } }
-  @media (prefers-reduced-motion: reduce) { .add.active { animation: none; } }
-
-  .addopts { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; margin-top: 6px; }
-  .tip { color: var(--muted); margin: 4px 0 0; }
-  .convertrow { margin: 4px 0 10px; text-align: right; }
-  .link {
-    background: none; border: 0; padding: 0;
-    color: var(--muted); font: inherit; cursor: pointer; text-decoration: underline;
-  }
-  .link:hover { color: var(--fg); }
-
-  details { border-top: 1px solid var(--line); padding: 6px 0; }
-  summary { cursor: pointer; font-weight: 600; padding: 2px 0 4px; list-style: none; }
-  summary::-webkit-details-marker { display: none; }
-  summary::before { content: "▸"; display: inline-block; width: 12px; color: var(--muted); }
-  details[open] summary::before { content: "▾"; }
-
-  .row { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 6px; margin: 4px 0; }
-  .row > label:first-child { color: var(--muted); }
-  .pair { display: flex; gap: 4px; }
-  .pair > * { flex: 1; min-width: 0; }
-
-  input[type=text], input[type=number], select {
-    width: 100%; height: 22px; padding: 0 5px;
-    background: var(--field); color: var(--fg);
-    border: 1px solid var(--line); border-radius: 2px; font: inherit;
-  }
-  input[type=color] {
-    width: 100%; height: 22px; padding: 1px;
-    background: var(--field); border: 1px solid var(--line); border-radius: 2px;
-  }
-  input:disabled { opacity: .45; }
-  .colorbox { display: flex; gap: 2px; min-width: 0; }
-  .colorbox input[type=color] { flex: 1; min-width: 0; }
-  .pick {
-    flex: 0 0 22px; height: 22px; padding: 0;
-    display: grid; place-items: center;
-    background: var(--field); color: var(--muted);
-    border: 1px solid var(--line); border-radius: 2px; cursor: pointer;
-  }
-  .pick:hover { color: var(--fg); border-color: var(--muted); }
-  .pick.active { color: #fff; background: var(--accent); border-color: var(--accent); }
-  .pick:disabled { opacity: .45; cursor: default; }
-  .pick svg { width: 13px; height: 13px; display: block; }
-  input:focus, select:focus, button:focus-visible { outline: 1px solid var(--accent); outline-offset: 0; }
-  .check { display: flex; align-items: center; gap: 6px; margin: 5px 0; }
-  .check input { margin: 0; }
-  .hidden { display: none !important; }
-
-  .btn {
-    height: 24px; padding: 0 8px;
-    background: transparent; color: var(--fg);
-    border: 1px solid var(--line); border-radius: 3px;
-    font: inherit; cursor: pointer;
-  }
-  .btn:hover { border-color: var(--muted); }
-  .btn.strong { border-color: var(--accent); color: var(--accent); }
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 4px; }
-  .setnum { display: grid; grid-template-columns: 1fr 48px; gap: 4px; margin-top: 4px; }
-
-  /* 編號表 */
-  .tablebar { display: flex; justify-content: space-between; align-items: center; margin: 8px 0 4px; }
-  .tablebar span { color: var(--muted); }
-  .numtable { border: 1px solid var(--line); border-radius: 3px; max-height: 210px; overflow-y: auto; }
-  .numrow {
-    display: grid; grid-template-columns: 52px 1fr auto;
-    align-items: center; gap: 8px;
-    padding: 3px 6px; cursor: pointer;
-    border-bottom: 1px solid var(--line);
-  }
-  .numrow:last-child { border-bottom: 0; }
-  .numrow:hover { background: var(--rowhover); }
-  .numrow input { height: 20px; text-align: center; font-weight: 600; }
-  .numrow .count { color: var(--muted); }
-  .numrow .go { color: var(--muted); }
-  .numrow:hover .go { color: var(--fg); }
-  .empty { padding: 10px; color: var(--muted); text-align: center; }
-
-  .status {
-    position: fixed; left: 0; right: 0; bottom: 0;
-    padding: 6px 10px;
-    background: var(--bg); border-top: 1px solid var(--line);
-    color: var(--muted);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .status.error { color: #e0675a; }
-</style>
-</head>
-<body>
-
-<div class="preview">
-  <svg id="preview" viewBox="0 0 260 84" aria-label="標註樣式預覽"></svg>
-</div>
-
-<button class="add" id="btnAdd">新增標註</button>
-<div class="addopts">
-  <select id="lineMode" aria-label="線條模式">
-    <option value="straight">直線（點 2 下）</option>
-    <option value="elbow">折線（點 3 下）</option>
-    <option value="free">自由折線</option>
-  </select>
-  <label class="check"><input type="checkbox" id="continuous"> 連續新增</label>
-</div>
-<button class="btn strong hidden" id="btnFinish" style="width:100%;margin-top:6px">完成這條線</button>
-<p class="tip" id="modeTip"></p>
-<div class="convertrow">
-  <button class="link" id="btnConvert" title="已用鋼筆或線段工具畫好的線（從產品畫向編號），選取後一次轉換">轉換選取的線段</button>
-</div>
-
-<details open>
-  <summary>編號</summary>
-  <div class="row">
-    <label for="startMode">下一個</label>
-    <div class="pair">
-      <select id="startMode">
-        <option value="auto">接續最大號</option>
-        <option value="manual">指定</option>
-      </select>
-      <input type="number" id="startNumber" min="1" value="1">
-    </div>
-  </div>
-  <label class="check"><input type="checkbox" id="sameNumber"> 轉換多條線時用同一個編號</label>
-
-  <div class="tablebar">
-    <span id="tableInfo">編號表</span>
-    <button class="link" id="btnRefresh">重新整理</button>
-  </div>
-  <div class="numtable" id="numTable"><div class="empty">還沒有標註，按「新增標註」開始。</div></div>
-  <p class="tip">點一列可選取並移到該標註。改數字後按 Enter；若號碼已存在，兩個號碼會互換。</p>
-
-  <div class="row" style="margin-top:8px">
-    <label for="sortMode">自動排序</label>
-    <div class="pair">
-      <select id="sortMode">
-        <option value="clockwise">順時針</option>
-        <option value="topdown">由上到下</option>
-        <option value="leftright">由左到右</option>
-        <option value="order">補齊空號</option>
-      </select>
-      <button class="btn" id="btnRenumber" style="flex:0 0 auto">重新編號</button>
-    </div>
-  </div>
-</details>
-
-<details open>
-  <summary>樣式同步</summary>
-  <button class="btn strong" id="btnSync" style="width:100%">同步全部標註的樣式</button>
-  <label class="check"><input type="checkbox" id="autoSync"> 修改下方樣式時自動同步全部</label>
-  <div class="grid2">
-    <button class="btn" id="btnRestyle">套用到選取</button>
-    <button class="btn" id="btnRelayout" title="用直接選取工具移動線條錨點後，讓編號重新對齊">重新排版選取</button>
-  </div>
-</details>
-
-<details open>
-  <summary>文字</summary>
-  <div class="row">
-    <label for="fontSize">字級 / 顏色</label>
-    <div class="pair">
-      <input type="number" id="fontSize" min="1" step="0.5" value="10">
-      <input type="color" id="textColor" value="#000000">
-    </div>
-  </div>
-  <div class="row">
-    <label for="fontFamily">字體</label>
-    <select id="fontFamily"><option value="">預設字體</option></select>
-  </div>
-  <div class="row">
-    <label for="fontStyle">字重</label>
-    <div class="pair">
-      <select id="fontStyle" disabled></select>
-      <button class="btn" id="btnFonts" style="flex:0 0 auto" title="安裝新字體後，重新讀取字體清單">重新讀取</button>
-    </div>
-  </div>
-  <input type="hidden" id="fontName">
-  <label class="check"><input type="checkbox" id="badge"> 數字加圓圈底</label>
-  <div id="badgeRows">
-    <div class="row">
-      <label for="badgeColor">圓圈 / 數字</label>
-      <div class="pair">
-        <input type="color" id="badgeColor" value="#2b7bd6">
-        <input type="color" id="badgeTextColor" value="#ffffff">
-      </div>
-    </div>
-    <div class="row">
-      <label for="badgePadding">內距 (pt)</label>
-      <input type="number" id="badgePadding" min="0" step="0.5" value="2">
-    </div>
-    <div class="row">
-      <label for="badgeStrokeWidth">邊框 / 顏色</label>
-      <div class="pair">
-        <input type="number" id="badgeStrokeWidth" min="0" step="0.25" value="0" title="邊框粗細 (pt)，0 = 無邊框">
-        <input type="color" id="badgeStrokeColor" value="#000000">
-      </div>
-    </div>
-  </div>
-</details>
-
-<details open>
-  <summary>引線</summary>
-  <div class="row">
-    <label for="lineWidth">線寬 / 顏色</label>
-    <div class="pair">
-      <input type="number" id="lineWidth" min="0.1" step="0.25" value="0.75">
-      <input type="color" id="lineColor" value="#2b7bd6">
-    </div>
-  </div>
-  <div class="row">
-    <label for="endStyle">端點</label>
-    <div class="pair">
-      <select id="endStyle">
-        <option value="dot">圓點</option>
-        <option value="arrow">箭頭</option>
-        <option value="none">無</option>
-        <option value="style">繪圖樣式</option>
-      </select>
-      <input type="number" id="endSize" min="0.5" step="0.5" value="2.5" title="端點大小 (pt)">
-    </div>
-  </div>
-  <div class="row" id="styleRow">
-    <label for="styleName">樣式名稱</label>
-    <input type="text" id="styleName" value="CMF_Arrow" title="文件裡繪圖樣式的名稱，可在樣式中設定箭頭">
-  </div>
-  <div class="row">
-    <label for="gap">文字間距</label>
-    <input type="number" id="gap" min="0" step="0.5" value="2" title="編號與線頭的距離 (pt)">
-  </div>
-</details>
-
-<details>
-  <summary>其他</summary>
-  <div class="setnum">
-    <button class="btn" id="btnSetNumber">把選取的標註設為</button>
-    <input type="number" id="setNumberValue" min="1" value="1" aria-label="編號">
-  </div>
-  <div class="grid2">
-    <button class="btn" id="btnSelectAll">選取全部標註</button>
-    <button class="btn" id="btnToggle">顯示 / 隱藏圖層</button>
-  </div>
-</details>
-
-<div class="status" id="status">就緒</div>
-
-<script>
+/* CMF Tool — 標註分頁 */
 (function () {
+  var App = window.CMFApp;
   var cep = window.__adobe_cep__;
   var KEY = "cmfCalloutSettings";
   var STYLE_FIELDS = ["fontSize", "textColor", "fontName", "badge", "badgeColor", "badgeTextColor", "badgePadding",
@@ -317,26 +13,6 @@
   };
   var $ = function (id) { return document.getElementById(id); };
 
-  // ---------- 主題：跟隨 Illustrator 介面亮度 ----------
-  function applyTheme() {
-    if (!cep) return;
-    try {
-      var env = JSON.parse(cep.getHostEnvironment());
-      var c = env.appSkinInfo.panelBackgroundColor.color;
-      var r = Math.round(c.red), g = Math.round(c.green), b = Math.round(c.blue);
-      var root = document.documentElement;
-      root.style.setProperty("--bg", "rgb(" + r + "," + g + "," + b + ")");
-      var lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-      root.classList.toggle("light", lum > 0.55);
-      if (lum <= 0.55) {
-        var f = function (v) { return Math.max(0, Math.round(v * 0.78)); };
-        root.style.setProperty("--field", "rgb(" + f(r) + "," + f(g) + "," + f(b) + ")");
-      } else {
-        root.style.removeProperty("--field");
-      }
-    } catch (e) {}
-  }
-
   // ---------- 與 ExtendScript 溝通 ----------
   function extensionPath() {
     if (!cep) return "";
@@ -344,7 +20,10 @@
     return /^file:\/\/\/[A-Za-z]:/.test(p) ? p.replace("file:///", "") : p.replace("file://", "");
   }
 
-  function q(obj) { return JSON.stringify(JSON.stringify(obj)); }
+  // JSON 物件 → ExtendScript 字串常值（U+2028/2029 在 ExtendScript 字串裡不合法）
+  function q(obj) {
+    return JSON.stringify(JSON.stringify(obj)).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+  }
 
   function run(expr, cb, quiet) {
     if (!cep) { setStatus("請在 Illustrator 中開啟此面板", true); return; }
@@ -360,11 +39,7 @@
     run("CMF." + fn + "(" + (obj ? q(obj) : "") + ")", cb, quiet);
   }
 
-  function setStatus(msg, isError) {
-    var s = $("status");
-    s.textContent = msg;
-    s.classList.toggle("error", !!isError);
-  }
+  function setStatus(msg, isError) { App.setStatus(msg, isError); }
 
   // ---------- 設定 ----------
   function readSettings() {
@@ -379,15 +54,27 @@
     return o;
   }
 
-  function loadSettings() {
-    try {
-      var o = JSON.parse(localStorage.getItem(KEY) || "{}");
-      FIELDS.forEach(function (k) {
-        if (o[k] === undefined) return;
-        var el = $(k);
-        if (el.type === "checkbox") el.checked = !!o[k]; else el.value = o[k];
-      });
-    } catch (e) {}
+  function applySettings(o) {
+    FIELDS.forEach(function (k) {
+      if (!o || o[k] === undefined) return;
+      var el = $(k);
+      if (el.type === "checkbox") el.checked = !!o[k]; else el.value = o[k];
+    });
+  }
+
+  // 面板自己的設定沒有時（第一次開啟），沿用快捷鍵腳本用的設定檔
+  function loadSettings(done) {
+    var saved = null;
+    try { saved = localStorage.getItem(KEY); } catch (e) {}
+    if (saved || !cep) {
+      try { applySettings(JSON.parse(saved || "{}")); } catch (e) {}
+      done();
+      return;
+    }
+    run("CMF.loadSettings()", function (r) {
+      if (r && r.ok && r.settings) applySettings(r.settings);
+      done();
+    }, true);
   }
 
   var saveTimer = null;
@@ -411,7 +98,6 @@
     $("styleRow").classList.toggle("hidden", o.endStyle !== "style");
     $("startNumber").disabled = o.startMode === "auto";
     $("badgeStrokeColor").disabled = !(o.badgeStrokeWidth > 0);
-    $("modeTip").textContent = MODE_TIPS[o.lineMode] || "";
     updateFinishButton();
 
     var scale = 1.6;
@@ -620,44 +306,124 @@
   }
 
   // ---------- 編號表 ----------
-  var refreshing = false;
+  // 有指定 CMF 清單時，每一列可以選擇對應的物件（名稱來自 Excel）
+  var refreshing = false, refreshAgain = false;
   function refreshTable() {
-    if (!cep || refreshing) return;
+    if (!cep) return;
+    if (refreshing) { refreshAgain = true; return; }
     refreshing = true;
     run("CMF.listNumbers()", function (r) {
-      refreshing = false;
-      var box = $("numTable");
-      var items = (r && r.items) || [];
-      var total = items.reduce(function (s, it) { return s + it.count; }, 0);
-      $("tableInfo").textContent = items.length ? "編號表：" + items.length + " 個編號，" + total + " 個標註" : "編號表";
-      if (!items.length) {
-        box.innerHTML = '<div class="empty">還沒有標註，按「新增標註」開始。</div>';
-        return;
-      }
-      // 正在編輯某一格時不重畫，避免打字被打斷
-      if (box.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
-      box.innerHTML = "";
-      items.forEach(function (it) {
-        var row = document.createElement("div");
-        row.className = "numrow";
-        row.innerHTML = '<input type="number" min="1" value="' + it.num + '" aria-label="編號 ' + it.num + '">' +
-          '<span class="count">' + (it.count > 1 ? it.count + " 處" : "1 處") + '</span>' +
-          '<span class="go">選取</span>';
-        var input = row.querySelector("input");
-        input.addEventListener("click", function (e) { e.stopPropagation(); });
-        input.addEventListener("keydown", function (e) {
-          if (e.key === "Enter") input.blur();
-          if (e.key === "Escape") { input.value = it.num; input.blur(); }
-        });
-        input.addEventListener("change", function () {
-          var to = parseInt(input.value, 10);
-          if (!(to > 0) || to === it.num) { input.value = it.num; return; }
-          callHost("changeNumber", { from: it.num, to: to }, function () { setTimeout(refreshTable, 0); });
-        });
-        row.addEventListener("click", function () { callHost("selectNumber", { num: it.num, center: true }); });
-        box.appendChild(row);
+      var info = App.excel ? App.excel.cmfInfo() : Promise.resolve(null);
+      info.then(function (list) {
+        renderTable(r, list);
+        if (App.excel) App.excel.numbersChanged(r);
+      }).catch(function () { renderTable(r, null); }).then(function () {
+        refreshing = false;
+        if (refreshAgain) { refreshAgain = false; refreshTable(); }
       });
     }, true);
+  }
+
+  function option(value, text, selected) {
+    var o = document.createElement("option");
+    o.value = value;
+    o.textContent = text;
+    o.selected = !!selected;
+    return o;
+  }
+
+  function renderTable(r, list) {
+    var box = $("numTable");
+    var items = (r && r.items) || [];
+    var names = list && !list.error ? list.names : null;
+    var total = items.reduce(function (s, it) { return s + it.count; }, 0);
+
+    var info = $("tableInfo"), meta = "";
+    if (items.length) meta = items.length + " 個" + (total > items.length ? "，" + total + " 處" : "");
+    info.classList.remove("warn");
+    info.title = "";
+    if (list && list.error) {
+      meta = list.error;
+      info.classList.add("warn");
+    } else if (names) {
+      var linked = items.filter(function (it) { return it.key; }).length;
+      if (items.length) meta += " · 已對應 " + linked;
+      info.title = "CMF 清單：" + list.label;
+    }
+    info.textContent = meta;
+    $("btnLinkExcel").hidden = !!list;
+
+    // 正在編輯某一格時不重畫，避免打字被打斷
+    var active = document.activeElement;
+    if (box.contains(active) && (active.tagName === "INPUT" || active.tagName === "SELECT")) return;
+
+    if (!items.length) {
+      box.innerHTML = '<div class="empty">還沒有標註</div>';
+      return;
+    }
+    var known = {}, owner = {};
+    if (names) names.forEach(function (n) { known[n.name] = true; });
+    items.forEach(function (it) { if (it.key && owner[it.key] === undefined) owner[it.key] = it.num; });
+
+    box.innerHTML = "";
+    items.forEach(function (it) {
+      var row = document.createElement("div");
+      row.className = "numrow";
+      row.title = "點一下選取並移到這個標註";
+
+      var input = document.createElement("input");
+      input.type = "number";
+      input.min = "1";
+      input.value = it.num;
+      input.setAttribute("aria-label", "編號 " + it.num);
+      input.title = "改號碼後按 Enter；號碼已存在時兩個互換";
+      input.addEventListener("click", function (e) { e.stopPropagation(); });
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") input.blur();
+        if (e.key === "Escape") { input.value = it.num; input.blur(); }
+      });
+      input.addEventListener("change", function () {
+        var to = parseInt(input.value, 10);
+        if (!(to > 0) || to === it.num) { input.value = it.num; return; }
+        callHost("changeNumber", { from: it.num, to: to }, function () { setTimeout(refreshTable, 0); });
+      });
+      row.appendChild(input);
+
+      if (names) {
+        var sel = document.createElement("select");
+        sel.setAttribute("aria-label", "編號 " + it.num + " 對應的物件");
+        sel.appendChild(option("", "—", !it.key));
+        names.forEach(function (n) {
+          var other = owner[n.name] !== undefined && owner[n.name] !== it.num ? "（" + owner[n.name] + "）" : "";
+          sel.appendChild(option(n.name, n.name + other, n.name === it.key));
+        });
+        if (it.key && !known[it.key]) {
+          sel.appendChild(option(it.key, it.key + "（清單中沒有）", true));
+          row.classList.add("is-missing");
+        }
+        sel.classList.toggle("is-empty", !it.key);
+        sel.title = it.key || "選擇對應的物件";
+        sel.addEventListener("click", function (e) { e.stopPropagation(); });
+        sel.addEventListener("change", function () {
+          callHost("setLink", { num: it.num, key: sel.value }, function () {
+            sel.blur();
+            setTimeout(refreshTable, 0);
+          });
+        });
+        row.appendChild(sel);
+      } else {
+        row.appendChild(document.createElement("span"));
+      }
+
+      var count = document.createElement("span");
+      count.className = "count";
+      count.textContent = it.count > 1 ? "×" + it.count : "";
+      count.title = it.count > 1 ? it.count + " 處使用這個編號" : "";
+      row.appendChild(count);
+
+      row.addEventListener("click", function () { callHost("selectNumber", { num: it.num, center: true }); });
+      box.appendChild(row);
+    });
   }
 
   // ---------- 互動新增 ----------
@@ -767,6 +533,11 @@
   $("btnConvert").addEventListener("click", function () { callHost("convert", readSettings(), afterAdded); });
   $("btnRenumber").addEventListener("click", function () { callHost("renumber", readSettings(), refreshTable); });
   $("btnRefresh").addEventListener("click", refreshTable);
+  $("btnLinkExcel").addEventListener("click", function () {
+    App.showTab("excel");
+    var box = $("cmfBox");
+    if (box) { box.open = true; box.scrollIntoView(); }
+  });
   $("btnSync").addEventListener("click", function () { callHost("syncAll", readSettings()); });
   $("btnRestyle").addEventListener("click", function () { callHost("restyle", readSettings()); });
   $("btnRelayout").addEventListener("click", function () { callHost("relayout"); });
@@ -788,17 +559,15 @@
     try { cep.addEventListener("com.cmf.callout.add", function () { if (adding) stopAdd(false); else startAdd(); }); } catch (e) {}
     try { cep.addEventListener("com.cmf.callout.finish", finishFree); } catch (e) {}
     try { cep.addEventListener("documentAfterActivate", refreshTable); } catch (e) {}
-    try { cep.addEventListener("com.adobe.csxs.events.ThemeColorChanged", function () { applyTheme(); renderPreview(); }); } catch (e) {}
   }
+  App.on("theme", renderPreview);
+  App.on("numbers", refreshTable);   // Excel 分頁改了 CMF 清單或自動對應之後
 
-  applyTheme();
-  loadSettings();
-  loadFonts(false);
-  renderPreview();
-  saveSettings();
-  refreshTable();
+  loadSettings(function () {
+    loadFonts(false);
+    renderPreview();
+    saveSettings();
+    refreshTable();
+  });
   if (!cep) setStatus("預覽模式：請在 Illustrator 中使用", true);
 })();
-</script>
-</body>
-</html>

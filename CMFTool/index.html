@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>CMF Tool</title>
+<link rel="stylesheet" href="css/panel.css">
+</head>
+<body>
+
+<nav class="tabs" role="tablist">
+  <button class="tab is-active" data-tab="callout" role="tab">標註</button>
+  <button class="tab" data-tab="excel" role="tab">Excel</button>
+</nav>
+
+<!-- ==================== 標註 ==================== -->
+<section class="page" id="page-callout" role="tabpanel">
+  <div class="preview"><svg id="preview" viewBox="0 0 260 84" aria-label="標註樣式預覽"></svg></div>
+
+  <button class="add" id="btnAdd">新增標註</button>
+  <div class="addopts">
+    <select id="lineMode" aria-label="線條模式" title="直線：點 2 下　折線：點 3 下　自由折線：按「完成這條線」結束">
+      <option value="straight">直線</option>
+      <option value="elbow">折線</option>
+      <option value="free">自由折線</option>
+    </select>
+    <label class="check" title="完成一條後繼續畫下一條"><input type="checkbox" id="continuous">連續</label>
+    <button class="link" id="btnConvert" title="把選取的線段轉成標註（從產品畫向編號位置）">轉換線段</button>
+  </div>
+  <button class="btn strong hidden" id="btnFinish">完成這條線</button>
+
+  <div class="sect">
+    <div class="sect-head">
+      <span class="sect-title">編號</span>
+      <span class="sect-meta" id="tableInfo"></span>
+      <button class="link" id="btnLinkExcel" hidden title="指定 Excel 清單後，可以為每個編號選擇對應的物件">連結清單</button>
+      <button class="icon-btn" id="btnRefresh" title="重新整理">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5"/></svg>
+      </button>
+    </div>
+    <div class="numtable" id="numTable"><div class="empty">還沒有標註</div></div>
+    <div class="pair mt">
+      <select id="sortMode" aria-label="排序方式" title="重新編號的順序">
+        <option value="clockwise">順時針</option>
+        <option value="topdown">由上到下</option>
+        <option value="leftright">由左到右</option>
+        <option value="order">補齊空號</option>
+      </select>
+      <button class="btn" id="btnRenumber">重新編號</button>
+    </div>
+  </div>
+
+  <details data-key="style">
+    <summary>樣式</summary>
+    <div class="grid3">
+      <button class="btn" id="btnSync" title="文件中所有標註套用目前的樣式">同步全部</button>
+      <button class="btn" id="btnRestyle" title="只改選取的標註">套用選取</button>
+      <button class="btn" id="btnRelayout" title="用直接選取工具移動線條錨點後，讓編號重新對齊">重新排版</button>
+    </div>
+    <label class="check"><input type="checkbox" id="autoSync">修改樣式時自動同步全部</label>
+
+    <div class="sub">文字</div>
+    <div class="row">
+      <label for="fontSize">字級</label>
+      <div class="pair">
+        <input type="number" id="fontSize" min="1" step="0.5" value="10" title="字級 (pt)">
+        <input type="color" id="textColor" value="#000000" title="文字顏色">
+      </div>
+    </div>
+    <div class="row">
+      <label for="fontFamily">字體</label>
+      <select id="fontFamily"><option value="">預設字體</option></select>
+    </div>
+    <div class="row">
+      <label for="fontStyle">字重</label>
+      <div class="pair">
+        <select id="fontStyle" disabled></select>
+        <button class="icon-btn" id="btnFonts" title="重新讀取字體清單（安裝新字體後）">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5"/></svg>
+        </button>
+      </div>
+    </div>
+    <input type="hidden" id="fontName">
+    <label class="check"><input type="checkbox" id="badge">圓圈底</label>
+    <div id="badgeRows">
+      <div class="row">
+        <label for="badgeColor">圓圈</label>
+        <div class="pair">
+          <input type="color" id="badgeColor" value="#2b7bd6" title="圓圈顏色">
+          <input type="color" id="badgeTextColor" value="#ffffff" title="數字顏色">
+        </div>
+      </div>
+      <div class="row">
+        <label for="badgePadding">內距</label>
+        <input type="number" id="badgePadding" min="0" step="0.5" value="2" title="內距 (pt)">
+      </div>
+      <div class="row">
+        <label for="badgeStrokeWidth">邊框</label>
+        <div class="pair">
+          <input type="number" id="badgeStrokeWidth" min="0" step="0.25" value="0" title="邊框粗細 (pt)，0 = 無邊框">
+          <input type="color" id="badgeStrokeColor" value="#000000" title="邊框顏色">
+        </div>
+      </div>
+    </div>
+
+    <div class="sub">引線</div>
+    <div class="row">
+      <label for="lineWidth">線寬</label>
+      <div class="pair">
+        <input type="number" id="lineWidth" min="0.1" step="0.25" value="0.75" title="線寬 (pt)">
+        <input type="color" id="lineColor" value="#2b7bd6" title="線條顏色">
+      </div>
+    </div>
+    <div class="row">
+      <label for="endStyle">端點</label>
+      <div class="pair">
+        <select id="endStyle">
+          <option value="dot">圓點</option>
+          <option value="arrow">箭頭</option>
+          <option value="none">無</option>
+          <option value="style">繪圖樣式</option>
+        </select>
+        <input type="number" id="endSize" min="0.5" step="0.5" value="2.5" title="端點大小 (pt)">
+      </div>
+    </div>
+    <div class="row" id="styleRow">
+      <label for="styleName">樣式名稱</label>
+      <input type="text" id="styleName" value="CMF_Arrow" title="文件裡繪圖樣式的名稱，可在樣式中設定箭頭">
+    </div>
+    <div class="row">
+      <label for="gap">間距</label>
+      <input type="number" id="gap" min="0" step="0.5" value="2" title="編號與線頭的距離 (pt)">
+    </div>
+  </details>
+
+  <details data-key="more">
+    <summary>其他</summary>
+    <div class="row">
+      <label for="startMode">下一個</label>
+      <div class="pair">
+        <select id="startMode">
+          <option value="auto">接續最大號</option>
+          <option value="manual">指定</option>
+        </select>
+        <input type="number" id="startNumber" min="1" value="1" aria-label="下一個編號">
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="sameNumber">轉換多條線時用同一個編號</label>
+    <div class="row">
+      <label for="setNumberValue">選取的</label>
+      <div class="pair">
+        <input type="number" id="setNumberValue" min="1" value="1" aria-label="編號">
+        <button class="btn" id="btnSetNumber" title="把選取的標註設為這個編號">設為此編號</button>
+      </div>
+    </div>
+    <div class="grid2 mt">
+      <button class="btn" id="btnSelectAll">選取全部標註</button>
+      <button class="btn" id="btnToggle">顯示 / 隱藏圖層</button>
+    </div>
+  </details>
+</section>
+
+<!-- ==================== Excel ==================== -->
+<section class="page" id="page-excel" role="tabpanel" hidden>
+  <div class="file">
+    <div class="file-info">
+      <div id="fileName" class="file-name is-empty">尚未選擇檔案</div>
+      <div id="fileDir" class="file-dir"></div>
+    </div>
+    <button class="btn" id="btnPick">選擇…</button>
+  </div>
+  <select id="fileChoices" class="choices" hidden aria-label="同資料夾的 Excel 檔案"></select>
+  <div class="source-row"><span id="fileSource"></span><button class="link" id="btnAuto" hidden>改回自動</button></div>
+
+  <button class="add" id="btnUpdate">從 Excel 更新</button>
+  <label class="check" title="Excel 存檔後自動更新文件中的文字和表格"><input type="checkbox" id="chkAuto">存檔時自動更新</label>
+  <div id="result" class="result" hidden></div>
+
+  <details open data-key="cmf" id="cmfBox">
+    <summary>CMF 清單</summary>
+    <div class="row">
+      <label for="cmfTable">表格</label>
+      <select id="cmfTable" title="這個表格會依標註編號排序，序號欄改成標註編號（Excel 檔案不會被修改）"></select>
+    </div>
+    <div id="cmfFields" hidden>
+      <div class="row">
+        <label for="cmfNum">欄位</label>
+        <div class="pair">
+          <select id="cmfNum" title="序號欄"></select>
+          <select id="cmfName" title="物件名稱欄"></select>
+        </div>
+      </div>
+      <div class="row">
+        <label for="cmfRest">未對應</label>
+        <div class="pair">
+          <select id="cmfRest" title="還沒有對應標註的物件">
+            <option value="continue">接續編號</option>
+            <option value="blank">序號留空</option>
+            <option value="hide">不顯示</option>
+          </select>
+          <select id="cmfHead" title="表格上方的標題列數">
+            <option value="">自動標題</option>
+            <option value="0">無標題</option>
+            <option value="1">標題 1 列</option>
+            <option value="2">標題 2 列</option>
+            <option value="3">標題 3 列</option>
+            <option value="4">標題 4 列</option>
+          </select>
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="cmfAuto" checked>編號變更時自動排序</label>
+      <div class="cmf-foot">
+        <span id="cmfInfo"></span>
+        <button class="btn" id="btnCmfMatch" title="還沒對應的編號，對應到 Excel 中序號相同的物件">依序號對應</button>
+      </div>
+    </div>
+  </details>
+
+  <details open data-key="import">
+    <summary>匯入表格</summary>
+    <div class="bind-row">
+      <input id="rangeRef" class="namebox" type="text" spellcheck="false" placeholder="A1:D10" aria-label="表格範圍"
+             title="留空 = 使用 Excel 中選取的範圍；也可以寫 工作表1!A1:D10">
+      <button class="btn" id="btnImport">匯入</button>
+    </div>
+    <label class="check"><input id="chkGrid" type="checkbox">淺灰格線</label>
+  </details>
+
+  <details open data-key="bind">
+    <summary>綁定文字</summary>
+    <div id="selInfo" class="muted">請在 Illustrator 中選取文字物件</div>
+    <div class="bind-row mt">
+      <input id="cellRef" class="namebox" type="text" spellcheck="false" placeholder="B3" aria-label="儲存格位址"
+             title="B3，或指定工作表：工作表1!B3">
+      <button class="btn" id="btnBind">綁定</button>
+      <button class="btn quiet" id="btnUnbind">解除</button>
+    </div>
+  </details>
+
+  <details open data-key="refs">
+    <summary>文件中的綁定 <span id="refCount" class="count"></span></summary>
+    <div id="refList" class="ref-list"><span class="muted">沒有綁定</span></div>
+  </details>
+</section>
+
+<div class="status" id="status">就緒</div>
+
+<script src="js/CSInterface.js"></script>
+<script src="js/app.js"></script>
+<script src="js/excel.js"></script>
+<script src="js/callout.js"></script>
+</body>
+</html>

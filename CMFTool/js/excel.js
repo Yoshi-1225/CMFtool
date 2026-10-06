@@ -1,7 +1,8 @@
-/* Excel 同步 — 面板端（CEP，含 Node.js） */
+/* CMF Tool — Excel 分頁（CEP，含 Node.js）：綁定文字、匯入表格、CMF 清單依標註排序 */
 (function () {
   'use strict';
 
+  var App = window.CMFApp;
   var cs = new CSInterface();
   var nodeRequire = (typeof cep_node !== 'undefined' && cep_node.require) ? cep_node.require : require;
   var fs = nodeRequire('fs');
@@ -20,15 +21,21 @@
     selInfo: $('selInfo'), cellRef: $('cellRef'), btnBind: $('btnBind'), btnUnbind: $('btnUnbind'),
     btnUpdate: $('btnUpdate'), chkAuto: $('chkAuto'), result: $('result'),
     refList: $('refList'), refCount: $('refCount'),
-    rangeRef: $('rangeRef'), btnImport: $('btnImport'), chkGrid: $('chkGrid')
+    rangeRef: $('rangeRef'), btnImport: $('btnImport'), chkGrid: $('chkGrid'),
+    cmfTable: $('cmfTable'), cmfFields: $('cmfFields'), cmfNum: $('cmfNum'), cmfName: $('cmfName'),
+    cmfHead: $('cmfHead'), cmfRest: $('cmfRest'), cmfAuto: $('cmfAuto'), cmfInfo: $('cmfInfo'),
+    btnCmfMatch: $('btnCmfMatch')
   };
 
   var state = {
     docKey: null, docFolder: '', excelPath: null,
     source: null,            // 'manual' = 使用者選的；'auto' = 從 .ai 同資料夾找到的
     candidates: [], candidatesKey: null,
-    selectedRefs: [], busy: false, watching: null, debounce: null
+    selectedRefs: [], tables: [], busy: false, watching: null, debounce: null
   };
+
+  // CMF 清單：sig = 每份文件目前「編號=物件」的對應，變了才重排
+  var cmf = { sig: {}, timer: null, pending: false, book: null };
 
   /* ---------- 呼叫 Illustrator ---------- */
 
@@ -45,6 +52,9 @@
       });
     });
   }
+
+  // Illustrator 端的 Excel 函式（manifest 只能指定一個腳本，標註用的 host.jsx 由 CEP 載入）
+  cs.evalScript('$.evalFile(' + lit(EXT + '/jsx/excel.jsx') + ')');
 
   /* ---------- 儲存格位址 ---------- */
 
@@ -74,8 +84,8 @@
   // Excel 存檔的瞬間檔案可能還在寫入，失敗就稍等重試
   function readWorkbook(file, withLayout) {
     var attempt = 0;
-    // withLayout：連欄寬、列高和原始 XML 一起讀（匯入表格時需要）
-    var opts = withLayout ? { type: 'buffer', cellStyles: true, bookFiles: true } : { type: 'buffer' };
+    // withLayout：連欄寬、列高、數字格式和原始 XML 一起讀（匯入表格時需要）
+    var opts = withLayout ? { type: 'buffer', cellStyles: true, cellNF: true, bookFiles: true } : { type: 'buffer' };
     function tryRead() {
       try {
         return Promise.resolve(XLSX.read(fs.readFileSync(file), opts));
@@ -85,6 +95,25 @@
       }
     }
     return tryRead();
+  }
+
+  // 編號表每次滑鼠移進面板都會讀物件名稱，檔案沒變就用上次讀的
+  function cachedWorkbook(file) {
+    var st;
+    try { st = fs.statSync(file); } catch (e) { return Promise.reject(new Error('找不到檔案：' + path.basename(file))); }
+    var key = file + '|' + st.mtimeMs + '|' + st.size;
+    if (cmf.book && cmf.book.key === key) return Promise.resolve(cmf.book.wb);
+    return readWorkbook(file, true).then(function (wb) {
+      cmf.book = { key: key, wb: wb };
+      return wb;
+    });
+  }
+
+  function friendly(err) {
+    if (err && (err.code === 'EBUSY' || err.code === 'EPERM' || err.code === 'EACCES')) {
+      return new Error('Excel 檔案暫時無法讀取，請確認已存檔後再試一次');
+    }
+    return err;
   }
 
   function collectValues(wb, refs) {
@@ -174,16 +203,16 @@
       ui.fileName.textContent = path.basename(f);
       ui.fileName.classList.toggle('is-empty', false);
       ui.fileName.title = f;
-      ui.fileDir.textContent = path.dirname(f);
+      ui.fileDir.textContent = '\u200E' + path.dirname(f) + '\u200E';   // 路徑太長時從左邊省略；前後加 LRM，斜線才不會跑到另一邊
     }
 
     var msg = '';
     if (!state.docKey) msg = '';
     else if (state.source === 'manual') msg = '手動選擇';
-    else if (!state.docFolder) msg = '.ai 存檔後，會自動找同資料夾的 Excel';
-    else if (f) msg = '自動選取：與 .ai 在同一個資料夾';
-    else if (state.candidates.length > 1) msg = '資料夾裡有 ' + state.candidates.length + ' 個 Excel 檔，請選一個';
-    else msg = '同資料夾沒有 Excel 檔，請按「選擇…」';
+    else if (!state.docFolder) msg = '.ai 存檔後會自動找同資料夾的 Excel';
+    else if (f) msg = '自動：與 .ai 同資料夾';
+    else if (state.candidates.length > 1) msg = '資料夾裡有 ' + state.candidates.length + ' 個 Excel，請選一個';
+    else msg = '同資料夾沒有 Excel';
     ui.fileSource.textContent = msg;
     ui.btnAuto.hidden = !(state.source === 'manual' && state.docFolder);
 
@@ -211,14 +240,17 @@
   }
 
   function showError(err) {
-    showResult([['error', err.message || String(err)]]);
+    var msg = (err && err.message) || String(err);
+    showResult([['error', msg]]);
+    App.setStatus(msg, true);
   }
 
-  function chip(text, cls, onClick) {
+  function chip(text, cls, onClick, title) {
     var b = document.createElement('button');
     b.type = 'button';
     b.className = cls;
     b.textContent = text;
+    if (title) b.title = title;
     b.addEventListener('click', onClick);
     ui.refList.appendChild(b);
   }
@@ -227,26 +259,26 @@
     tables = tables || [];
     ui.refList.innerHTML = '';
     var total = refs.length + tables.length;
-    ui.refCount.textContent = total ? '(' + total + ')' : '';
+    ui.refCount.textContent = total ? total : '';
     if (!total) {
-      ui.refList.innerHTML = '<p class="hint">還沒有綁定任何文字</p>';
+      ui.refList.innerHTML = '<span class="muted">沒有綁定</span>';
       return;
     }
     tables.forEach(function (t) {
       var label = t.label;
-      chip('表格 ' + label, 'ref-chip is-table', function () {
+      chip('表格 ' + label, 'ref-chip is-table' + (t.cmf ? ' is-cmf' : ''), function () {
         host('es_selectTable', [label]).then(refreshContext).catch(showError);
-      });
+      }, t.cmf ? 'CMF 清單（依標註排序）' : '點一下選取');
     });
     var LIMIT = 40, sorted = refs.slice().sort(compareRefs);
     sorted.slice(0, LIMIT).forEach(function (ref) {
       chip(ref, 'ref-chip' + (state.selectedRefs.indexOf(ref) >= 0 ? ' is-selected' : ''), function () {
         host('es_selectRef', [ref]).then(refreshContext).catch(showError);
-      });
+      }, '點一下選取');
     });
     if (sorted.length > LIMIT) {
       var more = document.createElement('span');
-      more.className = 'hint';
+      more.className = 'muted';
       more.textContent = '還有 ' + (sorted.length - LIMIT) + ' 個';
       ui.refList.appendChild(more);
     }
@@ -262,7 +294,17 @@
     return ca.c - cb.c || ca.r - cb.r;
   }
 
+  // 同時有好幾個地方要求更新時，共用同一次
+  var ctxPromise = null;
   function refreshContext() {
+    if (!ctxPromise) {
+      ctxPromise = loadContext().then(function (r) { ctxPromise = null; return r; },
+                                      function (e) { ctxPromise = null; throw e; });
+    }
+    return ctxPromise;
+  }
+
+  function loadContext() {
     return Promise.all([host('es_context'), host('es_refs')]).then(function (r) {
       var ctx = r[0], all = r[1];
       if (!ctx.doc) {
@@ -273,17 +315,22 @@
           state.candidatesKey = null;
           setExcelPath(null, null);
         }
+        state.tables = [];
         ui.selInfo.textContent = '請先開啟 Illustrator 文件';
         renderRefs([]);
-        return;
+        renderCmf([]);
+        return { refs: [], tables: [] };
       }
       resolveExcel(ctx);
       state.selectedRefs = ctx.refs;
+      state.tables = all.tables;
       if (ctx.selected === 0) ui.selInfo.textContent = '請在 Illustrator 中選取文字物件';
-      else if (ctx.refs.length === 0) ui.selInfo.textContent = '已選取 ' + ctx.selected + ' 個文字物件，尚未綁定';
-      else ui.selInfo.textContent = '已選取 ' + ctx.selected + ' 個文字物件，目前綁定 ' + ctx.refs.join('、');
+      else if (ctx.refs.length === 0) ui.selInfo.textContent = '已選取 ' + ctx.selected + ' 個文字，尚未綁定';
+      else ui.selInfo.textContent = '已選取 ' + ctx.selected + ' 個文字：' + ctx.refs.join('、');
       if (ctx.refs.length === 1 && document.activeElement !== ui.cellRef) ui.cellRef.value = ctx.refs[0];
       renderRefs(all.refs, all.tables);
+      renderCmf(all.tables);
+      return all;
     });
   }
 
@@ -303,8 +350,11 @@
     state.source = null;
     state.candidatesKey = null;
     ui.result.hidden = true;
-    refreshContext().catch(showError);
+    refreshContext().then(afterFileChanged).catch(showError);
   }
+
+  // 換了 Excel 檔：標註分頁的物件清單也要換
+  function afterFileChanged() { App.emit('numbers'); }
 
   function pickFile() {
     var startDir = state.excelPath ? path.dirname(state.excelPath) : (state.docFolder || '');
@@ -314,6 +364,7 @@
     if (!state.docKey) { showError(new Error('請先開啟 Illustrator 文件')); return; }
     setExcelPath(res.data[0], 'manual');
     ui.result.hidden = true;
+    afterFileChanged();
   }
 
   function bind() {
@@ -322,7 +373,7 @@
     ui.cellRef.value = ref;
     host('es_bind', [ref]).then(function (r) {
       if (r.error) throw new Error(r.error);
-      showResult([['ok', '已將 ' + r.count + ' 個文字物件綁定到 ' + ref]]);
+      App.setStatus('已將 ' + r.count + ' 個文字綁定到 ' + ref);
       return refreshContext();
     }).catch(showError);
   }
@@ -330,13 +381,186 @@
   function unbind() {
     host('es_unbind').then(function (r) {
       if (r.error) throw new Error(r.error);
-      showResult([['ok', r.count ? '已解除 ' + r.count + ' 個文字物件的綁定' : '選取的物件沒有綁定']]);
+      App.setStatus(r.count ? '已解除 ' + r.count + ' 個文字的綁定' : '選取的物件沒有綁定');
       return refreshContext();
     }).catch(showError);
   }
 
-  function update(auto) {
-    if (state.busy) return Promise.resolve();
+  /* ---------- CMF 清單 ---------- */
+
+  function cmfTableOf(tables) {
+    return (tables || []).filter(function (t) { return t.cmf; })[0] || null;
+  }
+
+  function rangeWidth(sel) { return sel.e.c - sel.s.c + 1; }
+
+  // 標註編號 → 物件名稱
+  function linksOf(nums) {
+    return ((nums && nums.items) || []).filter(function (it) { return it.key; })
+      .map(function (it) { return { num: it.num, key: it.key }; });
+  }
+
+  // CMF 清單的內容：物件名稱、欄位標題（給標註分頁的下拉選單和這裡的欄位選單）
+  function cmfList(tables) {
+    var t = cmfTableOf(tables);
+    if (!t) return Promise.resolve(null);
+    var sel = Table.parseRange(t.label);
+    var info = { label: t.label, cfg: null, width: 1, names: [], titles: [], head: 0, error: null };
+    if (!sel) { info.error = '表格範圍不對'; return Promise.resolve(info); }
+    info.width = rangeWidth(sel);
+    info.cfg = Table.cmfConfig(t.cmf, info.width);
+    if (!state.excelPath) { info.error = '找不到 Excel 檔'; return Promise.resolve(info); }
+    return cachedWorkbook(state.excelPath).then(function (wb) {
+      var rows = Table.cmfRows(wb, sel, info.cfg);
+      info.names = Table.cmfNames(rows, info.cfg);
+      info.head = Table.cmfHead(rows, info.cfg);
+      info.titles = Table.columnTitles(wb, sel, info.head);
+      return info;
+    }).catch(function (err) {
+      info.error = friendly(err).message;
+      return info;
+    });
+  }
+
+  // 依文件裡的表格更新 CMF 區塊
+  var cmfRender = 0;
+  function renderCmf(tables) {
+    var t = cmfTableOf(tables);
+    if (document.activeElement !== ui.cmfTable) {
+      ui.cmfTable.innerHTML = '';
+      ui.cmfTable.appendChild(new Option(tables.length ? '不使用' : '文件中沒有表格', ''));
+      tables.forEach(function (x) { ui.cmfTable.appendChild(new Option(x.label, x.label)); });
+      ui.cmfTable.value = t ? t.label : '';
+      ui.cmfTable.disabled = !tables.length;
+    }
+    ui.cmfFields.hidden = !t;
+    if (!t) return;
+
+    var token = ++cmfRender;
+    cmfList(tables).then(function (info) {
+      if (token !== cmfRender || !info) return;
+      var fill = function (select, value) {
+        if (document.activeElement === select) return;
+        select.innerHTML = '';
+        for (var i = 0; i < info.width; i++) {
+          var col = info.titles[i] || { col: '', title: '' };
+          var text = (col.col || String(i + 1)) + (col.title ? '  ' + col.title : '');
+          select.appendChild(new Option(text, String(i), false, i === value));
+        }
+      };
+      fill(ui.cmfNum, info.cfg.num);
+      fill(ui.cmfName, info.cfg.name);
+      if (document.activeElement !== ui.cmfHead) ui.cmfHead.value = info.cfg.head == null ? '' : String(info.cfg.head);
+      if (document.activeElement !== ui.cmfRest) ui.cmfRest.value = info.cfg.rest;
+      ui.cmfInfo.textContent = info.error ? info.error : info.names.length + ' 個物件';
+      ui.cmfInfo.title = info.error ? '' : info.names.map(function (n) { return n.name; }).join('、');
+    });
+  }
+
+  function readCmfForm() {
+    return {
+      num: parseInt(ui.cmfNum.value, 10) || 0,
+      name: ui.cmfName.value === '' ? 1 : parseInt(ui.cmfName.value, 10),
+      head: ui.cmfHead.value === '' ? null : parseInt(ui.cmfHead.value, 10),
+      rest: ui.cmfRest.value || 'continue'
+    };
+  }
+
+  // 改了 CMF 設定：存到表格上，馬上重排一次；取消時把原本的表格改回 Excel 的排列
+  function saveCmf(label, cfg, restore) {
+    return host('es_setCmf', [label || '', cfg ? JSON.stringify(cfg) : '']).then(function (r) {
+      if (r.error) throw new Error(r.error);
+      return refreshContext();
+    }).then(function () {
+      App.emit('numbers');
+      if (label) return update(false, label);
+    }).then(function () {
+      if (restore && restore !== label) return update(false, restore);   // 一次只能更新一個，依序執行
+    }).catch(showError);
+  }
+
+  function onCmfTable() {
+    var label = ui.cmfTable.value, prev = cmfTableOf(state.tables);
+    var sel = label && Table.parseRange(label);
+    saveCmf(label, label ? Table.cmfConfig({}, sel ? rangeWidth(sel) : 2) : null, prev && prev.label);
+  }
+
+  function onCmfField() {
+    var t = cmfTableOf(state.tables);
+    if (t) saveCmf(t.label, readCmfForm());
+  }
+
+  // 標註分頁每次重新整理編號表時呼叫：對應有變就重排表格
+  function numbersChanged(nums) {
+    if (!nums || !nums.doc) return;
+    var sig = linksOf(nums).map(function (l) { return l.num + '=' + l.key; }).join('|');
+    var prev = cmf.sig[nums.doc];
+    cmf.sig[nums.doc] = sig;
+    if (prev === undefined || prev === sig || !ui.cmfAuto.checked) return;
+    if (!cmfTableOf(state.tables)) return;
+    clearTimeout(cmf.timer);
+    cmf.timer = setTimeout(function () { update(true, true); }, 500);
+  }
+
+  function rememberNumbers() {
+    return host('CMF.listNumbers').then(function (nums) {
+      if (nums && nums.doc) cmf.sig[nums.doc] = linksOf(nums).map(function (l) { return l.num + '=' + l.key; }).join('|');
+      return nums;
+    });
+  }
+
+  // 還沒對應的編號，對到 Excel 中序號相同的物件
+  function autoMatch() {
+    refreshContext().then(function (all) {
+      return Promise.all([cmfList(all.tables), host('CMF.listNumbers')]);
+    }).then(function (r) {
+      var info = r[0], items = (r[1] && r[1].items) || [];
+      if (!info) throw new Error('請先選擇 CMF 清單的表格');
+      if (info.error) throw new Error(info.error);
+      if (!items.length) throw new Error('文件中還沒有標註');
+      var used = {}, bySerial = {}, links = [];
+      items.forEach(function (it) { if (it.key) used[it.key] = true; });
+      info.names.forEach(function (n) {
+        var k = parseInt(n.serial, 10);
+        if (k > 0 && /^\d/.test(n.serial) && !(k in bySerial)) bySerial[k] = n.name;
+      });
+      items.forEach(function (it) {
+        var name = bySerial[it.num];
+        if (!it.key && name && !used[name]) { used[name] = true; links.push({ num: it.num, key: name }); }
+      });
+      if (!links.length) { App.setStatus('沒有可以自動對應的編號'); return null; }
+      return host('CMF.setLinks', [JSON.stringify({ links: links })]).then(function (res) {
+        if (!res.ok) throw new Error(res.msg);
+        App.setStatus(res.msg);
+        return rememberNumbers();
+      }).then(function () {
+        App.emit('numbers');
+        return update(false, true);
+      });
+    }).catch(showError);
+  }
+
+  // 排序結果的說明
+  function cmfReport(plan, lines) {
+    if (!plan.linked) {
+      lines.push(['time', 'CMF 清單：還沒有對應的編號，維持 Excel 原本的排列']);
+      return;
+    }
+    lines.push(['ok', 'CMF 清單已依標註排序（' + plan.linked + '／' + plan.total + ' 個物件有對應）']);
+    if (plan.missing.length) {
+      lines.push(['warn', '清單中沒有：' + plan.missing.map(function (m) { return m.num + ' ' + m.key; }).join('、')]);
+    }
+    if (plan.dup.length) lines.push(['warn', '對到多個編號，使用最小的：' + plan.dup.join('、')]);
+  }
+
+  /* ---------- 從 Excel 更新 ---------- */
+
+  // only：只更新一個表格，不動綁定的文字。true = CMF 清單（標註編號改變時），或指定表格範圍
+  function update(auto, only) {
+    if (state.busy) {
+      if (only === true) cmf.pending = true;
+      return Promise.resolve();
+    }
     if (!state.excelPath) {
       if (!auto) showError(new Error(state.candidates.length > 1 ? '請先從清單選一個 Excel 檔' : '請先選擇 Excel 檔案'));
       return Promise.resolve();
@@ -345,43 +569,65 @@
 
     state.busy = true;
     ui.btnUpdate.disabled = true;
-    var file = state.excelPath, report;
+    var file = state.excelPath;
 
-    return host('es_refs').then(function (r) {
+    return Promise.all([host('es_refs'), host('CMF.listNumbers')]).then(function (res) {
+      var r = res[0], links = linksOf(res[1]);
       if (!r.doc) throw new Error('請先開啟 Illustrator 文件');
       // 自動更新時，若使用者切到別的文件，就不要動它
       if (auto && r.doc !== state.docKey) return null;
-      if (!r.refs.length && !r.tables.length) throw new Error('文件中還沒有綁定任何文字或表格');
+      var cmfT = cmfTableOf(r.tables);
+      var label = only === true ? (cmfT && cmfT.label) : only;
+      var tables = only ? r.tables.filter(function (t) { return t.label === label; }) : r.tables;
+      var refs = only ? [] : r.refs;
+      if (only && !tables.length) return null;
+      if (!refs.length && !tables.length) throw new Error('文件中還沒有綁定任何文字或表格');
+      App.setStatus(only ? '更新表格中…' : '從 Excel 更新中…');
 
-      var excelTables = r.tables.filter(function (t) { return t.mode === 'excel'; }).map(function (t) { return t.label; });
-      var builtTables = r.tables.filter(function (t) { return t.mode !== 'excel'; }).map(function (t) { return t.label; });
+      var excelTables = tables.filter(function (t) { return t.mode === 'excel'; });
+      var builtTables = tables.filter(function (t) { return t.mode !== 'excel'; });
+      var cmfLines = [];
+      var planFor = function (t, rows) {
+        var sel = Table.parseRange(t.label);
+        var plan = Table.cmfPlan(rows, Table.cmfConfig(t.cmf, rangeWidth(sel)), links);
+        cmfReport(plan, cmfLines);
+        return plan;
+      };
 
       return readWorkbook(file, builtTables.length > 0).then(function (wb) {
         var lines = [['time', new Date().toLocaleTimeString() + (auto ? '（自動）' : '')]];
         var fonts = {};
         var addFonts = function (list) { (list || []).forEach(function (f) { fonts[f] = true; }); };
 
-        // 0. 從 Excel 複製的表格：重新複製貼上
+        // 0. 從 Excel 複製的表格：重新複製貼上（CMF 清單由 Excel 先排好再複製）
         var excelStep = Promise.resolve();
         if (excelTables.length) {
           if (!IS_WIN) {
             lines.push(['warn', '這台電腦無法透過 Excel 複製，略過 ' + excelTables.length + ' 個表格']);
           } else {
-            var items = excelTables.map(function (label) {
-              var p = Table.parseRange(label);
-              return { sheet: p.sheet, range: XLSX.utils.encode_range(p.s, p.e) };
+            var items = excelTables.map(function (t) {
+              var p = Table.parseRange(t.label);
+              var item = { sheet: p.sheet, range: XLSX.utils.encode_range(p.s, p.e) };
+              if (t.cmf) {
+                var cfg = Table.cmfConfig(t.cmf, rangeWidth(p));
+                item.cmf = { num: cfg.num + 1, name: cfg.name + 1 };
+              }
+              return item;
             });
             var replaced = 0, failedLabels = [];
             excelStep = excelCopy(file, items, function (i) {
-              return host('es_pasteTable', [excelTables[i], 'replace']).then(function (res) {
+              return host('es_pasteTable', [excelTables[i].label, 'replace']).then(function (res) {
                 if (res.error) throw new Error(res.error);
                 replaced += res.count;
                 failedLabels = failedLabels.concat(res.failed);
               });
+            }, function (i, msg) {
+              var plan = planFor(excelTables[i], [].concat(msg.rows || []));
+              return plan.changed ? { head: plan.head, order: plan.order, serial: plan.serial, edge: plan.edge } : null;
             }).then(function (res) {
               if (res.fatal) lines.push(['error', '無法透過 Excel 更新表格：' + res.fatal]);
-              if (replaced) lines.push(['ok', '從 Excel 更新了 ' + replaced + ' 個表格']);
-              Object.keys(res.errors).forEach(function (i) { lines.push(['error', excelTables[i] + '：' + res.errors[i]]); });
+              if (replaced && !only) lines.push(['ok', '從 Excel 更新了 ' + replaced + ' 個表格']);
+              Object.keys(res.errors).forEach(function (i) { lines.push(['error', excelTables[i].label + '：' + res.errors[i]]); });
               if (failedLabels.length) lines.push(['error', '表格無法修改（可能被鎖定或隱藏）：' + failedLabels.join('、')]);
             });
           }
@@ -389,13 +635,19 @@
 
         // 1. 內建方式畫的表格：依 Excel 重建（內容、字型、顏色、框線）
         var tableData = {}, tableErrors = [], hasTables = false;
-        builtTables.forEach(function (label) {
+        builtTables.forEach(function (t) {
           try {
-            var sel = Table.parseRange(label);
+            var sel = Table.parseRange(t.label);
             if (!sel) throw new Error('範圍格式不對');
-            tableData[label] = Table.buildTable(wb, sel);
+            var opts = {};
+            if (t.cmf) {
+              var cfg = Table.cmfConfig(t.cmf, rangeWidth(sel));
+              opts.plan = planFor(t, Table.cmfRows(wb, sel, cfg));
+              opts.numCol = cfg.num;
+            }
+            tableData[t.label] = Table.buildTable(wb, sel, opts);
             hasTables = true;
-          } catch (e) { tableErrors.push(label + '：' + e.message); }
+          } catch (e) { tableErrors.push(t.label + '：' + e.message); }
         });
         var step = excelStep.then(function () {
           return hasTables ? host('es_rebuildTables', [JSON.stringify(tableData)]) : null;
@@ -404,15 +656,16 @@
         return step.then(function (tr) {
           if (tr && tr.error) throw new Error(tr.error);
           if (tr) {
-            lines.push(['ok', '重建了 ' + tr.count + ' 個表格']);
+            if (!only) lines.push(['ok', '重建了 ' + tr.count + ' 個表格']);
             if (tr.failed.length) lines.push(['error', '表格無法修改（可能被鎖定或隱藏）：' + tr.failed.join('、')]);
             addFonts(tr.missingFonts);
           }
-          tableErrors.forEach(function (m) { lines.push(['warn', m]); });
+          tableErrors.forEach(function (m) { lines.push(['error', m]); });
+          lines = lines.concat(cmfLines);
 
           // 2. 個別綁定的文字：只換內容
-          if (!r.refs.length) return null;
-          var report = collectValues(wb, r.refs);
+          if (!refs.length) return null;
+          var report = collectValues(wb, refs);
           return host('es_apply', [JSON.stringify(report.values)]).then(function (res) {
             if (res.error) throw new Error(res.error);
             lines.push(['ok', res.changed ? '更新了 ' + res.changed + ' 個文字' + (res.same ? '，' + res.same + ' 個沒有變動' : '')
@@ -424,26 +677,34 @@
         }).then(function () {
           var missingFonts = Object.keys(fonts);
           if (missingFonts.length) lines.push(['warn', 'Illustrator 找不到字型，改用預設字型：' + missingFonts.join('、')]);
-          showResult(lines);
+          // 只有一行結果時看狀態列就好；有警告、錯誤或好幾項才展開說明
+          var notes = lines.filter(function (l) { return l[0] !== 'time'; });
+          if (notes.length > 1 || notes.some(function (l) { return l[0] !== 'ok'; })) showResult(lines);
+          else ui.result.hidden = true;
+          var bad = lines.filter(function (l) { return l[0] === 'error'; })[0];
+          var main = lines.filter(function (l) { return l[0] === 'ok'; })[0];
+          App.setStatus(bad ? bad[1] : main ? main[1] : lines.length > 1 ? lines[1][1] : '表格已更新', !!bad);
           return refreshContext();
         });
       });
     }).catch(function (err) {
-      if (err && (err.code === 'EBUSY' || err.code === 'EPERM' || err.code === 'EACCES')) {
-        err = new Error('Excel 檔案暫時無法讀取，請確認已存檔後再試一次');
-      }
-      showError(err);
+      showError(friendly(err));
     }).then(function () {
       state.busy = false;
       ui.btnUpdate.disabled = false;
+      if (cmf.pending) {
+        cmf.pending = false;
+        return update(true, true);
+      }
     });
   }
 
   /* ---------- 透過 Excel 複製（Windows）：外觀跟手動複製貼上完全一樣 ---------- */
 
-  // items: [{ sheet, range, fallbackSheet, fallbackRange }]
+  // items: [{ sheet, range, fallbackSheet, fallbackRange, cmf }]
   // onCopied(i, {sheet, range}) 回傳 Promise，完成貼上後才讓 Excel 複製下一個
-  function excelCopy(file, items, onCopied) {
+  // onRows(i, {rows}) 回傳排序方式（CMF 清單，見 scripts/excel-copy.ps1），null = 不用重排
+  function excelCopy(file, items, onCopied, onRows) {
     return new Promise(function (resolve) {
       var jobFile = path.join(os.tmpdir(), 'excelsync-job-' + Date.now() + '.json');
       fs.writeFileSync(jobFile, JSON.stringify({ path: path.resolve(file), items: items }), 'utf8');
@@ -476,6 +737,11 @@
       function handle(msg) {
         watchdog();
         if (msg.ev === 'ready') { result.ready = true; result.live = !!msg.live; }
+        else if (msg.ev === 'rows') {
+          Promise.resolve().then(function () { return onRows ? onRows(msg.i, msg) : null; })
+            .then(function (plan) { reply(plan ? JSON.stringify(plan) : 'SKIP'); })
+            .catch(function (err) { result.errors[msg.i] = err.message || String(err); reply('PASS'); });
+        }
         else if (msg.ev === 'copied') {
           Promise.resolve().then(function () { return onCopied(msg.i, msg); })
             .then(function () { reply('NEXT'); })
@@ -488,7 +754,7 @@
 
       child.stdout.setEncoding('utf8');
       child.stdout.on('data', function (chunk) {
-        buffer += chunk.replace(/^\uFEFF/, '');
+        buffer += chunk.replace(/^﻿/, '');
         var lines = buffer.split(/\r?\n/);
         buffer = lines.pop();
         lines.forEach(function (line) {
@@ -520,7 +786,7 @@
 
     state.busy = true;
     ui.btnImport.disabled = true;
-    showResult([['time', IS_WIN ? '正在透過 Excel 複製…' : '正在讀取 Excel…']]);
+    App.setStatus(IS_WIN ? '正在透過 Excel 複製…' : '正在讀取 Excel…');
 
     readWorkbook(state.excelPath, true).then(function (wb) {
       var saved = Table.savedSelection(wb);
@@ -536,10 +802,8 @@
       }).then(function (res) {
         if (label && !res.errors[0]) {
           ui.rangeRef.value = label;
-          showResult([
-            ['ok', '已從 Excel 匯入 ' + label + (res.live ? '（使用 Excel 目前開啟的內容）' : '')],
-            ['time', '之後按「從 Excel 更新」會重新複製，保留表格的位置和縮放']
-          ]);
+          ui.result.hidden = true;
+          App.setStatus('已匯入 ' + label + (res.live ? '（Excel 目前開啟的內容）' : ''));
           return refreshContext();
         }
         // Excel 無法使用時，改用外掛自己畫
@@ -548,10 +812,7 @@
           [['warn', '無法透過 Excel 複製（' + why + '），改用內建方式匯入，外觀可能略有不同']]);
       });
     }).catch(function (err) {
-      if (err && (err.code === 'EBUSY' || err.code === 'EPERM' || err.code === 'EACCES')) {
-        err = new Error('Excel 檔案暫時無法讀取，請確認已存檔後再試一次');
-      }
-      showError(err);
+      showError(friendly(err));
     }).then(function () {
       state.busy = false;
       ui.btnImport.disabled = false;
@@ -566,12 +827,10 @@
     ui.rangeRef.value = table.label;
     return host('es_importTable', [JSON.stringify(table)]).then(function (r) {
       if (r.error) throw new Error(r.error);
-      var lines = notes.concat([
-        ['ok', '已匯入 ' + table.label + '，共 ' + r.count + ' 格'],
-        ['time', 'Excel 改完存檔後，按「從 Excel 更新」會同步內容和樣式']
-      ]);
+      var lines = notes.slice();
       if (r.missingFonts.length) lines.push(['warn', 'Illustrator 找不到字型，改用預設字型：' + r.missingFonts.join('、')]);
-      showResult(lines);
+      if (lines.length) showResult(lines); else ui.result.hidden = true;
+      App.setStatus('已匯入 ' + table.label + '，共 ' + r.count + ' 格');
       return refreshContext();
     });
   }
@@ -598,35 +857,20 @@
     try { localStorage.setItem('excelsync:auto', ui.chkAuto.checked ? '1' : '0'); } catch (e) {}
   }
 
-  /* ---------- 配色跟隨 Illustrator 介面亮度 ---------- */
+  /* ---------- 給標註分頁用 ---------- */
 
-  function applyTheme() {
-    var c = cs.getHostEnvironment().appSkinInfo.panelBackgroundColor.color;
-    var r = Math.round(c.red), g = Math.round(c.green), b = Math.round(c.blue);
-    var dark = (0.299 * r + 0.587 * g + 0.114 * b) < 128;
-    var shift = function (d) {
-      var f = function (v) { return Math.max(0, Math.min(255, v + d)); };
-      return 'rgb(' + f(r) + ',' + f(g) + ',' + f(b) + ')';
-    };
-    var s = document.documentElement.style;
-    s.setProperty('--bg', 'rgb(' + r + ',' + g + ',' + b + ')');
-    s.setProperty('--fg', dark ? '#e1e1e1' : '#1f1f1f');
-    s.setProperty('--muted', dark ? '#9a9a9a' : '#6e6e6e');
-    s.setProperty('--field', dark ? shift(-22) : '#ffffff');
-    s.setProperty('--line', dark ? shift(24) : shift(-36));
-    s.setProperty('--btn', dark ? shift(18) : shift(-14));
-    s.setProperty('--btn-hover', dark ? shift(30) : shift(-26));
-    s.setProperty('--accent', dark ? '#21a366' : '#107c41');
-    s.setProperty('--warn', dark ? '#e0a43a' : '#9a6200');
-    s.setProperty('--error', dark ? '#e5675f' : '#c42b1c');
-  }
+  App.excel = {
+    // 編號表的物件下拉選單：沒有 CMF 清單時回傳 null
+    cmfInfo: function () { return refreshContext().then(function (all) { return cmfList(all.tables); }); },
+    numbersChanged: numbersChanged
+  };
 
   /* ---------- 啟動 ---------- */
 
   ui.btnPick.addEventListener('click', pickFile);
   ui.btnAuto.addEventListener('click', useAuto);
   ui.fileChoices.addEventListener('change', function () {
-    if (ui.fileChoices.value) setExcelPath(ui.fileChoices.value, 'manual');
+    if (ui.fileChoices.value) { setExcelPath(ui.fileChoices.value, 'manual'); afterFileChanged(); }
   });
   ui.btnBind.addEventListener('click', bind);
   ui.btnImport.addEventListener('click', importTable);
@@ -635,6 +879,12 @@
   ui.btnUpdate.addEventListener('click', function () { update(false); });
   ui.chkAuto.addEventListener('change', syncWatcher);
   ui.cellRef.addEventListener('keydown', function (e) { if (e.key === 'Enter') bind(); });
+  ui.cmfTable.addEventListener('change', onCmfTable);
+  [ui.cmfNum, ui.cmfName, ui.cmfHead, ui.cmfRest].forEach(function (el) { el.addEventListener('change', onCmfField); });
+  ui.cmfAuto.addEventListener('change', function () {
+    try { localStorage.setItem('cmftool:cmfAuto', ui.cmfAuto.checked ? '1' : '0'); } catch (e) {}
+  });
+  ui.btnCmfMatch.addEventListener('click', autoMatch);
 
   // CEP 沒有「選取改變」事件，所以滑鼠移進面板時更新一次
   var refresh = function () { refreshContext().catch(function () {}); };
@@ -642,10 +892,9 @@
   window.addEventListener('focus', refresh);
   cs.addEventListener('documentAfterActivate', refresh);
   cs.addEventListener('documentAfterDeactivate', refresh);
-  cs.addEventListener(CSInterface.THEME_COLOR_CHANGED_EVENT, applyTheme);
 
   try { ui.chkAuto.checked = localStorage.getItem('excelsync:auto') === '1'; } catch (e) {}
+  try { ui.cmfAuto.checked = localStorage.getItem('cmftool:cmfAuto') !== '0'; } catch (e) {}
   if (IS_WIN) ui.chkGrid.parentNode.hidden = true;   // 透過 Excel 複製時，外觀完全照 Excel
-  applyTheme();
   refresh();
 })();
