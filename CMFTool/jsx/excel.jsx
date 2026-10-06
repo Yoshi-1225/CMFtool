@@ -464,8 +464,7 @@ function es_rebuildTables(dataJson) {
                 if (old.pathItems[k].name === "xlframe") { frame = old.pathItems[k]; break; }
             }
             var gb = (frame || old).geometricBounds;          // [左, 上, 右, 下]
-            // 從 Excel 貼上的表格沒有外框，用貼上時的寬度算縮放
-            var scale = (meta && meta.w && (frame || meta.mode === "excel")) ? (gb[2] - gb[0]) / meta.w : 1;
+            var scale = (frame && meta && meta.w) ? (gb[2] - gb[0]) / meta.w : 1;
             if (meta && meta.hasOwnProperty("grid")) t.grid = meta.grid;
 
             var fresh = _buildTable(t, gb[0], gb[1], missing);
@@ -483,12 +482,6 @@ function es_rebuildTables(dataJson) {
             }
             fresh.move(old, ElementPlacement.PLACEBEFORE);
             _keepCmf(fresh, meta);
-            if (t.keepExcel) {
-                // 暫時用內建方式畫（Excel 這次無法排序）；下次更新仍然先試著透過 Excel 複製
-                var fm = _meta(fresh);
-                fm.mode = "excel";
-                fresh.note = _json(fm);
-            }
             old.remove();
             done++;
         } catch (err) {
@@ -532,7 +525,27 @@ function es_selectTable(label) {
  * Excel 原生外觀：Excel 已經把範圍複製到剪貼簿，這裡貼上
  * mode "new"：放在畫面中央；"replace"：取代所有同一個範圍的表格，保留位置和縮放
  * ==================================================================== */
+/* 剪貼簿可能暫時被別的程式佔用（OneDrive、剪貼簿工具，或 Excel 還在準備資料）：等一下再試 */
+function _paste(doc) {
+    var last = null;
+    for (var t = 0; t < 5; t++) {
+        try {
+            doc.selection = null;
+            app.paste();
+        } catch (e) { last = e; }
+        var sel = doc.selection;
+        if (sel && sel.length) return sel;
+        $.sleep(300);
+    }
+    throw new Error(last ? last.message : "剪貼簿裡沒有 Excel 的內容");
+}
+
 function es_pasteTable(label, mode) {
+    try { return _pasteTable(label, mode); }
+    catch (e) { return '{"error":' + _q("表格沒有更新：" + e.message) + "}"; }
+}
+
+function _pasteTable(label, mode) {
     if (app.documents.length === 0) return '{"error":"沒有開啟的文件"}';
     var doc = app.activeDocument;
     var name = XL_TABLE + label;
@@ -544,10 +557,9 @@ function es_pasteTable(label, mode) {
         if (!targets.length) return '{"count":0,"failed":[]}';
     }
 
-    doc.selection = null;
-    app.paste();
-    var sel = doc.selection;
-    if (!sel || sel.length === 0) return '{"error":"貼上失敗：剪貼簿裡沒有 Excel 的內容"}';
+    var sel;
+    try { sel = _paste(doc); }
+    catch (e) { return '{"error":' + _q("無法貼上 Excel 複製的內容（" + e.message + "）") + ',"retry":true}'; }
     if (sel.length > 1 || sel[0].typename !== "GroupItem") {
         app.executeMenuCommand("group");
         sel = doc.selection;

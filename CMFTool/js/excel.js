@@ -50,7 +50,8 @@
     return new Promise(function (resolve, reject) {
       cs.evalScript(call, function (res) {
         if (res === 'EvalScript error.') return reject(new Error('Illustrator 腳本執行失敗（' + fn + '）'));
-        try { resolve(JSON.parse(res)); } catch (e) { reject(new Error('無法解析 Illustrator 回傳：' + res)); }
+        try { resolve(JSON.parse(res)); }
+        catch (e) { reject(new Error('Illustrator 發生錯誤：' + String(res).replace(/^Error \d+:\s*/, ''))); }
       });
     });
   }
@@ -240,6 +241,16 @@
       p.textContent = l[1];
       ui.result.appendChild(p);
     });
+    ui.result.hidden = false;
+  }
+
+  // 在結果欄最後加一行（不清掉前面的結果）
+  function addResult(cls, text) {
+    if (ui.result.hidden) ui.result.innerHTML = '';
+    var p = document.createElement('p');
+    p.className = cls;
+    p.textContent = text;
+    ui.result.appendChild(p);
     ui.result.hidden = false;
   }
 
@@ -497,7 +508,7 @@
     var num = sel.s.c + cfg.num, name = sel.s.c + cfg.name;
     if (num < w.s.c || num > w.e.c || name < w.s.c || name > w.e.c) throw new Error('修改範圍要包含序號欄和名稱欄');
     return {
-      range: XLSX.utils.encode_range(w.s, w.e), num: num - w.s.c + 1, name: name - w.s.c + 1,
+      range: XLSX.utils.encode_range(w.s, w.e), num: num - w.s.c + 1, name: name - w.s.c + 1, rows: [w.s.r, w.e.r],
       same: w.s.r === sel.s.r && w.e.r === sel.e.r && w.s.c === sel.s.c && w.e.c === sel.e.c
     };
   }
@@ -524,11 +535,20 @@
   function onCmfField() {
     var t = cmfTableOf(state.tables);
     if (!t) return;
-    var cfg = readCmfForm();
-    try { fileTarget(t, Table.cmfConfig(cfg, rangeWidth(Table.parseRange(t.label)))); }
+    var cfg = readCmfForm(), sel = Table.parseRange(t.label), ft;
+    try { ft = fileTarget(t, Table.cmfConfig(cfg, rangeWidth(sel))); }
     catch (e) { showError(e); ui.cmfFile.focus(); return; }
     ui.cmfFile.value = cfg.file;
-    saveCmf(t.label, cfg);
+    saveCmf(t.label, cfg).then(function () {
+      // 範圍沒有包含表格全部的資料列：範圍外的列不會排序（Excel 和 Illustrator 裡都一樣）
+      return cmfList(state.tables).then(function (info) {
+        if (!info || info.error) return;
+        var first = sel.s.r + info.head, last = sel.e.r;
+        if (ft.rows[0] > first || ft.rows[1] < last) {
+          addResult('warn', '修改範圍沒有包含表格全部的資料列（第 ' + (first + 1) + '–' + (last + 1) + ' 列），範圍外的列不會排序');
+        }
+      });
+    });
   }
 
   // 標註分頁每次重新整理編號表時呼叫：對應有變就重排表格
@@ -579,6 +599,13 @@
         return update(false, true);
       });
     }).catch(showError);
+  }
+
+  // 貼上失敗（剪貼簿被佔用）時，請 Excel 再複製一次
+  function pasteError(res) {
+    var err = new Error(res.error);
+    err.retry = !!res.retry;
+    return err;
   }
 
   // 排序結果的說明
@@ -644,19 +671,16 @@
         return (plans[t.label] = Table.cmfPlan(rows, Table.cmfConfig(t.cmf, rangeWidth(sel)), links));
       };
 
-      return readWorkbook(file, builtTables.length > 0 || cmfExcel.length > 0).then(function (wb) {
+      return readWorkbook(file, builtTables.length > 0).then(function (wb) {
         var lines = [['time', new Date().toLocaleTimeString() + (auto ? '（自動）' : '')]];
         var fonts = {};
         var addFonts = function (list) { (list || []).forEach(function (f) { fonts[f] = true; }); };
-        var fallback = [];              // Excel 無法排序的 CMF 清單：這次改用內建方式畫
 
         // 0. 從 Excel 複製的表格：重新複製貼上（CMF 清單由 Excel 先排好再複製）
         var excelStep = Promise.resolve();
         if (excelTables.length) {
           if (!IS_WIN) {
-            var skipped = excelTables.length - cmfExcel.length;
-            if (skipped) lines.push(['warn', '這台電腦無法透過 Excel 複製，略過 ' + skipped + ' 個表格']);
-            fallback = cmfExcel.slice();
+            lines.push(['warn', '這台電腦無法透過 Excel 複製，略過 ' + excelTables.length + ' 個表格']);
           } else {
             var targets = {};      // 修改 Excel 檔的範圍
             var items = excelTables.map(function (t, i) {
@@ -677,13 +701,15 @@
               return item;
             });
             var replaced = 0, failedLabels = [], planError = {};
+            var synced = {};       // Excel 檔已經依標註排好：Illustrator 裡照 Excel 原樣複製，不另外排
             excelStep = excelCopy(file, items, function (i, msg) {
               var t = excelTables[i];
               [].concat(msg.warn || []).forEach(function (w) {
-                lines.push(['warn', t.label + '：部分格式沒有複製（' + psMessage(w) + '）']);
+                var line = t.label + '：部分格式沒有複製（' + psMessage(w) + '）';
+                if (!lines.some(function (l) { return l[1] === line; })) lines.push(['warn', line]);
               });
               return host('es_pasteTable', [t.label, 'replace']).then(function (res) {
-                if (res.error) throw new Error(res.error);
+                if (res.error) throw pasteError(res);
                 replaced += res.count;
                 failedLabels = failedLabels.concat(res.failed);
                 if (res.count) done[t.label] = true;
@@ -696,7 +722,7 @@
                   var ft = targets[i], cfg = Table.cmfConfig(t.cmf, rangeWidth(Table.parseRange(t.label)));
                   var fp = Table.cmfFilePlan(rows, { num: ft.num - 1, name: ft.name - 1, head: ft.same ? cfg.head : null,
                                                      rest: cfg.rest }, links);
-                  if (!fp.changed) return null;
+                  if (!fp.changed) { synced[i] = true; return null; }
                   state.selfSave = Date.now();
                   return { write: { head: fp.head, order: fp.order, serial: fp.serial } };
                 } catch (e) {
@@ -708,21 +734,24 @@
               if (msg.write) {
                 state.selfSave = Date.now();
                 writeReport(msg.write, lines);
+                if (msg.write === 'saved' || msg.write === 'unsaved') synced[i] = true;
+              }
+              if (synced[i]) {
+                try { planFor(t, rows); } catch (e) {}      // 只為了結果欄的說明
+                return null;
               }
               try { plan = planFor(t, rows); }
               catch (e) { planError[i] = true; throw e; }
               return plan.changed ? { head: plan.head, order: plan.order, serial: plan.serial, edge: plan.edge } : null;
             }, writeFile).then(function (res) {
               var fatalShown = false;
+              // 失敗的表格維持原樣（不會改用內建方式重畫）
               excelTables.forEach(function (t, i) {
                 if (done[t.label]) return;
                 var why = res.errors[i] || res.fatal;
                 if (!why) return;
-                if (t.cmf && !planError[i]) {
-                  fallback.push(t);
-                  lines.push(['warn', '無法透過 Excel 排序（' + psMessage(why) + '），這次改用內建方式畫表格']);
-                } else if (res.errors[i]) {
-                  lines.push(['error', t.label + '：' + psMessage(res.errors[i])]);
+                if (res.errors[i]) {
+                  lines.push(['error', t.label + '：' + psMessage(res.errors[i]).replace(/[。.]\s*$/, '') + (planError[i] ? '' : '，表格維持原樣')]);
                 } else if (!fatalShown) {
                   fatalShown = true;
                   lines.push(['error', '無法透過 Excel 更新表格：' + res.fatal]);
@@ -736,7 +765,7 @@
 
         // 1. 內建方式畫的表格：依 Excel 重建（內容、字型、顏色、框線）
         var tableData = {}, tableErrors = [];
-        var addBuilt = function (t, keepExcel) {
+        var addBuilt = function (t) {
           try {
             var sel = Table.parseRange(t.label);
             if (!sel) throw new Error('範圍格式不對');
@@ -746,14 +775,11 @@
               opts.plan = planFor(t, Table.cmfRows(wb, sel, cfg));
               opts.numCol = cfg.num;
             }
-            var data = Table.buildTable(wb, sel, opts);
-            if (keepExcel) data.keepExcel = true;    // 下次更新仍然先試著透過 Excel 複製
-            tableData[t.label] = data;
+            tableData[t.label] = Table.buildTable(wb, sel, opts);
           } catch (e) { tableErrors.push(t.label + '：' + e.message); }
         };
         var step = excelStep.then(function () {
-          builtTables.forEach(function (t) { addBuilt(t, false); });
-          fallback.forEach(function (t) { addBuilt(t, true); });
+          builtTables.forEach(addBuilt);
           return Object.keys(tableData).length ? host('es_rebuildTables', [JSON.stringify(tableData)]) : null;
         });
 
@@ -817,7 +843,7 @@
       fs.writeFileSync(jobFile, JSON.stringify({ path: path.resolve(file), items: items, write: !!write }), 'utf8');
 
       var result = { ready: false, live: false, errors: {}, fatal: null, ended: false };
-      var finished = false, buffer = '', timer = null;
+      var finished = false, buffer = '', timer = null, again = {};
       var child = childProcess.spawn('powershell.exe',
         ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
          '-File', path.join(EXT, 'scripts', 'excel-copy.ps1'), jobFile],
@@ -854,7 +880,12 @@
         else if (msg.ev === 'copied') {
           Promise.resolve().then(function () { return onCopied(msg.i, msg); })
             .then(function () { reply('NEXT'); })
-            .catch(function (err) { result.errors[msg.i] = err.message || String(err); reply('STOP'); });
+            .catch(function (err) {
+              var n = again[msg.i] || 0;
+              if (err && err.retry && n < 2) { again[msg.i] = n + 1; reply('AGAIN'); return; }
+              result.errors[msg.i] = err.message || String(err);
+              reply('STOP');
+            });
         }
         else if (msg.ev === 'error') result.errors[msg.i] = msg.message;
         else if (msg.ev === 'fatal') result.fatal = msg.message;
@@ -926,7 +957,7 @@
       var label = null;
       return excelCopy(state.excelPath, [item], function (i, msg) {
         label = excelLabel(msg);
-        return host('es_pasteTable', [label, 'new']).then(function (r) { if (r.error) throw new Error(r.error); });
+        return host('es_pasteTable', [label, 'new']).then(function (r) { if (r.error) throw pasteError(r); });
       }).then(function (res) {
         if (label && !res.errors[0]) {
           ui.rangeRef.value = label;
@@ -934,10 +965,8 @@
           App.setStatus('已匯入 ' + label + (res.live ? '（Excel 目前開啟的內容）' : ''));
           return refreshContext();
         }
-        // Excel 無法使用時，改用外掛自己畫
-        var why = res.fatal || res.errors[0] || '未知的錯誤';
-        return importBuilt(wb, sel || Table.parseRange(Table.quoteSheet(saved.sheet) + '!' + saved.range),
-          [['warn', '無法透過 Excel 複製（' + why + '），改用內建方式匯入，外觀可能略有不同']]);
+        // 不改用內建方式畫：外觀會跟 Excel 不一樣
+        throw new Error('無法透過 Excel 匯入：' + psMessage(res.errors[0] || res.fatal || '未知的錯誤'));
       });
     }).catch(function (err) {
       showError(friendly(err));

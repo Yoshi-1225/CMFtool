@@ -6,7 +6,7 @@
 #                           <- SKIP | PASS | STOP | {"write":{"head":..,"order":[..],"serial":[..]}}
 #     item.cmf:             {"ev":"rows","i":0,"phase":"show","write":"saved|unsaved|readonly|error:..","rows":[...]}
 #                           <- SKIP | PASS | STOP | {"head":..,"order":[..],"serial":[..],"edge":[..]}
-#     {"ev":"copied","i":0,...}                        <- NEXT | STOP
+#     {"ev":"copied","i":0,...}                        <- NEXT | STOP | AGAIN (paste failed: copy again, at most twice)
 #   {"ev":"end"}
 #   {"ev":"busy"} may come at any time during long work.
 # item.cmf = { num, name, file, fnum, fname }: num / name = 1-based columns of the serial number and the object
@@ -134,7 +134,8 @@ function Build-Ordered($xl, $rg, $plan, $numCol) {
     $head = [int]$plan.head
 
     try { $tmp = $xl.Workbooks.Add() } catch { throw (Describe 'workbook' $_) }
-    try { $tmp.Windows.Item(1).Visible = $false } catch {}
+    # In the user's own Excel keep the window visible: a range copied from a hidden window may not paste.
+    if (-not $script:live) { try { $tmp.Windows.Item(1).Visible = $false } catch {} }
     $ws = $tmp.Worksheets.Item(1)
 
     try {
@@ -439,10 +440,16 @@ try {
                 }
             }
 
-            [void]$copyRg.Copy()
-            Say @{ ev = 'copied'; i = $i; sheet = $rg.Worksheet.Name; range = $rg.Address(0, 0); ordered = ($null -ne $tmp);
-                   warn = @($script:warned.Values) }
-            $reply = [Console]::In.ReadLine()
+            $tries = 0
+            while ($true) {
+                [void]$copyRg.Copy()
+                Say @{ ev = 'copied'; i = $i; sheet = $rg.Worksheet.Name; range = $rg.Address(0, 0); ordered = ($null -ne $tmp);
+                       warn = @($script:warned.Values) }
+                $reply = [Console]::In.ReadLine()
+                if ($reply -ne 'AGAIN' -or $tries -ge 2) { break }
+                $tries++
+                Start-Sleep -Milliseconds 500
+            }
             if ($reply -ne 'NEXT') { break }
         } catch {
             Say @{ ev = 'error'; i = $i; message = (Describe 'copy' $_) }
