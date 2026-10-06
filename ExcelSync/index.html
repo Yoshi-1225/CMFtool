@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>Excel 同步</title>
+  <link rel="stylesheet" href="css/panel.css">
+</head>
+<body>
+  <section class="block">
+    <h2>Excel 檔案</h2>
+    <div class="file-row">
+      <div class="file-info">
+        <div id="fileName" class="file-name is-empty">尚未選擇檔案</div>
+        <div id="fileDir" class="file-dir"></div>
+      </div>
+      <button id="btnPick" type="button">選擇…</button>
+    </div>
+    <select id="fileChoices" class="choices" hidden aria-label="同資料夾的 Excel 檔案"></select>
+    <p class="hint source-row">
+      <span id="fileSource"></span>
+      <button id="btnAuto" type="button" class="link" hidden>改回自動選取</button>
+    </p>
+  </section>
+
+  <section class="block">
+    <h2>綁定選取的文字</h2>
+    <p id="selInfo" class="hint">請在 Illustrator 中選取文字物件</p>
+    <div class="bind-row">
+      <input id="cellRef" class="namebox" type="text" spellcheck="false"
+             placeholder="B3" aria-label="儲存格位址">
+      <button id="btnBind" type="button">綁定</button>
+      <button id="btnUnbind" type="button" class="quiet">解除</button>
+    </div>
+    <p class="hint">格式：B3，或指定工作表：工作表1!B3</p>
+  </section>
+
+  <section class="block">
+    <h2>匯入表格範圍</h2>
+    <div class="bind-row">
+      <input id="rangeRef" class="namebox" type="text" spellcheck="false"
+             placeholder="A1:D10" aria-label="表格範圍">
+      <button id="btnImport" type="button">匯入</button>
+    </div>
+    <label class="check">
+      <input id="chkGrid" type="checkbox">
+      加上淺灰格線（Excel 沒畫框線的地方）
+    </label>
+    <p class="hint">留空就用 Excel 裡選取的範圍。外觀跟從 Excel 複製貼上一樣，更新時也會同步。</p>
+  </section>
+
+  <section class="block">
+    <button id="btnUpdate" type="button" class="primary">從 Excel 更新</button>
+    <label class="check">
+      <input id="chkAuto" type="checkbox">
+      Excel 存檔時自動更新
+    </label>
+    <div id="result" class="result" hidden></div>
+  </section>
+
+  <section class="block">
+    <h2>文件中的綁定 <span id="refCount" class="count"></span></h2>
+    <div id="refList" class="ref-list"><p class="hint">還沒有綁定任何文字</p></div>
+    <p class="hint">點一下可選取對應的表格或文字物件</p>
+  </section>
+
+  <script src="js/CSInterface.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
