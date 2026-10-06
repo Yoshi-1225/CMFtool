@@ -179,7 +179,7 @@
     <summary>CMF 清單</summary>
     <div class="row">
       <label for="cmfTable">表格</label>
-      <select id="cmfTable" title="這個表格會依標註編號排序，序號欄改成標註編號（Excel 檔案不會被修改）"></select>
+      <select id="cmfTable" title="這個表格會依標註編號排序，序號欄改成標註編號"></select>
     </div>
     <div id="cmfFields" hidden>
       <div class="row">
@@ -208,6 +208,7 @@
         </div>
       </div>
       <label class="check"><input type="checkbox" id="cmfAuto" checked>編號變更時自動排序</label>
+      <label class="check" title="Excel 檔案也一起排序、改寫序號並存檔。Excel 開著且有其他未存檔的修改時，排好後留給你自己存檔"><input type="checkbox" id="cmfWrite" checked>同步修改 Excel 檔</label>
       <div class="cmf-foot">
         <span id="cmfInfo"></span>
         <button class="btn" id="btnCmfMatch" title="還沒對應的編號，對應到 Excel 中序號相同的物件">依序號對應</button>

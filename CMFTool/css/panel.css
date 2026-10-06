@@ -33,6 +33,12 @@ body {
   user-select: none;
 }
 [hidden], .hidden { display: none !important; }
+
+/* 細捲軸 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 .muted { color: var(--muted); }
 
 /* ---------- 分頁 ---------- */

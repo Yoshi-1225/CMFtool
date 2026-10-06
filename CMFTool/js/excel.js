@@ -23,7 +23,7 @@
     refList: $('refList'), refCount: $('refCount'),
     rangeRef: $('rangeRef'), btnImport: $('btnImport'), chkGrid: $('chkGrid'),
     cmfTable: $('cmfTable'), cmfFields: $('cmfFields'), cmfNum: $('cmfNum'), cmfName: $('cmfName'),
-    cmfHead: $('cmfHead'), cmfRest: $('cmfRest'), cmfAuto: $('cmfAuto'), cmfInfo: $('cmfInfo'),
+    cmfHead: $('cmfHead'), cmfRest: $('cmfRest'), cmfAuto: $('cmfAuto'), cmfWrite: $('cmfWrite'), cmfInfo: $('cmfInfo'),
     btnCmfMatch: $('btnCmfMatch')
   };
 
@@ -31,7 +31,8 @@
     docKey: null, docFolder: '', excelPath: null,
     source: null,            // 'manual' = 使用者選的；'auto' = 從 .ai 同資料夾找到的
     candidates: [], candidatesKey: null,
-    selectedRefs: [], tables: [], busy: false, watching: null, debounce: null
+    selectedRefs: [], tables: [], busy: false, watching: null, debounce: null,
+    selfSave: 0              // 外掛自己存 Excel 的時間：不要因此又觸發「存檔時自動更新」
   };
 
   // CMF 清單：sig = 每份文件目前「編號=物件」的對應，變了才重排
@@ -555,6 +556,15 @@
     if (plan.dup.length) lines.push(['warn', '對到多個編號，使用最小的：' + plan.dup.join('、')]);
   }
 
+  // 修改 Excel 檔的結果（excel-copy.ps1 的 Save-Ordered）
+  function writeReport(status, lines) {
+    status = String(status || '');
+    if (status === 'saved') lines.push(['ok', 'Excel 檔案已依標註排序並存檔']);
+    else if (status === 'unsaved') lines.push(['warn', 'Excel 已依標註排序，但檔案還有其他未存檔的修改，請在 Excel 存檔']);
+    else if (status === 'readonly') lines.push(['warn', 'Excel 檔案是唯讀，或被其他程式開啟，沒有修改']);
+    else if (status) lines.push(['warn', 'Excel 檔案沒有修改（' + psMessage(status.replace(/^error:/, '')) + '）']);
+  }
+
   /* ---------- 從 Excel 更新 ---------- */
 
   // only：只更新一個表格，不動綁定的文字。true = CMF 清單（標註編號改變時），或指定表格範圍
@@ -589,6 +599,7 @@
       var excelTables = tables.filter(function (t) { return t.mode === 'excel'; });
       var builtTables = tables.filter(function (t) { return t.mode !== 'excel'; });
       var cmfExcel = excelTables.filter(function (t) { return t.cmf; });
+      var writeFile = IS_WIN && ui.cmfWrite.checked && cmfExcel.length > 0;   // 連 Excel 檔一起排序
       var plans = {}, done = {};      // CMF 清單的排序；done = 表格已經換成新的
       var planFor = function (t, rows) {
         var sel = Table.parseRange(t.label);
@@ -631,11 +642,24 @@
                 if (res.count) done[t.label] = true;
               });
             }, function (i, msg) {
-              var plan;
-              try { plan = planFor(excelTables[i], [].concat(msg.rows || [])); }
-              catch (e) { planError[i] = true; throw e; }
+              var t = excelTables[i], rows = [].concat(msg.rows || []), plan;
+              if (msg.after) {
+                state.selfSave = Date.now();
+                writeReport(msg.write, lines);
+              }
+              try {
+                // 先排 Excel 檔本身；排好之後 Excel 會再回報一次列的內容，照那個顯示
+                if (t.cmf && writeFile && !msg.after) {
+                  var fp = Table.cmfFilePlan(rows, Table.cmfConfig(t.cmf, rangeWidth(Table.parseRange(t.label))), links);
+                  if (fp.changed) {
+                    state.selfSave = Date.now();
+                    return { write: { head: fp.head, order: fp.order, serial: fp.serial } };
+                  }
+                }
+                plan = planFor(t, rows);
+              } catch (e) { planError[i] = true; throw e; }
               return plan.changed ? { head: plan.head, order: plan.order, serial: plan.serial, edge: plan.edge } : null;
-            }).then(function (res) {
+            }, writeFile).then(function (res) {
               var fatalShown = false;
               excelTables.forEach(function (t, i) {
                 if (done[t.label]) return;
@@ -733,10 +757,11 @@
   // items: [{ sheet, range, fallbackSheet, fallbackRange, cmf }]
   // onCopied(i, {sheet, range}) 回傳 Promise，完成貼上後才讓 Excel 複製下一個
   // onRows(i, {rows}) 回傳排序方式（CMF 清單，見 scripts/excel-copy.ps1），null = 不用重排
-  function excelCopy(file, items, onCopied, onRows) {
+  // write：Excel 檔要能修改（CMF 清單同步修改 Excel 檔時）
+  function excelCopy(file, items, onCopied, onRows, write) {
     return new Promise(function (resolve) {
       var jobFile = path.join(os.tmpdir(), 'excelsync-job-' + Date.now() + '.json');
-      fs.writeFileSync(jobFile, JSON.stringify({ path: path.resolve(file), items: items }), 'utf8');
+      fs.writeFileSync(jobFile, JSON.stringify({ path: path.resolve(file), items: items, write: !!write }), 'utf8');
 
       var result = { ready: false, live: false, errors: {}, fatal: null };
       var finished = false, buffer = '', timer = null;
@@ -877,6 +902,7 @@
 
   function onFileChanged(curr, prev) {
     if (curr.mtimeMs === prev.mtimeMs || curr.mtimeMs === 0) return;
+    if (Date.now() - state.selfSave < 8000) return;     // 外掛自己存的
     clearTimeout(state.debounce);
     state.debounce = setTimeout(function () { update(true); }, 800);
   }
@@ -922,6 +948,9 @@
   ui.cmfAuto.addEventListener('change', function () {
     try { localStorage.setItem('cmftool:cmfAuto', ui.cmfAuto.checked ? '1' : '0'); } catch (e) {}
   });
+  ui.cmfWrite.addEventListener('change', function () {
+    try { localStorage.setItem('cmftool:cmfWrite', ui.cmfWrite.checked ? '1' : '0'); } catch (e) {}
+  });
   ui.btnCmfMatch.addEventListener('click', autoMatch);
 
   // CEP 沒有「選取改變」事件，所以滑鼠移進面板時更新一次
@@ -933,6 +962,8 @@
 
   try { ui.chkAuto.checked = localStorage.getItem('excelsync:auto') === '1'; } catch (e) {}
   try { ui.cmfAuto.checked = localStorage.getItem('cmftool:cmfAuto') !== '0'; } catch (e) {}
+  try { ui.cmfWrite.checked = localStorage.getItem('cmftool:cmfWrite') !== '0'; } catch (e) {}
+  if (!IS_WIN) ui.cmfWrite.parentNode.hidden = true;  // 修改 Excel 檔需要透過 Windows 的 Excel
   if (IS_WIN) ui.chkGrid.parentNode.hidden = true;   // 透過 Excel 複製時，外觀完全照 Excel
   refresh();
 })();

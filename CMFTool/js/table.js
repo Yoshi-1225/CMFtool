@@ -332,12 +332,12 @@ module.exports = function (XLSX) {
     return rows.length > 1 ? 1 : 0;
   }
 
-  // 資料列：標題列以下、沒有隱藏的列
-  function cmfItems(rows, cfg) {
+  // 資料列：標題列以下、沒有隱藏的列（keepHidden：連 Excel 隱藏的列也算，修改 Excel 檔時用）
+  function cmfItems(rows, cfg, keepHidden) {
     cfg = cmfConfig(cfg, Infinity);
     var head = cmfHead(rows, cfg), items = [];
     for (var i = head; i < rows.length; i++) {
-      if (!rows[i].h) items.push({ i: i, serial: String(rows[i].s == null ? '' : rows[i].s).trim(), name: normName(rows[i].n) });
+      if (!rows[i].h || keepHidden) items.push({ i: i, serial: String(rows[i].s == null ? '' : rows[i].s).trim(), name: normName(rows[i].n) });
     }
     return { head: head, items: items };
   }
@@ -377,9 +377,9 @@ module.exports = function (XLSX) {
    *   serial[i]：序號欄改成的值（null = 不改，'' = 留空）
    *   edge[i]：上下框線沿用原本哪一列的位置（null = 跟著列移動），排序後外框線不會跑到中間
    */
-  function cmfPlan(rows, cfg, links) {
+  function cmfPlan(rows, cfg, links, keepHidden) {
     cfg = cmfConfig(cfg, Infinity);
-    var d = cmfItems(rows, cfg), head = d.head, i;
+    var d = cmfItems(rows, cfg, keepHidden), head = d.head, i;
     var numOf = Object.create(null), dupSeen = Object.create(null), dup = [];
     (links || []).forEach(function (l) {
       var k = normName(l.key), n = parseInt(l.num, 10);
@@ -447,6 +447,13 @@ module.exports = function (XLSX) {
       try { return XLSX.SSF.format(cell.z, v); } catch (e) {}
     }
     return String(v);
+  }
+
+  // 修改 Excel 檔用：每一列都保留（隱藏的列、不顯示的物件也留著，只是排到後面、序號留空）
+  function cmfFilePlan(rows, cfg, links) {
+    cfg = cmfConfig(cfg, Infinity);
+    if (cfg.rest === 'hide') cfg.rest = 'blank';
+    return cmfPlan(rows, cfg, links, true);
   }
 
   // 欄位選單用：每一欄的位址和標題（取最後一列標題）
@@ -642,6 +649,7 @@ module.exports = function (XLSX) {
     cmfRows: cmfRows,
     cmfNames: cmfNames,
     cmfPlan: cmfPlan,
+    cmfFilePlan: cmfFilePlan,
     columnTitles: columnTitles
   };
 };
