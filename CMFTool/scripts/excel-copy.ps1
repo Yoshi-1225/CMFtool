@@ -191,6 +191,11 @@ function Set-Edge($cell, $idx, $e) {
     } catch { Warn 'borders' $_ }
 }
 
+function Merge-Row($sws, $row, $m) {
+    try { [void]$sws.Range($sws.Cells.Item($row, $m.c), $sws.Cells.Item($row, $m.c + $m.n - 1)).Merge() }
+    catch { Warn 'merge' $_ }
+}
+
 # Sort the rows of the user's workbook into the planned order with Excel's own Sort (like sorting by hand),
 # then write the serial numbers. Row heights and hidden rows travel with their rows; top/bottom borders
 # stay at their positions, so a thick bottom border stays at the bottom.
@@ -221,13 +226,31 @@ function Write-Ordered($rg, $plan, $numCol) {
         }
     }
 
+    # Merged cells in the data rows: Excel's Sort refuses merged cells of different sizes, so unmerge
+    # them and merge them again at the rows' new positions after sorting.
+    $merges = New-Object System.Collections.ArrayList
+    for ($k = $head; $k -lt $rows; $k++) {
+        $line = $sws.Range($sws.Cells.Item($row0 + $k, $col0), $sws.Cells.Item($row0 + $k, $col0 + $cols - 1))
+        if ($line.MergeCells -eq $false) { continue }
+        for ($c = 0; $c -lt $cols; $c++) {
+            $cell = $sws.Cells.Item($row0 + $k, $col0 + $c)
+            if ($cell.MergeCells -ne $true) { continue }
+            $area = $cell.MergeArea
+            if ([int]$area.Row -ne ($row0 + $k) -or [int]$area.Column -ne ($col0 + $c)) { continue }
+            if ([int]$area.Rows.Count -gt 1) { throw "merge@0: row $($row0 + $k) has cells merged across rows" }
+            [void]$merges.Add(@{ k = $k; c = $col0 + $c; n = [int]$area.Columns.Count })
+        }
+    }
+    $data = $sws.Range($sws.Cells.Item($r1, $col0), $sws.Cells.Item($r2, $col0 + $cols - 1))
+
     try {
         # Sort key = target position, written into the serial column (replaced by the real serial below).
         for ($k = $head; $k -lt $rows; $k++) { $sws.Cells.Item($row0 + $k, $sc).Value2 = [double]($target[$k] + 1) }
+        if ($merges.Count) { [void]$data.UnMerge() }
         $sort = $sws.Sort
         $sort.SortFields.Clear()
         [void]$sort.SortFields.Add($sws.Range($sws.Cells.Item($r1, $sc), $sws.Cells.Item($r2, $sc)), 0, 1)
-        $sort.SetRange($sws.Range($sws.Cells.Item($r1, $col0), $sws.Cells.Item($r2, $col0 + $cols - 1)))
+        $sort.SetRange($data)
         $sort.Header = 2           # xlNo
         $sort.MatchCase = $false
         $sort.Orientation = 1      # xlTopToBottom
@@ -235,13 +258,16 @@ function Write-Ordered($rg, $plan, $numCol) {
         $sort.SortFields.Clear()
     } catch {
         $err = $_
-        # Nothing moved: put the serial column and hidden rows back.
+        # Nothing moved: put the serial column, merged cells and hidden rows back.
         for ($k = $head; $k -lt $rows; $k++) {
             try { $sws.Cells.Item($row0 + $k, $sc).Formula = $orig[$k] } catch {}
             if ($hidden[$k]) { try { $sws.Rows.Item($row0 + $k).Hidden = $true } catch {} }
         }
+        foreach ($m in $merges) { Merge-Row $sws ($row0 + $m.k) $m }
         throw (Describe 'sort' $err)
     }
+
+    foreach ($m in $merges) { Merge-Row $sws ($row0 + $target[$m.k]) $m }
 
     for ($j = $head; $j -lt $rows; $j++) {
         $k = [int]$order[$j]
@@ -269,15 +295,19 @@ function Write-Ordered($rg, $plan, $numCol) {
 function Save-Ordered($xl, $wb, $rg, $plan, $numCol, $live) {
     if ($wb.ReadOnly) { return 'readonly' }
     $wasSaved = [bool]$wb.Saved
-    $xl.ScreenUpdating = $false
-    try { $null = Write-Ordered $rg $plan $numCol }
-    catch { return 'error:' + (Describe 'sort' $_) }
-    finally { $xl.ScreenUpdating = $true }
-    if ($live -and -not $wasSaved) { return 'unsaved' }
     $alerts = $xl.DisplayAlerts
-    try { $xl.DisplayAlerts = $false; $wb.Save(); return 'saved' }
-    catch { return 'error:' + (Describe 'save' $_) }
-    finally { try { $xl.DisplayAlerts = $alerts } catch {} }
+    try {
+        $xl.ScreenUpdating = $false
+        $xl.DisplayAlerts = $false
+        try { $null = Write-Ordered $rg $plan $numCol }
+        catch { return 'error:' + (Describe 'sort' $_) }
+        if ($live -and -not $wasSaved) { return 'unsaved' }
+        try { $wb.Save(); return 'saved' }
+        catch { return 'error:' + (Describe 'save' $_) }
+    } finally {
+        try { $xl.ScreenUpdating = $true } catch {}
+        try { $xl.DisplayAlerts = $alerts } catch {}
+    }
 }
 
 # The workbook if it is already open in this Excel. Files synced by OneDrive / SharePoint report a URL

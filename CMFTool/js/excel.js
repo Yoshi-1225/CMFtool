@@ -825,7 +825,8 @@
 
   // excel-copy.ps1 的錯誤是「步驟@行號: 訊息」
   var PS_STEPS = { workbook: '建立暫存活頁簿', widths: '欄寬', rows: '複製列', heights: '列高', formulas: '公式',
-                   serial: '序號', borders: '框線', range: '範圍', copy: '複製' };
+                   serial: '序號', borders: '框線', range: '範圍', copy: '複製', sort: '排序', save: '存檔',
+                   merge: '合併儲存格' };
   function psMessage(m) {
     return String(m).replace(/^(\w+)@(\d+): /, function (all, step, line) {
       return (PS_STEPS[step] || step) + '，第 ' + line + ' 行：';
