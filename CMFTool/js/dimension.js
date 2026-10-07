@@ -336,6 +336,16 @@
 
   // 在 Illustrator 裡換了選取之後，滑鼠移回面板時更新
   App.on('tab', function (name) { if (name === 'dim') refresh(); });
+  // 縮放分頁縮放了全部工作區：樣式裡跟大小有關的數值和「距離」用同一個倍率縮放，
+  // 之後新增的尺寸、按「同步全部」才會跟縮放後的尺寸一樣大（跟 host.jsx 的 scaleDimStyle 一樣的欄位）
+  var SIZE_FIELDS = ['dimFontSize', 'dimLineWidth', 'dimEndSize', 'dimTextGap', 'dimExtGap', 'dimExtOver', 'dimOffset'];
+  App.on('scaled', function (s) {
+    SIZE_FIELDS.forEach(function (id) {
+      var el = $(id);
+      el.value = Math.round((parseFloat(el.value) || 0) * s * 1000) / 1000;
+    });
+    changed();
+  });
   App.on('fonts', setFonts);
   App.on('theme', renderPreview);
   document.documentElement.addEventListener('mouseenter', refresh);

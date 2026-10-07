@@ -1374,7 +1374,7 @@ $.global.CMF = (function () {
     function scaleDimStyle(style, s) {
         var re = /"(fontSize|lineWidth|endSize|extGap|extOver|textGap)"\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)/g;
         return style.replace(re, function (m, k, v) {
-            return '"' + k + '":' + Math.round(Number(v) * s * 10000) / 10000;
+            return '"' + k + '":' + roundTo(Number(v) * s, 3);
         });
     }
 
