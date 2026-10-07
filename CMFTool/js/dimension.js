@@ -7,7 +7,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var KEY = 'cmftool:dim';
   // 樣式欄位：記在每個尺寸上，「同步全部」會套用。id 去掉 dim 就是樣式的名稱（dimFontSize → fontSize）
-  var STYLE = ['dimFontSize', 'dimTextColor', 'dimFontName', 'dimTextAlign', 'dimTextPos', 'dimTextGap', 'dimTextBg', 'dimTextBgColor',
+  var STYLE = ['dimFontSize', 'dimTextColor', 'dimFontName', 'dimTextAlign', 'dimTextPos', 'dimTextGap', 'dimBreakGap', 'dimTextBg', 'dimTextBgColor',
     'dimLineWidth', 'dimLineColor', 'dimEndStyle', 'dimEndSize', 'dimArrowPos', 'dimExtLine', 'dimExtGap', 'dimExtOver',
     'dimUnit', 'dimDecimals', 'dimShowUnit', 'dimRatio', 'dimDiaSym', 'dimCount', 'dimPrefix', 'dimSuffix',
     'dimRadMode', 'dimLeader', 'dimShelf', 'dimCenterMark'];
@@ -50,6 +50,7 @@
     o.lineWidth = num('dimLineWidth', 0.5, 0.01);
     o.endSize = num('dimEndSize', 4);
     o.textGap = num('dimTextGap', 2);
+    o.breakGap = num('dimBreakGap', 2);
     o.extGap = num('dimExtGap', 2);
     o.extOver = num('dimExtOver', 2);
     o.leader = num('dimLeader', 12);
@@ -195,18 +196,21 @@
   function renderPreview() {
     var st = readStyle(), k = 1.4, parts = [];
     var lw = Math.max(0.6, st.lineWidth * k), L = st.endSize * k, fs = Math.max(6, st.fontSize * k);
-    var gap = st.textGap * k, eg = st.extGap * k, eo = st.extOver * k;
+    var gap = st.textGap * k, brk = st.breakGap * k, eg = st.extGap * k, eo = st.extOver * k;
     // 有底色時文字畫在底色上，用原本的顏色
     var lc = shown(st.lineColor), tc = st.textBg === 'box' ? st.textColor : shown(st.textColor), font = cssFont(fs), th = fs * 0.72;
     var aligned = st.textAlign !== 'horizontal', kind = st.endStyle, middle = st.textPos === 'middle';
     var unit = st.showUnit ? unitOf()[0] : '', ratio = ratioOf(st.ratio) || 1;
-    var pad = Math.max(0, Math.min(fs * 0.2, gap * 0.75)), minLen = Math.max(L, 2 * k);
+    var pad = Math.max(0, Math.min(fs * 0.2, Math.min(gap, brk) * 0.75)), minLen = Math.max(L, 2 * k);
+    var side = gap + lw / 2; // 文字離線：從線的邊緣算
     measureCtx.font = font;
 
     function pt(p) { return p[0].toFixed(2) + ' ' + p[1].toFixed(2); }
     function along(p, u, s) { return [p[0] + u[0] * s, p[1] + u[1] * s]; }
     function dot(p, q) { return p[0] * q[0] + p[1] * q[1]; }
+    var right = 0; // 畫到最右邊的位置：圓要放在寬高的右邊，不要蓋到
     function line(pts, width) {
+      pts.forEach(function (p) { right = Math.max(right, p[0]); });
       parts.push('<path d="M' + pts.map(pt).join('L') + '" fill="none" stroke="' + lc + '" stroke-width="' + (width || lw) + '"/>');
     }
     function arrowLike(how) { return how === 'arrow' || how === 'open'; }
@@ -233,6 +237,8 @@
     // c：文字中心；angle：逆時針的角度；有底色時先畫一塊底
     function text(lb, c, angle) {
       var tw = measureCtx.measureText(lb).width, rot = ' transform="rotate(' + (-angle) + ' ' + pt(c) + ')"';
+      var t = angle * Math.PI / 180;
+      right = Math.max(right, c[0] + Math.abs(Math.cos(t)) * (tw / 2 + pad) + Math.abs(Math.sin(t)) * (th / 2 + pad));
       if (st.textBg === 'box') {
         parts.push('<rect x="' + (c[0] - tw / 2 - pad).toFixed(2) + '" y="' + (c[1] - th / 2 - pad).toFixed(2) + '" width="' +
           (tw + pad * 2).toFixed(2) + '" height="' + (th + pad * 2).toFixed(2) + '"' + rot + ' fill="' + esc(st.textBgColor) + '"/>');
@@ -246,7 +252,7 @@
     }
     function textCenter(mid, n, tw, isAligned) {
       var ext = isAligned ? th / 2 : tw / 2 * Math.abs(n[0]) + th / 2 * Math.abs(n[1]);
-      return along(mid, n, gap + ext);
+      return along(mid, n, side + ext);
     }
     function textAlong(tw, v, isAligned) { return isAligned ? tw / 2 : tw / 2 * Math.abs(v[0]) + th / 2 * Math.abs(v[1]); }
     function label(v, sym, q) {
@@ -275,7 +281,7 @@
       else if (kind === 'tick') pts = [along(Q1, a, -L * 0.6), along(Q2, a, L * 0.6)];
       else pts = [Q1, Q2];
       var lb = label(value), tw = measureCtx.measureText(lb).width, mid = [(Q1[0] + Q2[0]) / 2, (Q1[1] + Q2[1]) / 2];
-      var isSplit = middle && (inside || !arrowLike(kind)) && split(pts[0], pts[1], a, mid, textAlong(tw, a, aligned) + gap);
+      var isSplit = middle && (inside || !arrowLike(kind)) && split(pts[0], pts[1], a, mid, textAlong(tw, a, aligned) + brk);
       if (!isSplit) line(pts);
       if (kind === 'tick') { end(Q1, a, kind); end(Q2, a, kind); }
       else {
@@ -310,17 +316,21 @@
     var lead = Math.min(30, Math.max(st.leader * k, L * 1.5, 2 * k)), sx = u[0] < -0.0001 ? -1 : 1;
     var shelf = st.shelf === 'end' || st.shelf === 'none' ? st.shelf : 'over', sl = Math.max(L * 1.5, fs * 0.6);
     var need = shelf === 'over' ? tw + gap * 2 : (shelf === 'end' ? sl : 0) + gap + tw;
+    var left = right + 6;
     if (mode !== 'inside') {
-      var lo = 150 + r, hi = 256 - r, reach = u[0] * (r + lead) + sx * need;
-      if (sx > 0) hi = Math.min(hi, 252 - reach); else lo = Math.max(lo, 150 - reach);
-      C[0] = sx > 0 ? Math.max(150 + r, Math.min(hi, C[0])) : Math.min(256 - r, Math.max(lo, C[0]));
-    }
+      // 位置不夠時圓縮小一點（最小 10），文字才放得進預覽框
+      var room = sx > 0 ? (252 - left - u[0] * lead - need) / (1 + u[0]) : (256 - left + u[0] * lead - need) / (1 - u[0]);
+      if (room < r) r = Math.max(10, room);
+      var lo = left + r, hi = 256 - r, reach = u[0] * (r + lead) + sx * need;
+      if (sx > 0) hi = Math.min(hi, 252 - reach); else lo = Math.max(lo, left - reach);
+      C[0] = sx > 0 ? Math.max(left + r, Math.min(hi, C[0])) : Math.min(256 - r, Math.max(lo, C[0]));
+    } else C[0] = Math.min(256 - r, Math.max(left + r, C[0]));
     var M = along(C, u, r), M1 = along(C, u, -r);
     parts.push('<circle cx="' + C[0] + '" cy="' + C[1] + '" r="' + r + '" fill="var(--product)"/>');
     if (mode === 'inside') {
       var ta = readAngle(u), up = [-Math.sin(ta * Math.PI / 180), -Math.cos(ta * Math.PI / 180)];
       var p = along(M1, u, trim(how)), q = along(M, u, -trim(how));
-      var isSplit = middle && split(p, q, u, C, textAlong(tw, u, aligned) + gap);
+      var isSplit = middle && split(p, q, u, C, textAlong(tw, u, aligned) + brk);
       if (!isSplit) line([p, q]);
       end(M1, back, how);
       end(M, u, how);
@@ -334,7 +344,7 @@
       var c;
       if (shelf === 'over') {
         pts.push([K[0] + sx * (tw + gap * 2), K[1]]);
-        c = [K[0] + sx * (tw / 2 + gap), K[1] - gap - th / 2];
+        c = [K[0] + sx * (tw / 2 + gap), K[1] - side - th / 2];
       } else {
         var S = shelf === 'end' ? [K[0] + sx * sl, K[1]] : K;
         if (shelf === 'end') pts.push(S);
@@ -390,6 +400,7 @@
   function changed() {
     $('dimRatio').classList.toggle('invalid', !(ratioOf($('dimRatio').value) > 0));
     $('dimTextBgColor').disabled = $('dimTextBg').value !== 'box';
+    $('dimBreakGap').disabled = $('dimTextPos').value !== 'middle';
     // 數量的選項跟著直徑符號
     var sym = diaSym(), opts = $('dimCount').options;
     opts[1].text = '4\u00D7' + sym + '3';
@@ -430,7 +441,7 @@
   App.on('tab', function (name) { if (name === 'dim') refresh(); });
   // 縮放分頁縮放了全部工作區：樣式裡跟大小有關的數值和「距離」用同一個倍率縮放，
   // 之後新增的尺寸、按「同步全部」才會跟縮放後的尺寸一樣大（跟 host.jsx 的 scaleDimStyle 一樣的欄位）
-  var SIZE_FIELDS = ['dimFontSize', 'dimLineWidth', 'dimEndSize', 'dimTextGap', 'dimExtGap', 'dimExtOver', 'dimLeader', 'dimOffset'];
+  var SIZE_FIELDS = ['dimFontSize', 'dimLineWidth', 'dimEndSize', 'dimTextGap', 'dimBreakGap', 'dimExtGap', 'dimExtOver', 'dimLeader', 'dimOffset'];
   App.on('scaled', function (s) {
     SIZE_FIELDS.forEach(function (id) {
       var el = $(id);

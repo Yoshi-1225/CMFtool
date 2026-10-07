@@ -1232,6 +1232,15 @@ $.global.CMF = (function () {
         return { t: t, b: b, hw: (b[2] - b[0]) / 2, hh: (b[1] - b[3]) / 2, d: d, g: g, st: st };
     }
 
+    // 文字離線：文字跟線之間空出來的距離，從線的邊緣算（線寬的一半要加上去）
+    function besideGap(st) { return Number(st.textGap) + Number(st.lineWidth) / 2; }
+
+    // 斷開留空：文字放在線中間時，文字兩邊跟線頭之間空出來的距離；舊的樣式沒有，用「文字離線」
+    function breakGap(st) {
+        var v = Number(st.breakGap);
+        return st.breakGap !== undefined && st.breakGap !== null && st.breakGap !== "" && v >= 0 ? v : Number(st.textGap);
+    }
+
     // 文字放在 mid 的 n 那一側、離線 gap；aligned = 沿著線（文字跟 n 垂直）
     function textCenter(mid, n, tx, aligned, gap) {
         var ext = aligned ? tx.hh : tx.hw * Math.abs(n[0]) + tx.hh * Math.abs(n[1]);
@@ -1253,8 +1262,8 @@ $.global.CMF = (function () {
         tx.t.translate(c[0] - (b[0] + b[2]) / 2, c[1] - (b[1] + b[3]) / 2);
         tx.t.move(tx.g, ElementPlacement.PLACEATBEGINNING);
         if (st.textBg !== "box") return;
-        // 留的邊不超過文字間距，才不會蓋到尺寸線
-        var pad = Math.max(0, Math.min(Number(st.fontSize) * 0.2, Number(st.textGap) * 0.75));
+        // 留的邊不超過文字離線、斷開留空，才不會蓋到尺寸線
+        var pad = Math.max(0, Math.min(Number(st.fontSize) * 0.2, Math.min(Number(st.textGap), breakGap(st)) * 0.75));
         var w = tx.hw + pad, h = tx.hh + pad;
         var bg = tx.g.pathItems.rectangle(c[1] + h, c[0] - w, w * 2, h * 2);
         bg.name = "DIM_TextBg";
@@ -1278,7 +1287,7 @@ $.global.CMF = (function () {
     function buildLinear(d, g, gm, st) {
         var a = gm.a, n = gm.n, col = hexToColor(st.lineColor, d), i;
         var L = Number(st.endSize), kind = st.endStyle, gapE = Number(st.extGap), over = Number(st.extOver);
-        var gap = Number(st.textGap), tr = arrowTrim(kind, L);
+        var gap = besideGap(st), tr = arrowTrim(kind, L);
         var level = Math.max(vdot(gm.p1, n), vdot(gm.p2, n)) + Number(gm.off);
         var P = [gm.p1, gm.p2], Q = [];
         for (i = 0; i < 2; i++) {
@@ -1302,7 +1311,7 @@ $.global.CMF = (function () {
         var mid = [(Q1[0] + Q2[0]) / 2, (Q1[1] + Q2[1]) / 2], line = null;
         // 文字放在線中間；箭頭在外面（線很短）或放不下時，放在線的旁邊
         if (st.textPos === "middle" && (inside || !arrowLike(kind))) {
-            line = splitLine(g, pts[0], pts[1], a, mid, textAlong(tx, a, aligned) + gap, Math.max(L, 2), st, col);
+            line = splitLine(g, pts[0], pts[1], a, mid, textAlong(tx, a, aligned) + breakGap(st), Math.max(L, 2), st, col);
         }
         var split = !!line;
         if (!line) line = dimPath(g, pts, st, col, "DIM_Line");
@@ -1358,11 +1367,11 @@ $.global.CMF = (function () {
             ang = aligned ? readAngle(u) : 0;
             var p = dia ? along(M1, u, tr) : c, q = along(M, u, -tr);
             var mid = dia ? c : along(c, u, (r - endRoom + arm) / 2);
-            if (st.textPos === "middle") line = splitLine(g, p, q, u, mid, textAlong(tx, u, aligned) + gap, Math.max(L, 2), st, col);
+            if (st.textPos === "middle") line = splitLine(g, p, q, u, mid, textAlong(tx, u, aligned) + breakGap(st), Math.max(L, 2), st, col);
             if (line) tc = mid;
             else {
                 line = dimPath(g, [p, q], st, col, "DIM_Line");
-                tc = textCenter(mid, dirOf(readAngle(u) + 90), tx, aligned, gap);
+                tc = textCenter(mid, dirOf(readAngle(u) + 90), tx, aligned, besideGap(st));
             }
             if (dia) dimEnd(g, M1, back, st, col, kind);
             dimEnd(g, M, u, st, col, kind);
@@ -1382,7 +1391,7 @@ $.global.CMF = (function () {
             if (shelf === "over") {
                 // 文字站在水平線上，水平線跟文字一樣長
                 pts.push([K[0] + sx * (tx.hw * 2 + gap * 2), K[1]]);
-                tc = [K[0] + sx * (tx.hw + gap), K[1] + gap + tx.hh];
+                tc = [K[0] + sx * (tx.hw + gap), K[1] + besideGap(st) + tx.hh];
             } else {
                 // 文字接在水平線（或引線）的後面，跟線的末端一樣高
                 var S = K;
@@ -1463,7 +1472,7 @@ $.global.CMF = (function () {
 
     // 縮放整份文件時，尺寸的字級、線寬等也跟著縮放
     function scaleDimStyle(style, s) {
-        var re = /"(fontSize|lineWidth|endSize|extGap|extOver|textGap|leader)"\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)/g;
+        var re = /"(fontSize|lineWidth|endSize|extGap|extOver|textGap|breakGap|leader)"\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)/g;
         return style.replace(re, function (m, k, v) {
             return '"' + k + '":' + roundTo(Number(v) * s, 3);
         });
