@@ -566,6 +566,18 @@
   App.on("theme", renderPreview);
   App.on("numbers", refreshTable);   // Excel 分頁改了 CMF 清單或自動對應之後
 
+  // 縮放分頁縮放了全部工作區：樣式裡跟尺寸有關的數值用同一個倍率縮放
+  // （跟 host.jsx 的 scaleNote 一樣的欄位；只存檔，不觸發自動同步）
+  var SIZE_FIELDS = ["fontSize", "badgePadding", "badgeStrokeWidth", "lineWidth", "endSize", "gap"];
+  App.on("scaled", function (s) {
+    SIZE_FIELDS.forEach(function (k) {
+      var el = $(k);
+      el.value = Math.round((parseFloat(el.value) || 0) * s * 1000) / 1000;
+    });
+    renderPreview();
+    saveSettings();
+  });
+
   loadSettings(function () {
     loadFonts(false);
     renderPreview();

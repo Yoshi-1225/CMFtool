@@ -116,6 +116,11 @@
     App.setStatus('縮放中…');
     call('scaleDoc', o, function (r) {
       busy = false;
+      // 全部工作區：標註分頁的樣式也跟著縮放，新增的標註和「同步全部」才會跟縮放後的一樣大
+      if (r.ok && r.factor > 0 && o.scope === 'all') {
+        App.emit('scaled', r.factor);
+        r.msg += '；標註樣式也一起縮放';
+      }
       App.setStatus(r.msg, !r.ok);
       if (r.ok) clearFields();
       render();
