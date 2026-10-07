@@ -178,36 +178,44 @@
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5"/></svg>
     </button>
   </div>
-  <div class="dim-tools" id="dimTools">
-    <button class="tool" data-kind="w" title="標選取物件的寬度" aria-label="寬度">
-      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="3" y="10" width="14" height="7" rx="1.5"/><path d="M3 3v5M17 3v5M5.5 5.5h9"/><path d="M3.6 5.5 6.6 4v3zM16.4 5.5 13.4 4v3z" fill="currentColor" stroke="none"/></svg>
-    </button>
-    <button class="tool" data-kind="h" title="標選取物件的高度" aria-label="高度">
-      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="3" y="3" width="7" height="14" rx="1.5"/><path d="M12 3h5M12 17h5M14.5 5.5v9"/><path d="M14.5 3.6 13 6.6h3zM14.5 16.4 13 13.4h3z" fill="currentColor" stroke="none"/></svg>
-    </button>
-    <button class="tool" data-kind="wh" title="寬度和高度一起標" aria-label="寬＋高">
-      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="3" y="8" width="10" height="9" rx="1.5"/><path d="M3 4.5h10M3 3v3M13 3v3M16.5 8v9M15 8h3M15 17h3"/></svg>
-    </button>
+  <!-- 參考 Specees：先選要標的類型（可以多選）和寬高的位置，再按「標尺寸」 -->
+  <div class="dim-types" role="group" aria-label="要標的尺寸（可以多選）">
+    <input type="checkbox" class="tgl-in" id="dimTypeSel" checked>
+    <label class="tgl" for="dimTypeSel" title="選取範圍的寬高：好幾個物件時標它們合起來的外框" aria-label="選取範圍寬高">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="2.5" y="8.5" width="15" height="9" rx="1" stroke-dasharray="1.6 1.4"/><rect x="4.5" y="11" width="4.5" height="4.5" rx=".8"/><rect x="11" y="10.5" width="4.5" height="5" rx=".8"/><path d="M2.5 5h15M2.5 3.5v3M17.5 3.5v3"/></svg>
+    </label>
+    <input type="checkbox" class="tgl-in" id="dimTypeEach">
+    <label class="tgl" for="dimTypeEach" title="每個物件各自的寬高" aria-label="各物件寬高">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="2" y="9" width="6.5" height="8" rx="1"/><rect x="11.5" y="11" width="6.5" height="6" rx="1"/><path d="M2 5.5h6.5M2 4v3M8.5 4v3M11.5 7.5H18M11.5 6v3M18 6v3"/></svg>
+    </label>
+    <input type="checkbox" class="tgl-in" id="dimTypeDia">
+    <label class="tgl" for="dimTypeDia" title="圓的直徑；選群組時，每種大小的圓標一個" aria-label="直徑">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M5.4 14.6 14.6 5.4"/></svg>
+    </label>
+    <input type="checkbox" class="tgl-in" id="dimTypeRad">
+    <label class="tgl" for="dimTypeRad" title="圓弧、圓角的半徑；同樣大小的圓角標一個" aria-label="半徑">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M4 17v-7a6 6 0 0 1 6-6h7"/><path d="M10 10 6 6"/><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/></svg>
+    </label>
+  </div>
+  <div class="dim-go">
+    <div class="dpad" id="dimPad" role="group" aria-label="寬高標在哪一邊（可以多選）">
+      <input type="checkbox" class="tgl-in" id="dimPosTop" checked>
+      <label class="tgl up" for="dimPosTop" title="寬度標在上方" aria-label="上"><svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M6 2.5 10.5 8h-9z"/></svg></label>
+      <input type="checkbox" class="tgl-in" id="dimPosLeft">
+      <label class="tgl left" for="dimPosLeft" title="高度標在左側" aria-label="左"><svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M2.5 6 8 1.5v9z"/></svg></label>
+      <span class="dpad-obj" aria-hidden="true"></span>
+      <input type="checkbox" class="tgl-in" id="dimPosRight" checked>
+      <label class="tgl right" for="dimPosRight" title="高度標在右側" aria-label="右"><svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M9.5 6 4 10.5v-9z"/></svg></label>
+      <input type="checkbox" class="tgl-in" id="dimPosBottom">
+      <label class="tgl down" for="dimPosBottom" title="寬度標在下方" aria-label="下"><svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M6 9.5 1.5 4h9z"/></svg></label>
+    </div>
+    <button class="add" id="btnDimAdd" title="照選好的類型和位置，標註選取的物件">標尺寸</button>
   </div>
 
-  <div class="row mt">
-    <label for="dimWSide">位置</label>
-    <div class="pair">
-      <select id="dimWSide" title="寬度標在物件上方或下方">
-        <option value="top">寬在上</option>
-        <option value="bottom">寬在下</option>
-      </select>
-      <select id="dimHSide" aria-label="高度的位置" title="高度標在物件右側或左側">
-        <option value="right">高在右</option>
-        <option value="left">高在左</option>
-      </select>
-    </div>
-  </div>
   <div class="row">
     <label for="dimOffset">距離</label>
     <input type="number" id="dimOffset" min="0" step="1" value="12" title="寬度、高度的尺寸線離物件的距離 (pt)">
   </div>
-  <label class="check" title="選了好幾個物件時，每個物件各自標寬高；不勾 = 標它們合起來的外框"><input type="checkbox" id="dimEach">每個物件分別標寬高</label>
   <label class="check" title="寬高量到線條的外緣（跟「變形」面板勾「使用預視邊界」一樣）；不勾 = 只量形狀，不含線寬"><input type="checkbox" id="dimVisible">寬高含線寬</label>
   <label class="check" title="字級、線寬、箭頭、間距、引線和距離跟著量的物件大小等比調整：下面「樣式」的數值是給「基準」大小的物件用的，物件比較大就放大、比較小就縮小（最多縮到一半）。按「同步全部」、「套用選取」時也照每個尺寸量的物件重算"><input type="checkbox" id="dimAuto">依物件大小自動調整樣式</label>
   <div class="row" id="dimAutoRow">
@@ -221,16 +229,6 @@
 
   <details data-key="dimrad" open>
     <summary>直徑・半徑</summary>
-    <div class="dim-tools" id="dimRadTools">
-      <button class="tool wide" data-kind="dia" title="標圓的直徑；選群組時，每種大小的圓標一個">
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M5.4 14.6 14.6 5.4"/></svg>
-        <span>直徑 Ø</span>
-      </button>
-      <button class="tool wide" data-kind="rad" title="標圓弧、圓角的半徑；同樣大小的圓角標一個">
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M4 17v-7a6 6 0 0 1 6-6h7"/><path d="M10 10 6 6"/><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/></svg>
-        <span>半徑 R</span>
-      </button>
-    </div>
     <div class="row">
       <label for="dimRadMode">標法</label>
       <select id="dimRadMode" title="直徑、半徑怎麼標。已經標好的尺寸，按「樣式 → 同步全部」或「套用選取」改成新的標法">

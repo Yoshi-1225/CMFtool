@@ -1741,62 +1741,78 @@ $.global.CMF = (function () {
     }
 
     // ---- 對外 ----
-    // o = { kind: "w" | "h" | "wh" | "dia" | "rad", offset 寬高的尺寸線距離, wSide, hSide, angle, each,
-    //       visible 寬高含線寬, style: 樣式 JSON 字串 }
+    // o = { jobs: [{ kind: "w" | "h", side: "top" | "bottom" | "left" | "right", each }, { kind: "dia" | "rad" }],
+    //       offset 寬高的尺寸線距離, angle, visible 寬高含線寬, style: 樣式 JSON 字串 }
+    //   each：每個物件各自標；否則標選取的物件合起來的外框。一次呼叫做完全部
+    //   舊的寫法 { kind: "w" | "h" | "wh" | "dia" | "rad", wSide, hSide, each } 也可以用
     // 直徑、半徑的引線長度在樣式裡（「同步全部」會一起改）
+    function dimJobs(o) {
+        if (o.jobs) return o.jobs;
+        var k = o.kind, out = [];
+        if (k === "w" || k === "wh") out.push({ kind: "w", side: o.wSide === "bottom" ? "bottom" : "top", each: o.each });
+        if (k === "h" || k === "wh") out.push({ kind: "h", side: o.hSide === "left" ? "left" : "right", each: o.each });
+        if (k === "dia" || k === "rad") out.push({ kind: k });
+        return out;
+    }
+
     function dimAdd(optStr) {
         try {
-            var d = getDoc(), o = parse(optStr), kind = o.kind, i, j;
-            var items = measuredItems(d), off = Number(o.offset) || 0, made = [], zero = 0;
+            var d = getDoc(), o = parse(optStr), jobs = dimJobs(o), i, j, q;
+            var items = measuredItems(d), off = Number(o.offset) || 0, made = [], zero = 0, noArc = [], done = {};
             if (!items.length) {
                 return res(false, selectedItems(d).length ? "選取的是尺寸或標註，請選取要量的物件" : "請先選取要標尺寸的物件");
             }
-            var layer = getLayer(d, true, DIM_LAYER);
-            if (kind === "w" || kind === "h" || kind === "wh") {
-                var sets = [];
-                if (o.each) { for (i = 0; i < items.length; i++) sets.push([items[i]]); }
-                else sets.push(items);
-                for (i = 0; i < sets.length; i++) {
-                    var b = unionBounds(sets[i], !!o.visible), z = longSide(b), k = autoFactor(d, o.style, z);
-                    var st = autoStyle(d, o.style, z), gw = null;
-                    if (kind !== "h") {
-                        if (b[2] - b[0] > 0.001) gw = linGeom(b, o.wSide === "bottom" ? "bottom" : "top", off * k);
-                        else zero++;
+            var layer = getLayer(d, true, DIM_LAYER), budget = { n: 0, over: false }, angle = Number(o.angle) || 0;
+            for (q = 0; q < jobs.length; q++) {
+                var kind = jobs[q].kind, side = jobs[q].side;
+                if (kind === "w" || kind === "h") {
+                    var sets = [];
+                    if (jobs[q].each) { for (i = 0; i < items.length; i++) sets.push([items[i]]); }
+                    else sets.push(items);
+                    if (kind === "w") side = side === "bottom" ? "bottom" : "top";
+                    else side = side === "left" ? "left" : "right";
+                    for (i = 0; i < sets.length; i++) {
+                        var b = unionBounds(sets[i], !!o.visible);
+                        // 選範圍和各物件一起標、只選一個物件時，同一個位置只標一次
+                        var key = side + "|" + roundTo(b[0], 2) + "|" + roundTo(b[1], 2) + "|" + roundTo(b[2], 2) + "|" + roundTo(b[3], 2);
+                        if (done[key]) continue;
+                        done[key] = true;
+                        if (!((kind === "w" ? b[2] - b[0] : b[1] - b[3]) > 0.001)) { zero++; continue; }
+                        var z = longSide(b), gw = linGeom(b, side, off * autoFactor(d, o.style, z));
+                        gw.z = z;
+                        made.push(buildDim(d, layer, gw, autoStyle(d, o.style, z)));
                     }
-                    if (gw) { gw.z = z; made.push(buildDim(d, layer, gw, st)); gw = null; }
-                    if (kind !== "w") {
-                        if (b[1] - b[3] > 0.001) gw = linGeom(b, o.hSide === "left" ? "left" : "right", off * k);
-                        else zero++;
-                    }
-                    if (gw) { gw.z = z; made.push(buildDim(d, layer, gw, st)); }
-                }
-                if (!made.length) return res(false, "選取的物件" + (kind === "h" ? "高度" : "寬度") + "是 0");
-            } else {
-                var dia = kind === "dia", budget = { n: 0, over: false }, angle = Number(o.angle) || 0;
-                for (i = 0; i < items.length; i++) {
-                    var ib = boundsOf(items[i], false), iz = longSide(ib), ist = autoStyle(d, o.style, iz);
-                    var picks = pickArcs(itemArcs(items[i], budget), dia, ib, angle);
-                    for (j = 0; j < picks.length; j++) {
-                        var pk = picks[j], gm = { t: dia ? "dia" : "rad", c: pk.c, r: pk.r, u: pk.u, off: 0, x: 0, q: Math.max(1, pk.n), z: iz };
-                        // 同心圓（例如圓環的內外圈）：最大的照常標，小的轉 45°、用引線拉到最外圈外面，文字才不會疊在一起
-                        var inner = 0, outerR = pk.r;
-                        for (var k = 0; k < j; k++) {
-                            if (vlen(vsub(picks[k].c, pk.c)) <= Math.max(0.05, pk.r * 0.005)) { inner++; outerR = Math.max(outerR, picks[k].r); }
+                } else if (kind === "dia" || kind === "rad") {
+                    var dia = kind === "dia", before = made.length;
+                    for (i = 0; i < items.length; i++) {
+                        var ib = boundsOf(items[i], false), iz = longSide(ib), ist = autoStyle(d, o.style, iz);
+                        var picks = pickArcs(itemArcs(items[i], budget), dia, ib, angle);
+                        for (j = 0; j < picks.length; j++) {
+                            var pk = picks[j], gm = { t: dia ? "dia" : "rad", c: pk.c, r: pk.r, u: pk.u, off: 0, x: 0, q: Math.max(1, pk.n), z: iz };
+                            // 同心圓（例如圓環的內外圈）：最大的照常標，小的轉 45°、用引線拉到最外圈外面，文字才不會疊在一起
+                            var inner = 0, outerR = pk.r;
+                            for (var k = 0; k < j; k++) {
+                                if (vlen(vsub(picks[k].c, pk.c)) <= Math.max(0.05, pk.r * 0.005)) { inner++; outerR = Math.max(outerR, picks[k].r); }
+                            }
+                            if (inner) { gm.u = rotDir(pk.u, -45 * inner); gm.out = 1; gm.x = outerR - pk.r; }
+                            made.push(buildDim(d, layer, gm, ist));
                         }
-                        if (inner) { gm.u = rotDir(pk.u, -45 * inner); gm.out = 1; gm.x = outerR - pk.r; }
-                        made.push(buildDim(d, layer, gm, ist));
                     }
+                    if (made.length === before) noArc.push(kind);
                 }
-                if (!made.length) {
-                    if (budget.over) return res(false, "選取的物件太複雜，請只選要標的圓或圓弧");
-                    return res(false, dia ? "選取的物件裡沒有圓（圓角請用「半徑 R」）" : "選取的物件裡沒有圓弧或圓角");
-                }
+            }
+            var NO_ARC = { dia: "選取的物件裡沒有圓（圓角請用「半徑 R」）", rad: "選取的物件裡沒有圓弧或圓角" };
+            if (!made.length) {
+                if (budget.over) return res(false, "選取的物件太複雜，請只選要標的圓或圓弧");
+                if (noArc.length) return res(false, NO_ARC[noArc[0]]);
+                return res(false, zero ? "選取的物件寬度或高度是 0" : "沒有要標的尺寸");
             }
             var names = [];
             for (i = 0; i < made.length && i < 4; i++) names.push(findChild(made[i], "DIM_Text").contents);
             var msg = "已標註 " + names.join("、") + (made.length > 4 ? " 等 " + made.length + " 個尺寸" : "");
             if (zero) msg += "（" + zero + " 個是 0，沒有標）";
-            if (budget && budget.over) msg += "（圖太複雜，只找了一部分的圓弧）";
+            for (i = 0; i < noArc.length; i++) msg += "（" + (noArc[i] === "dia" ? "沒有找到圓" : "沒有找到圓弧或圓角") + "）";
+            if (budget.over) msg += "（圖太複雜，只找了一部分的圓弧）";
             return res(true, msg);
         } catch (e) { return res(false, e.message); }
     }

@@ -280,22 +280,33 @@ summary .count { font-weight: 400; color: var(--muted); }
 .btn.block { width: 100%; height: 28px; margin: 2px 0 2px; }
 
 /* ---------- 尺寸分頁 ---------- */
-.dim-tools { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-bottom: 4px; }
-details > .dim-tools { margin-bottom: 6px; }
-.tool {
-  grid-column: span 2;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  height: 32px; padding: 0;
-  background: var(--field); color: var(--fg);
-  border: 1px solid var(--line); border-radius: 4px;
-  font: inherit; cursor: pointer;
-}
-.tool.wide { grid-column: span 3; flex-direction: row; gap: 6px; }
-.tool:hover { border-color: var(--accent); color: var(--accent); }
-.tool:active { background: var(--hover); }
-.tool svg { width: 20px; height: 20px; display: block; flex: none; }
-.dim-tools.busy .tool { opacity: .5; pointer-events: none; }
 input.invalid { border-color: var(--error); }
+
+/* 類型、位置的切換鈕（參考 Specees）：隱藏的 checkbox + 後面的 label */
+.tgl-in { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.tgl {
+  display: grid; place-items: center;
+  background: var(--field); color: var(--muted);
+  border: 1px solid var(--line); border-radius: 4px; cursor: pointer;
+}
+.tgl:hover { color: var(--fg); border-color: var(--muted); }
+.tgl-in:checked + .tgl { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.tgl-in:focus-visible + .tgl { outline: 1px solid var(--accent); outline-offset: 1px; }
+.tgl svg { display: block; }
+.dim-types { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.dim-types .tgl { height: 32px; }
+.dim-types .tgl svg { width: 20px; height: 20px; }
+.dim-go { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; margin: 8px 0 6px; }
+.dpad { display: grid; grid-template-columns: repeat(3, 24px); grid-template-rows: repeat(3, 24px); gap: 2px; }
+.dpad .tgl svg { width: 10px; height: 10px; }
+.dpad .up { grid-area: 1 / 2; }
+.dpad .left { grid-area: 2 / 1; }
+.dpad .right { grid-area: 2 / 3; }
+.dpad .down { grid-area: 3 / 2; }
+.dpad-obj { grid-area: 2 / 2; align-self: center; justify-self: center; width: 16px; height: 12px; border-radius: 3px; background: var(--product); }
+.dpad.off .tgl { opacity: .4; }
+.dim-go .add { height: 48px; }
+.dim-go .add:disabled { opacity: .55; }
 
 /* ---------- 數字欄位（js/numfield.js）：鎖成唯讀時自己畫的游標 ---------- */
 input[type=text] { user-select: text; }

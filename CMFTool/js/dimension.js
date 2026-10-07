@@ -11,7 +11,10 @@
     'dimLineWidth', 'dimLineColor', 'dimEndStyle', 'dimEndSize', 'dimArrowPos', 'dimExtLine', 'dimExtGap', 'dimExtOver',
     'dimUnit', 'dimDecimals', 'dimShowUnit', 'dimRatio', 'dimDiaSym', 'dimCount', 'dimPrefix', 'dimSuffix',
     'dimRadMode', 'dimLeader', 'dimShelf', 'dimCenterMark', 'dimAuto', 'dimAutoBase'];
-  var FIELDS = ['dimWSide', 'dimHSide', 'dimOffset', 'dimAngle', 'dimEach', 'dimVisible', 'dimAutoApply'].concat(STYLE);
+  // 要標的類型（可以多選）和寬高的位置（上下左右，可以多選）
+  var TYPES = ['dimTypeSel', 'dimTypeEach', 'dimTypeDia', 'dimTypeRad'];
+  var POS = ['dimPosTop', 'dimPosBottom', 'dimPosLeft', 'dimPosRight'];
+  var FIELDS = TYPES.concat(POS, ['dimOffset', 'dimAngle', 'dimVisible', 'dimAutoApply'], STYLE);
   var UNIT_PT = { mm: 72 / 25.4, cm: 72 / 2.54, 'in': 72, pt: 1, px: 1 };
   var DIA_SYMS = { slash: '\u00D8', phi: '\u03C6', sign: '\u2300' };
   var DIA = DIA_SYMS.slash;
@@ -70,6 +73,15 @@
     var o = null;
     try { o = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
     if (!o) return;
+    // 舊版是「寬在上／下」「高在右／左」兩個選單和「每個物件分別標寬高」
+    if (o.dimPosTop === undefined && o.dimWSide !== undefined) {
+      o.dimPosTop = o.dimWSide !== 'bottom';
+      o.dimPosBottom = o.dimWSide === 'bottom';
+      o.dimPosRight = o.dimHSide !== 'left';
+      o.dimPosLeft = o.dimHSide === 'left';
+      o.dimTypeEach = !!o.dimEach;
+      o.dimTypeSel = !o.dimEach;
+    }
     FIELDS.forEach(function (id) {
       if (o[id] === undefined || o[id] === null) return;
       var el = $(id);
@@ -309,16 +321,17 @@
       text(lb, isSplit ? mid : textCenter(mid, n, tw, aligned), aligned ? readAngle(a) : 0);
     }
 
-    // 產品：圓角矩形，寬標在上、高標在右（跟面板設定的位置一樣）
-    var x0 = 22, x1 = 118, y0 = 34, y1 = 74, off = 14;
-    var wTop = $('dimWSide').value !== 'bottom', hRight = $('dimHSide').value !== 'left';
-    if (!wTop) { y0 = 12; y1 = 52; }
-    if (!hRight) { x0 = 50; x1 = 146; }
+    // 產品：圓角矩形，寬高標在上下左右選的位置（都沒選時照上、右畫，看樣式用）
+    var pos = {}, x0 = 22, x1 = 118, y0 = 34, y1 = 74, off = 14;
+    POS.forEach(function (id) { pos[id] = $(id).checked; });
+    if (!pos.dimPosTop && !pos.dimPosBottom && !pos.dimPosLeft && !pos.dimPosRight) pos.dimPosTop = pos.dimPosRight = true;
+    if (pos.dimPosTop && pos.dimPosBottom) { y0 = 28; y1 = 54; } else if (pos.dimPosBottom) { y0 = 12; y1 = 52; }
+    if (pos.dimPosLeft && pos.dimPosRight) { x0 = 48; x1 = 116; } else if (pos.dimPosLeft) { x0 = 50; x1 = 146; }
     parts.push('<rect x="' + x0 + '" y="' + y0 + '" width="' + (x1 - x0) + '" height="' + (y1 - y0) + '" rx="7" fill="var(--product)"/>');
-    if (wTop) linear([x0, y0], [x1, y0], [1, 0], [0, -1], off, 120);
-    else linear([x0, y1], [x1, y1], [1, 0], [0, 1], off, 120);
-    if (hRight) linear([x1, y1], [x1, y0], [0, -1], [1, 0], off, 50);
-    else linear([x0, y1], [x0, y0], [0, -1], [-1, 0], off, 50);
+    if (pos.dimPosTop) linear([x0, y0], [x1, y0], [1, 0], [0, -1], off, 120);
+    if (pos.dimPosBottom) linear([x0, y1], [x1, y1], [1, 0], [0, 1], off, 120);
+    if (pos.dimPosRight) linear([x1, y1], [x1, y0], [0, -1], [1, 0], off, 50);
+    if (pos.dimPosLeft) linear([x0, y1], [x0, y0], [0, -1], [-1, 0], off, 50);
 
     // 圓：直徑，用面板選的標法（自動 = 這個大小放不放得下）
     var mode = st.radMode, inner = mode === 'inside';
@@ -374,29 +387,44 @@
   }
 
   /* ---------- 標註 ---------- */
-  // 標註中：寬高和直徑半徑的按鈕都先停用
   function setBusy(on) {
     busy = on;
-    Array.prototype.forEach.call(document.querySelectorAll('#page-dim .dim-tools'), function (el) { el.classList.toggle('busy', on); });
+    $('btnDimAdd').disabled = on;
   }
 
-  function add(kind) {
+  // 選好的類型 × 位置 → 要標的項目；寬高：上下 = 寬度、左右 = 高度
+  function jobs() {
+    var out = [], sides = [['dimPosTop', 'w', 'top'], ['dimPosBottom', 'w', 'bottom'], ['dimPosLeft', 'h', 'left'], ['dimPosRight', 'h', 'right']];
+    [['dimTypeSel', false], ['dimTypeEach', true]].forEach(function (t) {
+      if (!$(t[0]).checked) return;
+      sides.forEach(function (sd) { if ($(sd[0]).checked) out.push({ kind: sd[1], side: sd[2], each: t[1] }); });
+    });
+    if ($('dimTypeDia').checked) out.push({ kind: 'dia' });
+    if ($('dimTypeRad').checked) out.push({ kind: 'rad' });
+    return out;
+  }
+
+  function addAll() {
     if (busy) return;
     if (!(ratioOf($('dimRatio').value) > 0)) { App.setStatus('比例請寫成 1:2 這樣的格式', true); return; }
+    var list = jobs(), wh = $('dimTypeSel').checked || $('dimTypeEach').checked;
+    if (!list.length) {
+      App.setStatus(wh ? '請選寬高要標在哪一邊（上下左右）' : '請先選要標的類型：寬高、直徑或半徑', true);
+      return;
+    }
     setBusy(true);
     App.setStatus('標註中…');
     call('dimAdd', {
-      kind: kind,
+      jobs: list,
       offset: num('dimOffset', 12),
-      wSide: $('dimWSide').value,
-      hSide: $('dimHSide').value,
       angle: num('dimAngle', 45, -1e9),
-      each: $('dimEach').checked,
       visible: $('dimVisible').checked,
       style: JSON.stringify(readStyle())
     }, function (r) {
       setBusy(false);
-      App.setStatus(r.msg, !r.ok);
+      var msg = r.msg;
+      if (r.ok && wh && !POS.some(function (id) { return $(id).checked; })) msg += '（寬高沒有選位置，沒有標）';
+      App.setStatus(msg, !r.ok);
     });
     if (!cep) setBusy(false);
   }
@@ -422,6 +450,7 @@
     $('dimRatio').classList.toggle('invalid', !(ratioOf($('dimRatio').value) > 0));
     $('dimTextBgColor').disabled = $('dimTextBg').value !== 'box';
     $('dimBreakGap').disabled = $('dimTextPos').value !== 'middle';
+    $('dimPad').classList.toggle('off', !$('dimTypeSel').checked && !$('dimTypeEach').checked);
     // 數量的選項跟著直徑符號
     var sym = diaSym(), opts = $('dimCount').options;
     opts[1].text = '4\u00D7' + sym + '3';
@@ -449,9 +478,7 @@
   $('dimFontStyle').addEventListener('change', function () { setFontName($('dimFontStyle').value); });
   $('btnDimFonts').addEventListener('click', function () { if (App.reloadFonts) App.reloadFonts(); });
 
-  Array.prototype.forEach.call(document.querySelectorAll('#page-dim .dim-tools .tool'), function (b) {
-    b.addEventListener('click', function () { add(b.getAttribute('data-kind')); });
-  });
+  $('btnDimAdd').addEventListener('click', addAll);
   $('btnDimSync').addEventListener('click', function () { restyle('dimSync'); });
   $('btnDimRestyle').addEventListener('click', function () { restyle('dimRestyle'); });
   $('btnDimSelectAll').addEventListener('click', function () { call('dimSelectAll', null, function (r) { App.setStatus(r.msg, !r.ok); }); });
