@@ -348,8 +348,9 @@
   });
   App.on('fonts', setFonts);
   App.on('theme', renderPreview);
-  document.documentElement.addEventListener('mouseenter', refresh);
-  window.addEventListener('focus', refresh);
+  var autoRefresh = App.whenIdle(refresh);
+  document.documentElement.addEventListener('mouseenter', autoRefresh);
+  window.addEventListener('focus', autoRefresh);
   if (cep) {
     try { cep.addEventListener('documentAfterActivate', refresh); } catch (e) {}
   }

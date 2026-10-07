@@ -13,6 +13,17 @@
     emit: function (name, data) {
       (handlers[name] || []).forEach(function (fn) { try { fn(data); } catch (e) { console.error(e); } });
     },
+    // 正在面板的欄位裡打字。Illustrator 執行面板的腳本時會把鍵盤焦點搶回文件，
+    // 打字中途呼叫的話，後面的字就打不進欄位（例如只打得進兩位數的第一位）
+    typing: function () {
+      var el = document.activeElement;
+      return !!el && document.hasFocus() &&
+        (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && /^(text|number|search)$/.test(el.type)));
+    },
+    // 滑鼠移回面板、面板取得焦點時自動更新用：點進欄位準備打字時就不呼叫 Illustrator
+    whenIdle: function (fn) {
+      return function () { setTimeout(function () { if (!App.typing()) fn(); }, 60); };
+    },
     setStatus: function (msg, isError) {
       var s = $('status');
       s.textContent = msg || '就緒';

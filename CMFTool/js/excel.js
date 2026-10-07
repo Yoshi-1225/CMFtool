@@ -1052,8 +1052,9 @@
 
   // CEP 沒有「選取改變」事件，所以滑鼠移進面板時更新一次
   var refresh = function () { refreshContext().catch(function () {}); };
-  document.documentElement.addEventListener('mouseenter', refresh);
-  window.addEventListener('focus', refresh);
+  var autoRefresh = App.whenIdle(refresh);   // 正在欄位裡打字時不更新（見 App.typing）
+  document.documentElement.addEventListener('mouseenter', autoRefresh);
+  window.addEventListener('focus', autoRefresh);
   cs.addEventListener('documentAfterActivate', refresh);
   cs.addEventListener('documentAfterDeactivate', refresh);
 

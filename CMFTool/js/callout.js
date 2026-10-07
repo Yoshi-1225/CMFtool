@@ -77,6 +77,10 @@
     }, true);
   }
 
+  function saveLocal() {
+    try { localStorage.setItem(KEY, JSON.stringify(readSettings())); } catch (e) {}
+  }
+
   var saveTimer = null;
   function saveSettings() {
     var o = readSettings();
@@ -515,15 +519,19 @@
   }
 
   // ---------- 事件 ----------
+  // 打字時（input）只更新預覽和面板的設定；按 Enter、離開欄位或改選項時（change）才呼叫 Illustrator
+  // 存設定檔、自動同步（打字中途呼叫 Illustrator 會搶走鍵盤焦點，見 App.typing）
   FIELDS.forEach(function (k) {
     var isStyle = STYLE_FIELDS.indexOf(k) >= 0;
-    var handler = function () {
+    $(k).addEventListener("input", function () {
+      renderPreview();
+      saveLocal();
+    });
+    $(k).addEventListener("change", function () {
       renderPreview();
       saveSettings();
       if (isStyle) scheduleSync();
-    };
-    $(k).addEventListener("input", handler);
-    $(k).addEventListener("change", handler);
+    });
   });
 
   $("btnAdd").addEventListener("click", function () { if (adding) stopAdd(false); else startAdd(); });
@@ -552,11 +560,11 @@
 
   // 滑鼠移回面板或切換文件時，更新編號表（使用者可能在畫布上刪除或複製了標註）
   var lastEnter = 0;
-  document.body.addEventListener("mouseenter", function () {
+  document.body.addEventListener("mouseenter", App.whenIdle(function () {
     if (adding || Date.now() - lastEnter < 800) return;
     lastEnter = Date.now();
     refreshTable();
-  });
+  }));
 
   if (cep) {
     try { cep.addEventListener("com.cmf.callout.add", function () { if (adding) stopAdd(false); else startAdd(); }); } catch (e) {}
