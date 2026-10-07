@@ -6,6 +6,7 @@
   var cep = window.__adobe_cep__;
   var $ = function (id) { return document.getElementById(id); };
   var SCOPE_KEY = 'cmftool:scaleScope';
+  var STYLES_KEY = 'cmftool:scaleStyles';
   var FIELDS = { w: 'scaleW', h: 'scaleH', pct: 'scalePct' };
   // 輸入時可以加單位：150mm、15 cm、6in；沒寫單位 = 文件的單位
   var UNIT_PT = { pt: 1, px: 1, pc: 12, 'in': 72, '"': 72, mm: 72 / 25.4, cm: 72 / 2.54, m: 72 / 0.0254, q: 72 / 25.4 / 4 };
@@ -116,10 +117,10 @@
     App.setStatus('縮放中…');
     call('scaleDoc', o, function (r) {
       busy = false;
-      // 全部工作區：標註、尺寸分頁的樣式也跟著縮放，新增的標註、尺寸和「同步全部」才會跟縮放後的一樣大
-      if (r.ok && r.factor > 0 && o.scope === 'all') {
+      // 標註、尺寸分頁的樣式設定也跟著縮放，之後新增的標註、尺寸才會跟縮放後的一樣大
+      if (r.ok && r.factor > 0 && $('scaleStyles').checked) {
         App.emit('scaled', r.factor);
-        r.msg += '；標註和尺寸的樣式也一起縮放';
+        r.msg += '；標註和尺寸的樣式設定也一起縮放';
       }
       App.setStatus(r.msg, !r.ok);
       if (r.ok) clearFields();
@@ -146,6 +147,10 @@
       try { localStorage.setItem(SCOPE_KEY, scope()); } catch (e) {}
     });
   });
+  $('scaleStyles').addEventListener('change', function () {
+    try { localStorage.setItem(STYLES_KEY, $('scaleStyles').checked ? '1' : '0'); } catch (e) {}
+  });
+  try { if (localStorage.getItem(STYLES_KEY) === '0') $('scaleStyles').checked = false; } catch (e) {}
   try {
     var saved = localStorage.getItem(SCOPE_KEY);
     var radio = saved && document.querySelector('input[name=scaleScope][value="' + saved + '"]');

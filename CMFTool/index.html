@@ -126,7 +126,13 @@
     </div>
     <div class="row" id="styleRow">
       <label for="styleName">樣式名稱</label>
-      <input type="text" id="styleName" value="CMF_Arrow" title="文件裡繪圖樣式的名稱，可在樣式中設定箭頭">
+      <div class="pair">
+        <input type="text" id="styleName" value="CMF_Arrow" title="文件裡繪圖樣式的名稱，可在樣式中設定箭頭">
+        <div class="unit-field">
+          <input type="number" id="styleScale" min="1" step="10" value="100" title="繪圖樣式的線寬、箭頭放大或縮小多少 (%)；縮放分頁縮放文件時會跟著改">
+          <span class="unit">%</span>
+        </div>
+      </div>
     </div>
     <div class="row">
       <label for="gap">間距</label>
@@ -185,14 +191,6 @@
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="3" y="8" width="10" height="9" rx="1.5"/><path d="M3 4.5h10M3 3v3M13 3v3M16.5 8v9M15 8h3M15 17h3"/></svg>
       <span>寬＋高</span>
     </button>
-    <button class="tool wide" data-kind="dia" title="標圓的直徑；選群組時，每種大小的圓標一個">
-      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M5.4 14.6 14.6 5.4"/></svg>
-      <span>直徑 Ø</span>
-    </button>
-    <button class="tool wide" data-kind="rad" title="標圓弧、圓角的半徑；同樣大小的圓角標一個">
-      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M4 17v-7a6 6 0 0 1 6-6h7"/><path d="M10 10 6 6"/><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/></svg>
-      <span>半徑 R</span>
-    </button>
   </div>
 
   <div class="row mt">
@@ -210,13 +208,49 @@
   </div>
   <div class="row">
     <label for="dimOffset">距離</label>
-    <input type="number" id="dimOffset" min="0" step="1" value="12" title="尺寸線離物件的距離；直徑、半徑標不下時，引線拉出去的長度 (pt)">
-  </div>
-  <div class="row">
-    <label for="dimAngle">角度</label>
-    <input type="number" id="dimAngle" step="15" value="45" title="直徑、半徑標在哪個方向 (°)：0 = 右，90 = 上，45 = 右上。圓角也會挑最靠這個方向的角">
+    <input type="number" id="dimOffset" min="0" step="1" value="12" title="寬度、高度的尺寸線離物件的距離 (pt)">
   </div>
   <label class="check" title="選了好幾個物件時，每個物件各自標寬高；不勾 = 標它們合起來的外框"><input type="checkbox" id="dimEach">每個物件分別標寬高</label>
+  <label class="check" title="寬高量到線條的外緣（跟「變形」面板勾「使用預視邊界」一樣）；不勾 = 只量形狀，不含線寬"><input type="checkbox" id="dimVisible">寬高含線寬</label>
+
+  <details data-key="dimrad" open>
+    <summary>直徑・半徑</summary>
+    <div class="dim-tools" id="dimRadTools">
+      <button class="tool wide" data-kind="dia" title="標圓的直徑；選群組時，每種大小的圓標一個">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M5.4 14.6 14.6 5.4"/></svg>
+        <span>直徑 Ø</span>
+      </button>
+      <button class="tool wide" data-kind="rad" title="標圓弧、圓角的半徑；同樣大小的圓角標一個">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M4 17v-7a6 6 0 0 1 6-6h7"/><path d="M10 10 6 6"/><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/></svg>
+        <span>半徑 R</span>
+      </button>
+    </div>
+    <div class="row">
+      <label for="dimRadMode">標法</label>
+      <select id="dimRadMode" title="直徑、半徑怎麼標。已經標好的尺寸，按「樣式 → 同步全部」或「套用選取」改成新的標法">
+        <option value="leader" selected>引線拉到圓外</option>
+        <option value="through">穿過圓心拉出去</option>
+        <option value="inside">畫在圓裡面</option>
+        <option value="auto">自動（放得下就畫在圓裡）</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="dimAngle">角度</label>
+      <input type="number" id="dimAngle" step="15" value="45" title="直徑、半徑標在哪個方向 (°)：0 = 右，90 = 上，45 = 右上。圓角也會挑最靠這個方向的角（新增時決定）">
+    </div>
+    <div class="row">
+      <label for="dimLeader">引線</label>
+      <div class="pair">
+        <input type="number" id="dimLeader" min="0" step="1" value="12" title="引線從圓周往外拉多長 (pt)">
+        <select id="dimShelf" aria-label="引線末端" title="引線末端：轉一段水平線，文字站在線上或接在線後面；或不要水平線">
+          <option value="over">字在線上</option>
+          <option value="end">字在線後</option>
+          <option value="none">無橫線</option>
+        </select>
+      </div>
+    </div>
+    <label class="check" title="半徑畫在圓裡面或穿過圓心時，在圓心畫一個十字"><input type="checkbox" id="dimCenterMark" checked>半徑的圓心畫十字</label>
+  </details>
 
   <details data-key="dimnum" open>
     <summary>數字</summary>
@@ -244,15 +278,38 @@
       <input type="text" id="dimRatio" value="1:1" spellcheck="false" autocomplete="off"
              title="圖面比例：圖畫成實物的一半大 = 1:2，標出來的數字會乘 2">
     </div>
+    <div class="row">
+      <label for="dimDiaSym">符號</label>
+      <div class="pair">
+        <select id="dimDiaSym" title="直徑的符號（字體裡要有這個字）">
+          <option value="slash">&#xD8;20</option>
+          <option value="phi">&#x3C6;20</option>
+          <option value="sign">&#x2300;20</option>
+        </select>
+        <select id="dimCount" aria-label="數量" title="群組裡有好幾個一樣大的圓（或圓角）時，數字前面加上數量">
+          <option value="none">不標數量</option>
+          <option value="x">4&#xD7;&#xD8;3</option>
+          <option value="dash">4-&#xD8;3</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <label for="dimPrefix">前後綴</label>
+      <div class="pair">
+        <input type="text" id="dimPrefix" placeholder="前綴" spellcheck="false" autocomplete="off" title="加在數字前面的文字，例如「約」">
+        <input type="text" id="dimSuffix" placeholder="後綴 &#xB1;0.1" spellcheck="false" autocomplete="off" title="加在數字（和單位）後面的文字，例如公差 ±0.1、(參考)">
+      </div>
+    </div>
     <label class="check"><input type="checkbox" id="dimShowUnit" checked>數字後面加單位</label>
   </details>
 
   <details data-key="dimstyle">
     <summary>樣式</summary>
     <div class="grid2">
-      <button class="btn" id="btnDimSync" title="文件中所有尺寸套用目前的樣式和數字格式（位置不變）">同步全部</button>
+      <button class="btn" id="btnDimSync" title="文件中所有尺寸套用目前的樣式、數字格式和直徑半徑的標法（位置不變）">同步全部</button>
       <button class="btn" id="btnDimRestyle" title="只改選取的尺寸">套用選取</button>
     </div>
+    <label class="check" title="選取尺寸之後修改樣式、數字或標法，選取的尺寸馬上跟著改"><input type="checkbox" id="dimAutoApply">修改時自動套用到選取的尺寸</label>
 
     <div class="sub">文字</div>
     <div class="row">
@@ -284,8 +341,29 @@
       </select>
     </div>
     <div class="row">
-      <label for="dimTextGap">間距</label>
-      <input type="number" id="dimTextGap" min="0" step="0.5" value="2" title="文字離尺寸線的距離 (pt)">
+      <label for="dimTextPos">擺放</label>
+      <select id="dimTextPos" title="寬高和畫在圓裡面的直徑、半徑：文字放在尺寸線旁邊，或放在線的中間、把線斷開（放不下時放在旁邊）">
+        <option value="above">線的旁邊</option>
+        <option value="middle">線的中間（斷開）</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="dimTextGap">文字離線</label>
+      <input type="number" id="dimTextGap" min="0" step="0.5" value="2" title="文字放在線的旁邊時，文字跟尺寸線（引線的橫線）之間空多少 (pt)，從線的邊緣算">
+    </div>
+    <div class="row">
+      <label for="dimBreakGap">斷開留空</label>
+      <input type="number" id="dimBreakGap" min="0" step="0.5" value="2" title="文字放在線的中間時，文字兩邊跟斷開的線頭之間空多少 (pt)">
+    </div>
+    <div class="row">
+      <label for="dimTextBg">底色</label>
+      <div class="pair">
+        <select id="dimTextBg" title="文字後面墊一塊底色，標在產品圖、照片上也看得清楚">
+          <option value="none">無</option>
+          <option value="box">色塊</option>
+        </select>
+        <input type="color" id="dimTextBgColor" value="#ffffff" title="底色">
+      </div>
     </div>
 
     <div class="sub">線條</div>
@@ -301,15 +379,32 @@
       <div class="pair">
         <select id="dimEndStyle">
           <option value="arrow">箭頭</option>
+          <option value="open">開放箭頭</option>
           <option value="tick">斜線</option>
           <option value="dot">圓點</option>
           <option value="none">無</option>
         </select>
-        <input type="number" id="dimEndSize" min="0.5" step="0.5" value="4" title="箭頭長度 (pt)">
+        <input type="number" id="dimEndSize" min="0.5" step="0.5" value="4" title="端點大小：箭頭、斜線的長度 (pt)">
       </div>
     </div>
     <div class="row">
-      <label for="dimExtGap">延伸線</label>
+      <label for="dimArrowPos">箭頭位置</label>
+      <select id="dimArrowPos" title="寬高的箭頭（開放箭頭）放在延伸線內側往外指，或放在外側往內指">
+        <option value="auto">自動（放不下時放外側）</option>
+        <option value="inside">一律內側</option>
+        <option value="outside">一律外側</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="dimExtLine">延伸線</label>
+      <select id="dimExtLine" title="寬高的延伸線（從物件拉到尺寸線的線）">
+        <option value="same">跟尺寸線一樣粗</option>
+        <option value="thin">細一半</option>
+        <option value="none">不畫</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="dimExtGap">留空/超出</label>
       <div class="pair">
         <input type="number" id="dimExtGap" min="0" step="0.5" value="2" title="延伸線跟物件之間留的空隙 (pt)">
         <input type="number" id="dimExtOver" min="0" step="0.5" value="2" title="延伸線超出尺寸線的長度 (pt)">
@@ -457,6 +552,7 @@
       <input type="radio" name="scaleScope" value="all"><span id="scaleAllLabel">全部工作區</span>
     </label>
   </div>
+  <label class="check" title="縮放後，標註和尺寸分頁的樣式設定（字級、線寬、端點、間距、引線、距離⋯）乘上同一個比例，之後新增的標註、尺寸跟縮放後的一樣大，不用重新設定"><input type="checkbox" id="scaleStyles" checked>標註、尺寸的樣式設定也跟著縮放</label>
 
   <button class="add mt" id="btnScale" disabled>縮放</button>
   <p class="hint">物件、文字、線寬、效果和工作區一起等比縮放，看起來跟原本一樣，只有尺寸改變。</p>
