@@ -277,6 +277,23 @@ summary .count { font-weight: 400; color: var(--muted); }
 .scope .check span { overflow: hidden; text-overflow: ellipsis; }
 .hint { margin: 8px 0 0; color: var(--muted); }
 
+/* ---------- 尺寸分頁 ---------- */
+.dim-tools { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-bottom: 4px; }
+.tool {
+  grid-column: span 2;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  height: 46px; padding: 0;
+  background: var(--field); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 4px;
+  font: inherit; cursor: pointer;
+}
+.tool.wide { grid-column: span 3; flex-direction: row; gap: 6px; height: 32px; }
+.tool:hover { border-color: var(--accent); color: var(--accent); }
+.tool:active { background: var(--hover); }
+.tool svg { width: 20px; height: 20px; display: block; flex: none; }
+.dim-tools.busy .tool { opacity: .5; pointer-events: none; }
+input.invalid { border-color: var(--error); }
+
 /* ---------- 狀態列 ---------- */
 .status {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;

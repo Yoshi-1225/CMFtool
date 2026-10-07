@@ -1,10 +1,11 @@
 /*
- * CMF Callout - Illustrator ExtendScript 核心
+ * CMF Callout - Illustrator ExtendScript 核心：標註、尺寸、縮放
  * 對外函式接收 JSON 字串、回傳 JSON 字串：{"ok":true,"msg":"...","next":5,"state":"done"}
  * 注意：ExtendScript 是 ES3，沒有 JSON / let / 箭頭函式 / Array.indexOf
  *
  * 每個標註是一個群組，備註（note）存著：CMF_CALLOUT|編號|k=對應的物件名稱|樣式 JSON
  * 「k=」那一段只有對應過 Excel 清單的物件才有，名稱用 encodeURIComponent 編碼。
+ * 尺寸也是群組，備註存著：CMF_DIM|幾何 JSON|樣式 JSON（見「尺寸標註」）
  */
 $.global.CMF = (function () {
     var LAYER_NAME = "CMF Callouts";
@@ -51,10 +52,12 @@ $.global.CMF = (function () {
         return rgb;
     }
 
-    function getLayer(d, create) {
+    // name 省略 = 標註圖層
+    function getLayer(d, create, name) {
         var L = null;
-        try { L = d.layers.getByName(LAYER_NAME); } catch (e) { L = null; }
-        if (!L && create) { L = d.layers.add(); L.name = LAYER_NAME; }
+        name = name || LAYER_NAME;
+        try { L = d.layers.getByName(name); } catch (e) { L = null; }
+        if (!L && create) { L = d.layers.add(); L.name = name; }
         if (L && create) { L.locked = false; L.visible = true; }
         return L;
     }
@@ -996,9 +999,11 @@ $.global.CMF = (function () {
                 for (i = 0; i < units.length; i++) if (inScope(units[i])) keep.push(units[i]);
                 units = keep;
             }
-            // 先判斷標註在不在範圍內（縮放後位置就變了）
+            // 先判斷標註、尺寸在不在範圍內（縮放後位置就變了）
             var callouts = allCallouts(d), scaledCallouts = [];
             for (i = 0; i < callouts.length; i++) if (inScope(topItem(callouts[i]))) scaledCallouts.push(callouts[i]);
+            var dims = allDims(d), scaledDims = [];
+            for (i = 0; i < dims.length; i++) if (inScope(topItem(dims[i]))) scaledDims.push(dims[i]);
 
             var done = [];
             for (i = 0; i < boards.length; i++) {
@@ -1018,6 +1023,10 @@ $.global.CMF = (function () {
             }
             for (i = 0; i < scaledCallouts.length; i++) {
                 try { scaleNote(scaledCallouts[i], s); } catch (eN) {}
+            }
+            // 尺寸重建：數字改成縮放後的尺寸，字級、線寬跟著縮放
+            for (i = 0; i < scaledDims.length; i++) {
+                try { rebuildDim(d, scaledDims[i], scaleDimStyle(dimNote(scaledDims[i]).style, s)); } catch (eD) {}
             }
 
             // 畫面跟著縮放，看起來跟縮放前一樣
@@ -1049,6 +1058,614 @@ $.global.CMF = (function () {
             for (i = 0; i < prefs.length; i++) { try { app.preferences.setBooleanPreference(prefs[i][0], prefs[i][1]); } catch (eP) {} }
             restoreCoords(coords);
         }
+    }
+
+    // ---------- 尺寸標註 ----------
+    // 選取物件後標寬度、高度（外框尺寸），或圓的直徑 Ø、圓弧和圓角的半徑 R。
+    // 每個尺寸是一個群組，放在「CMF Dimensions」圖層，備註存著：CMF_DIM|幾何 JSON|樣式 JSON
+    //   寬高：{ t:"lin", p1, p2 量測點（延伸線起點）, a 量測方向, n 尺寸線在哪一側, off 尺寸線離量測點的距離 }
+    //   直徑、半徑：{ t:"dia" | "rad", c 圓心, r 半徑, u 標註方向（圓心 → 箭頭指的點）, off 引線長度, out = 1 一律用引線 }
+    //   ref：建立時 DIM_Line 頭尾兩個錨點的位置
+    // 重建時比對 DIM_Line 現在的位置，算出尺寸被移動、等比縮放、旋轉了多少，套用到記錄的點上，
+    // 所以搬過的尺寸重建後還在原地，縮放整份文件後數字也會跟著變。
+    var DIM_LAYER = "CMF Dimensions";
+    var DIM_TAG = "CMF_DIM";
+    var DIM_UNITS = { mm: ["mm", 72 / 25.4], cm: ["cm", 72 / 2.54], "in": ["in", 72], pt: ["pt", 1], px: ["px", 1] };
+    var DIA = "\u00D8";
+    var MAX_SEGS = 4000;  // 找圓弧時最多看幾段曲線，避免複雜的圖跑太久
+    var MAX_ARCS = 20;    // 一個物件最多標幾種半徑
+
+    function isDim(it) {
+        return it && it.typename === "GroupItem" && it.note && String(it.note).indexOf(DIM_TAG + "|") === 0;
+    }
+
+    function allDims(d) {
+        var out = [], gs = d.groupItems;
+        for (var i = 0; i < gs.length; i++) if (isDim(gs[i])) out.push(gs[i]);
+        return out;
+    }
+
+    // 往上找第一個符合 test 的群組（自己也算）
+    function ownerOf(it, test) {
+        while (it && it.typename !== "Layer" && it.typename !== "Document") {
+            if (test(it)) return it;
+            it = it.parent;
+        }
+        return null;
+    }
+
+    function selectedDims(d) {
+        var out = [], items = selectedItems(d);
+        for (var i = 0; i < items.length; i++) {
+            var g = ownerOf(items[i], isDim);
+            if (g && !contains(out, g)) out.push(g);
+        }
+        return out;
+    }
+
+    // 要量的物件：選取中扣掉尺寸和標註
+    function measuredItems(d) {
+        var out = [], items = selectedItems(d);
+        for (var i = 0; i < items.length; i++) {
+            if (!ownerOf(items[i], isDim) && !ownerOf(items[i], isCallout)) out.push(items[i]);
+        }
+        return out;
+    }
+
+    function dimNote(g) {
+        var s = String(g.note), i = s.indexOf("|"), j = s.indexOf("|", i + 1);
+        return { geom: s.substring(i + 1, j), style: s.substring(j + 1) };
+    }
+
+    // ---- 向量 ----
+    function vsub(p, q) { return [p[0] - q[0], p[1] - q[1]]; }
+    function vdot(p, q) { return p[0] * q[0] + p[1] * q[1]; }
+    function vlen(p) { return Math.sqrt(p[0] * p[0] + p[1] * p[1]); }
+    function along(p, u, s) { return [p[0] + u[0] * s, p[1] + u[1] * s]; }
+    function dirOf(deg) { var a = deg * Math.PI / 180; return [Math.cos(a), Math.sin(a)]; }
+
+    // 線的方向 → 文字角度：(-90°, 90°]，文字由左往右、由下往上讀
+    function readAngle(u) {
+        var a = Math.atan2(u[1], u[0]) * 180 / Math.PI;
+        if (a > 90.01) a -= 180;
+        else if (a <= -89.99) a += 180;
+        return a;
+    }
+
+    // ---- 數字 ----
+    // 小數最多 dec 位，去掉尾數的 0
+    function fmtNum(v, dec) {
+        var s = v.toFixed(dec);
+        if (s.indexOf(".") >= 0) s = s.replace(/0+$/, "").replace(/\.$/, "");
+        return s === "-0" ? "0" : s;
+    }
+
+    // 圖面比例 1:2 → 實際尺寸 = 圖上尺寸 × 2；只寫一個數字 n = 1:n
+    function ratioOf(text) {
+        var m = /^\s*(\d*\.?\d+)\s*[:\uFF1A\/]\s*(\d*\.?\d+)\s*$/.exec(String(text || ""));
+        if (m) {
+            var a = parseFloat(m[1]), b = parseFloat(m[2]);
+            return a > 0 && b > 0 ? b / a : 1;
+        }
+        var n = parseFloat(text);
+        return n > 0 ? n : 1;
+    }
+
+    // 圖上長度（腳本座標）→ 標示的文字
+    function dimLabel(d, st, len, prefix) {
+        var u = st.unit === "doc" || !DIM_UNITS[st.unit] ? docUnit(d) : DIM_UNITS[st.unit];
+        var dec = Math.max(0, Math.min(4, parseInt(st.decimals, 10) || 0));
+        var v = len * docScaleFactor(d) * ratioOf(st.ratio) / u[1];
+        return (prefix || "") + fmtNum(v, dec) + (st.showUnit ? u[0] : "");
+    }
+
+    // ---- 畫 ----
+    function dimPath(g, pts, st, col, name) {
+        var p = g.pathItems.add();
+        p.setEntirePath(pts);
+        p.name = name;
+        p.filled = false;
+        p.stroked = true;
+        p.strokeColor = col;
+        p.strokeWidth = Number(st.lineWidth);
+        p.strokeDashes = [];
+        p.strokeCap = StrokeCap.BUTTENDCAP;
+        p.strokeJoin = StrokeJoin.MITERENDJOIN;
+        return p;
+    }
+
+    // 端點：tip 是尖端，u 是指向尖端的方向（斜線用尺寸線的方向）
+    function dimEnd(g, tip, u, st, col, kind) {
+        var L = Number(st.endSize);
+        if (!(L > 0) || kind === "none") return;
+        if (kind === "dot") {
+            var r = L * 0.3;
+            var dot = g.pathItems.ellipse(tip[1] + r, tip[0] - r, r * 2, r * 2);
+            dot.name = "DIM_End";
+            dot.stroked = false; dot.filled = true; dot.fillColor = col;
+        } else if (kind === "tick") {
+            // 建築圖的斜線：跟尺寸線夾 45°
+            var v = [(u[0] - u[1]) * Math.SQRT1_2, (u[0] + u[1]) * Math.SQRT1_2];
+            var tk = dimPath(g, [along(tip, v, -L / 2), along(tip, v, L / 2)], st, col, "DIM_End");
+            tk.strokeWidth = Number(st.lineWidth) * 2;
+        } else {
+            var hw = L * 0.18, B = along(tip, u, -L), px = -u[1] * hw, py = u[0] * hw;
+            var tri = g.pathItems.add();
+            tri.setEntirePath([[tip[0], tip[1]], [B[0] + px, B[1] + py], [B[0] - px, B[1] - py]]);
+            tri.closed = true;
+            tri.name = "DIM_End";
+            tri.stroked = false; tri.filled = true; tri.fillColor = col;
+        }
+    }
+
+    // 建立文字，量好字形的大小（還沒旋轉）：hw 半寬、hh 半高
+    function dimText(d, g, label, st) {
+        var t = g.textFrames.add();
+        t.name = "DIM_Text";
+        t.contents = label;
+        var ca = t.textRange.characterAttributes;
+        ca.size = Number(st.fontSize);
+        if (st.fontName) {
+            try { ca.textFont = app.textFonts.getByName(st.fontName); } catch (e) { /* 找不到字體就用預設 */ }
+        }
+        ca.fillColor = hexToColor(st.textColor, d);
+        t.textRange.paragraphAttributes.justification = Justification.CENTER;
+        var b = glyphBounds(t);
+        return { t: t, b: b, hw: (b[2] - b[0]) / 2, hh: (b[1] - b[3]) / 2 };
+    }
+
+    // 文字放在 mid 的 n 那一側、離線 gap；aligned = 沿著線（文字跟 n 垂直）
+    function textCenter(mid, n, tx, aligned, gap) {
+        var ext = aligned ? tx.hh : tx.hw * Math.abs(n[0]) + tx.hh * Math.abs(n[1]);
+        return along(mid, n, gap + ext);
+    }
+
+    // 旋轉後重新量字形，把字形中心移到 c
+    function placeText(tx, c, angle) {
+        var b = tx.b;
+        if (Math.abs(angle) > 0.01) {
+            tx.t.rotate(angle);
+            b = glyphBounds(tx.t);
+        }
+        tx.t.translate(c[0] - (b[0] + b[2]) / 2, c[1] - (b[1] + b[3]) / 2);
+    }
+
+    // 寬度、高度：回傳 DIM_Line
+    function buildLinear(d, g, gm, st) {
+        var a = gm.a, n = gm.n, col = hexToColor(st.lineColor, d), i;
+        var L = Number(st.endSize), kind = st.endStyle, gapE = Number(st.extGap), over = Number(st.extOver);
+        var level = Math.max(vdot(gm.p1, n), vdot(gm.p2, n)) + Number(gm.off);
+        var P = [gm.p1, gm.p2], Q = [];
+        for (i = 0; i < 2; i++) {
+            var dist = level - vdot(P[i], n);
+            Q.push(along(P[i], n, dist));
+            if (dist - gapE > 0.1) dimPath(g, [along(P[i], n, gapE), along(Q[i], n, over)], st, col, "DIM_Ext");
+        }
+        if (vdot(vsub(Q[1], Q[0]), a) < 0) Q.reverse();
+        var Q1 = Q[0], Q2 = Q[1], len = vlen(vsub(Q2, Q1));
+
+        // 箭頭放不下時改放在延伸線外面，往內指
+        var inside = len >= L * 2.6, pts;
+        if (kind === "arrow") pts = inside ? [along(Q1, a, L * 0.9), along(Q2, a, -L * 0.9)] : [along(Q1, a, -L * 2.2), along(Q2, a, L * 2.2)];
+        else if (kind === "tick") pts = [along(Q1, a, -L * 0.6), along(Q2, a, L * 0.6)];
+        else pts = [Q1, Q2];
+        var line = dimPath(g, pts, st, col, "DIM_Line");
+        if (kind === "tick") {
+            dimEnd(g, Q1, a, st, col, kind);
+            dimEnd(g, Q2, a, st, col, kind);
+        } else {
+            var s = kind === "arrow" && !inside ? 1 : -1;
+            dimEnd(g, Q1, [a[0] * s, a[1] * s], st, col, kind);
+            dimEnd(g, Q2, [-a[0] * s, -a[1] * s], st, col, kind);
+        }
+
+        var tx = dimText(d, g, dimLabel(d, st, len), st), aligned = st.textAlign !== "horizontal";
+        var mid = [(Q1[0] + Q2[0]) / 2, (Q1[1] + Q2[1]) / 2];
+        placeText(tx, textCenter(mid, n, tx, aligned, Number(st.textGap)), aligned ? readAngle(a) : 0);
+        return line;
+    }
+
+    // 直徑、半徑：放得下就畫在圓裡面，放不下就用引線拉到外面
+    function buildRadial(d, g, gm, st) {
+        var c = gm.c, r = gm.r, u = gm.u, dia = gm.t === "dia", col = hexToColor(st.lineColor, d);
+        var L = Number(st.endSize), kind = st.endStyle === "tick" ? "arrow" : st.endStyle, gap = Number(st.textGap);
+        var tx = dimText(d, g, dimLabel(d, st, dia ? r * 2 : r, dia ? DIA : "R"), st);
+        var aligned = st.textAlign !== "horizontal";
+        var span = aligned ? tx.hw * 2 : 2 * (tx.hw * Math.abs(u[0]) + tx.hh * Math.abs(u[1]));
+        var endRoom = kind === "none" ? 0 : L * 1.2, arm = Math.max(L * 0.6, Number(st.lineWidth) * 3);
+        var M = along(c, u, r), line, ang, up;
+        var inside = !gm.out && (dia ? r * 2 >= span + endRoom * 2 + gap * 4 : r >= span + endRoom + arm + gap * 3);
+
+        if (inside) {
+            ang = readAngle(u);
+            up = dirOf(ang + 90);
+            if (dia) {
+                var M1 = along(c, u, -r);
+                line = dimPath(g, kind === "arrow" ? [along(M1, u, L * 0.9), along(M, u, -L * 0.9)] : [M1, M], st, col, "DIM_Line");
+                dimEnd(g, M1, [-u[0], -u[1]], st, col, kind);
+                dimEnd(g, M, u, st, col, kind);
+                placeText(tx, textCenter(c, up, tx, aligned, gap), aligned ? ang : 0);
+            } else {
+                line = dimPath(g, [[c[0], c[1]], kind === "arrow" ? along(M, u, -L * 0.9) : M], st, col, "DIM_Line");
+                dimEnd(g, M, u, st, col, kind);
+                // 圓心十字
+                dimPath(g, [[c[0] - arm, c[1]], [c[0] + arm, c[1]]], st, col, "DIM_Center");
+                dimPath(g, [[c[0], c[1] - arm], [c[0], c[1] + arm]], st, col, "DIM_Center");
+                placeText(tx, textCenter(along(c, u, (r - endRoom + arm) / 2), up, tx, aligned, gap), aligned ? ang : 0);
+            }
+        } else {
+            // 引線：箭頭從外面指向圓心，往外拉 off 之後轉水平，文字放在水平線上
+            var K = along(M, u, Math.max(Number(gm.off), L * 1.5));
+            var sx = u[0] < -0.0001 ? -1 : 1, shelf = tx.hw * 2 + gap * 2;
+            var S = [K[0] + sx * shelf, K[1]];
+            line = dimPath(g, [kind === "arrow" ? along(M, u, L * 0.9) : M, K, S], st, col, "DIM_Line");
+            dimEnd(g, M, [-u[0], -u[1]], st, col, kind);
+            placeText(tx, [K[0] + sx * shelf / 2, K[1] + gap + tx.hh], 0);
+        }
+        return line;
+    }
+
+    function ptStr(p) { return "[" + jsonNum(p[0]) + "," + jsonNum(p[1]) + "]"; }
+
+    function geomStr(gm) {
+        var s = '{"t":"' + gm.t + '"';
+        if (gm.t === "lin") s += ',"p1":' + ptStr(gm.p1) + ',"p2":' + ptStr(gm.p2) + ',"a":' + ptStr(gm.a) + ',"n":' + ptStr(gm.n);
+        else s += ',"c":' + ptStr(gm.c) + ',"r":' + jsonNum(gm.r) + ',"u":' + ptStr(gm.u) + (gm.out ? ',"out":1' : "");
+        return s + ',"off":' + jsonNum(gm.off) + ',"ref":[' + ptStr(gm.ref[0]) + "," + ptStr(gm.ref[1]) + "]}";
+    }
+
+    function buildDim(d, container, gm, styleStr) {
+        var st = parse(styleStr), g = container.groupItems.add(), line;
+        try {
+            line = gm.t === "lin" ? buildLinear(d, g, gm, st) : buildRadial(d, g, gm, st);
+        } catch (e) {
+            try { g.remove(); } catch (e2) {}
+            throw e;
+        }
+        var pts = line.pathPoints, a = pts[0].anchor, b = pts[pts.length - 1].anchor;
+        gm.ref = [[a[0], a[1]], [b[0], b[1]]];
+        g.note = DIM_TAG + "|" + geomStr(gm) + "|" + styleStr;
+        g.name = "尺寸 " + findChild(g, "DIM_Text").contents;
+        return g;
+    }
+
+    // 兩組對應點 → 相似變換（移動、等比縮放、旋轉）：p' = k·p + b，用複數乘法
+    function similarity(r0, r1, c0, c1) {
+        var dx = r1[0] - r0[0], dy = r1[1] - r0[1], ex = c1[0] - c0[0], ey = c1[1] - c0[1];
+        var dd = dx * dx + dy * dy;
+        if (dd < 1e-12 || ex * ex + ey * ey < 1e-12) return null;
+        var kr = (ex * dx + ey * dy) / dd, ki = (ey * dx - ex * dy) / dd;
+        return { kr: kr, ki: ki, s: Math.sqrt(kr * kr + ki * ki),
+            bx: c0[0] - (kr * r0[0] - ki * r0[1]), by: c0[1] - (ki * r0[0] + kr * r0[1]) };
+    }
+
+    function simPt(T, p) { return [T.kr * p[0] - T.ki * p[1] + T.bx, T.ki * p[0] + T.kr * p[1] + T.by]; }
+    function simDir(T, v) { return [(T.kr * v[0] - T.ki * v[1]) / T.s, (T.ki * v[0] + T.kr * v[1]) / T.s]; }
+
+    function simGeom(gm, T) {
+        var o = { t: gm.t, off: gm.off * T.s };
+        if (gm.t === "lin") {
+            o.p1 = simPt(T, gm.p1); o.p2 = simPt(T, gm.p2); o.a = simDir(T, gm.a); o.n = simDir(T, gm.n);
+        } else {
+            o.c = simPt(T, gm.c); o.r = gm.r * T.s; o.u = simDir(T, gm.u); o.out = gm.out;
+        }
+        return o;
+    }
+
+    // 用尺寸自己的記錄重建；styleStr 省略 = 原本的樣式
+    function rebuildDim(d, g, styleStr) {
+        var p = dimNote(g), gm = parse(p.geom), line = findChild(g, "DIM_Line");
+        if (!line || !gm.ref) return null;
+        var pts = line.pathPoints;
+        var T = similarity(gm.ref[0], gm.ref[1], pts[0].anchor, pts[pts.length - 1].anchor);
+        if (T) gm = simGeom(gm, T);
+        var L = g.layer;
+        L.locked = false;
+        L.visible = true; // 隱藏圖層中的物件無法修改
+        try { g.locked = false; } catch (e) {}
+        var ng = buildDim(d, L, gm, styleStr || p.style);
+        ng.move(g, ElementPlacement.PLACEBEFORE); // 留在原本的位置（圖層、群組、上下順序）
+        g.remove();
+        return ng;
+    }
+
+    // 縮放整份文件時，尺寸的字級、線寬等也跟著縮放
+    function scaleDimStyle(style, s) {
+        var re = /"(fontSize|lineWidth|endSize|extGap|extOver|textGap)"\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)/g;
+        return style.replace(re, function (m, k, v) {
+            return '"' + k + '":' + Math.round(Number(v) * s * 10000) / 10000;
+        });
+    }
+
+    // ---- 寬高 ----
+    // b = [左, 上, 右, 下]；寬度標在上方或下方，高度標在右側或左側
+    function linGeom(b, side, off) {
+        if (side === "bottom") return { t: "lin", p1: [b[0], b[3]], p2: [b[2], b[3]], a: [1, 0], n: [0, -1], off: off };
+        if (side === "left") return { t: "lin", p1: [b[0], b[3]], p2: [b[0], b[1]], a: [0, 1], n: [-1, 0], off: off };
+        if (side === "right") return { t: "lin", p1: [b[2], b[3]], p2: [b[2], b[1]], a: [0, 1], n: [1, 0], off: off };
+        return { t: "lin", p1: [b[0], b[1]], p2: [b[2], b[1]], a: [1, 0], n: [0, 1], off: off };
+    }
+
+    // ---- 找圓弧 ----
+    function bezPt(p0, p1, p2, p3, t) {
+        var m = 1 - t, a = m * m * m, b = 3 * m * m * t, c = 3 * m * t * t, e = t * t * t;
+        return [a * p0[0] + b * p1[0] + c * p2[0] + e * p3[0], a * p0[1] + b * p1[1] + c * p2[1] + e * p3[1]];
+    }
+
+    // 通過三點的圓；三點共線 = null
+    function circle3(a, b, c) {
+        var bx = b[0] - a[0], by = b[1] - a[1], cx = c[0] - a[0], cy = c[1] - a[1];
+        var dd = 2 * (bx * cy - by * cx);
+        if (Math.abs(dd) < 1e-9) return null;
+        var b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+        var ux = (cy * b2 - by * c2) / dd, uy = (bx * c2 - cx * b2) / dd;
+        return { c: [a[0] + ux, a[1] + uy], r: Math.sqrt(ux * ux + uy * uy) };
+    }
+
+    function arcTol(r) { return Math.max(0.02, r * 0.004); }
+
+    function wrapAngle(a) {
+        while (a < 0) a += Math.PI * 2;
+        while (a >= Math.PI * 2) a -= Math.PI * 2;
+        return a;
+    }
+
+    // 一段曲線是圓弧時回傳 { c, r, a0, sw }：a0 起點角度，sw 掃過的角度（弧度，逆時針為正）
+    function segArc(p0, p1, p2, p3) {
+        if (vlen(vsub(p3, p0)) < 0.01) return null;
+        if (vlen(vsub(p1, p0)) < 0.0001 && vlen(vsub(p2, p3)) < 0.0001) return null; // 直線
+        var m = bezPt(p0, p1, p2, p3, 0.5), k = circle3(p0, m, p3);
+        if (!k || k.r > 100000) return null;
+        var tol = arcTol(k.r);
+        for (var t = 0.125; t < 1; t += 0.25) {
+            if (Math.abs(vlen(vsub(bezPt(p0, p1, p2, p3, t), k.c)) - k.r) > tol) return null;
+        }
+        var a0 = Math.atan2(p0[1] - k.c[1], p0[0] - k.c[0]), a1 = Math.atan2(p3[1] - k.c[1], p3[0] - k.c[0]);
+        var ccw = (p0[0] - k.c[0]) * (m[1] - k.c[1]) - (p0[1] - k.c[1]) * (m[0] - k.c[0]) > 0;
+        return { c: k.c, r: k.r, a0: a0, sw: ccw ? wrapAngle(a1 - a0) : -wrapAngle(a0 - a1) };
+    }
+
+    function sameCircle(p, q) {
+        var tol = Math.max(0.05, Math.max(p.r, q.r) * 0.005);
+        return Math.abs(p.r - q.r) <= tol && vlen(vsub(p.c, q.c)) <= tol;
+    }
+
+    // 直接選取工具：這一段被選到了嗎（起點的右側、終點的左側）
+    function segSelected(s0, s1) {
+        var A = PathPointSelection.ANCHORPOINT, LR = PathPointSelection.LEFTRIGHTDIRECTION;
+        return (s0 == A || s0 == LR || s0 == PathPointSelection.RIGHTDIRECTION) &&
+            (s1 == A || s1 == LR || s1 == PathPointSelection.LEFTDIRECTION);
+    }
+
+    // 路徑上的圓弧：相鄰、同一個圓的段落合併成一個弧
+    // useSel：路徑本身被直接選取時，只看選到的段落
+    function pathArcs(p, useSel, budget) {
+        var pts = p.pathPoints, n = pts.length, i, out = [];
+        if (n < 2) return out;
+        var cnt = p.closed ? n : n - 1;
+        if (budget.n + cnt > MAX_SEGS) { budget.over = true; return out; }
+        budget.n += cnt;
+
+        var data = [], sel = [], partial = false, any = false, NONE = PathPointSelection.NOSELECTION;
+        for (i = 0; i < n; i++) {
+            var q = pts[i];
+            data.push([q.anchor, q.leftDirection, q.rightDirection]);
+            if (useSel) {
+                var s = q.selected;
+                sel.push(s);
+                if (s != PathPointSelection.ANCHORPOINT) partial = true;
+                if (s != NONE) any = true;
+            }
+        }
+        var use = [];
+        for (i = 0; i < cnt; i++) use.push(true);
+        partial = partial && any;
+        if (partial) {
+            var hit = false;
+            for (i = 0; i < cnt; i++) { use[i] = segSelected(sel[i], sel[(i + 1) % n]); if (use[i]) hit = true; }
+            // 只點了錨點：用跟它相連的段落
+            if (!hit) for (i = 0; i < cnt; i++) use[i] = sel[i] != NONE || sel[(i + 1) % n] != NONE;
+        }
+
+        var cur = null;
+        for (i = 0; i < cnt; i++) {
+            var A = data[i], B = data[(i + 1) % n];
+            var arc = use[i] ? segArc(A[0], A[2], B[1], B[0]) : null;
+            if (arc && cur && cur.last === i - 1 && sameCircle(cur, arc) && (cur.sw > 0) === (arc.sw > 0)) {
+                cur.sw += arc.sw;
+                cur.last = i;
+            } else if (arc) {
+                cur = { c: arc.c, r: arc.r, a0: arc.a0, sw: arc.sw, first: i, last: i, sel: partial };
+                out.push(cur);
+            } else {
+                cur = null;
+            }
+        }
+        // 封閉路徑：最後一個弧接回第一個
+        if (p.closed && out.length > 1) {
+            var f = out[0], l = out[out.length - 1];
+            if (f.first === 0 && l.last === cnt - 1 && sameCircle(f, l) && (f.sw > 0) === (l.sw > 0)) {
+                l.sw += f.sw;
+                out.shift();
+            }
+        }
+        for (i = 0; i < out.length; i++) {
+            out[i].full = Math.abs(out[i].sw) >= Math.PI * 2 - 0.05;
+            if (out[i].full) out[i].sw = out[i].sw > 0 ? Math.PI * 2 : -Math.PI * 2;
+        }
+        return out;
+    }
+
+    function collectPaths(it, out) {
+        var t = it.typename, i;
+        if (t === "PathItem") out.push(it);
+        else if (t === "CompoundPathItem") for (i = 0; i < it.pathItems.length; i++) out.push(it.pathItems[i]);
+        else if (t === "GroupItem") for (i = 0; i < it.pageItems.length; i++) collectPaths(it.pageItems[i], out);
+    }
+
+    function itemArcs(it, budget) {
+        var paths = [], out = [], i, k;
+        collectPaths(it, paths);
+        for (i = 0; i < paths.length && !budget.over; i++) {
+            var arcs = pathArcs(paths[i], paths[i] === it, budget);
+            for (k = 0; k < arcs.length; k++) out.push(arcs[k]);
+        }
+        return out;
+    }
+
+    function rotDir(u, deg) {
+        var a = deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+        return [u[0] * c - u[1] * s, u[0] * s + u[1] * c];
+    }
+
+    // 標註方向：整圓用指定的角度，圓弧用弧的中間
+    // 直徑標半圓以上的弧時，線跟弧的中間垂直，兩端才都落在弧上（選靠近指定角度的那一邊）
+    function arcDir(arc, angle, dia) {
+        if (arc.full) return dirOf(angle);
+        var m = arc.a0 + arc.sw / 2, u = [Math.cos(m), Math.sin(m)];
+        if (dia && Math.abs(arc.sw) >= Math.PI - 0.05) {
+            var p = [-u[1], u[0]];
+            return vdot(p, dirOf(angle)) >= 0 ? p : [u[1], -u[0]];
+        }
+        return u;
+    }
+
+    // 一個物件要標的圓弧：同樣大小只標一個，挑物件上最靠「角度」那一側的（45° = 右上角）
+    // 直徑只看整圓、半圓以上的弧和直接選取的弧；半徑看全部
+    function pickArcs(arcs, dia, b, angle) {
+        var picks = [], i, k, want = dirOf(angle);
+        var cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+        var W = Math.max(b[2] - b[0], 0.001), H = Math.max(b[1] - b[3], 0.001);
+        for (i = 0; i < arcs.length; i++) {
+            var a = arcs[i];
+            if (dia && !a.full && !a.sel && Math.abs(a.sw) < Math.PI - 0.05) continue;
+            var u = arcDir(a, angle, dia), M = along(a.c, u, a.r);
+            var cand = { c: a.c, r: a.r, u: u, score: vdot([(M[0] - cx) / W, (M[1] - cy) / H], want) }, same = -1;
+            for (k = 0; k < picks.length; k++) {
+                if (Math.abs(picks[k].r - a.r) <= Math.max(0.05, a.r * 0.005)) { same = k; break; }
+            }
+            if (same < 0) { if (picks.length < MAX_ARCS) picks.push(cand); }
+            else if (cand.score > picks[same].score + 1e-6) picks[same] = cand;
+        }
+        picks.sort(function (p, q) { return q.r - p.r; });
+        return picks;
+    }
+
+    // ---- 對外 ----
+    // o = { kind: "w" | "h" | "wh" | "dia" | "rad", offset, wSide, hSide, angle, each, style: 樣式 JSON 字串 }
+    function dimAdd(optStr) {
+        try {
+            var d = getDoc(), o = parse(optStr), kind = o.kind, i, j;
+            var items = measuredItems(d), off = Number(o.offset) || 0, made = [], zero = 0;
+            if (!items.length) {
+                return res(false, selectedItems(d).length ? "選取的是尺寸或標註，請選取要量的物件" : "請先選取要標尺寸的物件");
+            }
+            var layer = getLayer(d, true, DIM_LAYER);
+            if (kind === "w" || kind === "h" || kind === "wh") {
+                var sets = [];
+                if (o.each) { for (i = 0; i < items.length; i++) sets.push([items[i]]); }
+                else sets.push(items);
+                for (i = 0; i < sets.length; i++) {
+                    var b = unionBounds(sets[i], false);
+                    if (kind !== "h") {
+                        if (b[2] - b[0] > 0.001) made.push(buildDim(d, layer, linGeom(b, o.wSide === "bottom" ? "bottom" : "top", off), o.style));
+                        else zero++;
+                    }
+                    if (kind !== "w") {
+                        if (b[1] - b[3] > 0.001) made.push(buildDim(d, layer, linGeom(b, o.hSide === "left" ? "left" : "right", off), o.style));
+                        else zero++;
+                    }
+                }
+                if (!made.length) return res(false, "選取的物件" + (kind === "h" ? "高度" : "寬度") + "是 0");
+            } else {
+                var dia = kind === "dia", budget = { n: 0, over: false }, angle = Number(o.angle) || 0;
+                for (i = 0; i < items.length; i++) {
+                    var picks = pickArcs(itemArcs(items[i], budget), dia, boundsOf(items[i], false), angle);
+                    for (j = 0; j < picks.length; j++) {
+                        var pk = picks[j], gm = { t: dia ? "dia" : "rad", c: pk.c, r: pk.r, u: pk.u, off: off };
+                        // 同心圓（例如圓環的內外圈）：最大的照常標，小的轉 45°、用引線拉到最外圈外面，文字才不會疊在一起
+                        var inner = 0, outerR = pk.r;
+                        for (var k = 0; k < j; k++) {
+                            if (vlen(vsub(picks[k].c, pk.c)) <= Math.max(0.05, pk.r * 0.005)) { inner++; outerR = Math.max(outerR, picks[k].r); }
+                        }
+                        if (inner) { gm.u = rotDir(pk.u, -45 * inner); gm.out = 1; gm.off = off + outerR - pk.r; }
+                        made.push(buildDim(d, layer, gm, o.style));
+                    }
+                }
+                if (!made.length) {
+                    if (budget.over) return res(false, "選取的物件太複雜，請只選要標的圓或圓弧");
+                    return res(false, dia ? "選取的物件裡沒有圓（圓角請用「半徑 R」）" : "選取的物件裡沒有圓弧或圓角");
+                }
+            }
+            var names = [];
+            for (i = 0; i < made.length && i < 4; i++) names.push(findChild(made[i], "DIM_Text").contents);
+            var msg = "已標註 " + names.join("、") + (made.length > 4 ? " 等 " + made.length + " 個尺寸" : "");
+            if (zero) msg += "（" + zero + " 個是 0，沒有標）";
+            if (budget && budget.over) msg += "（圖太複雜，只找了一部分的圓弧）";
+            return res(true, msg);
+        } catch (e) { return res(false, e.message); }
+    }
+
+    // 面板顯示用：選取物件合起來的寬高（pt）、文件單位
+    function dimInfo() {
+        try {
+            if (app.documents.length === 0) return '{"ok":true,"doc":false}';
+            var d = app.activeDocument, u = docUnit(d), f = docScaleFactor(d), items = measuredItems(d);
+            var out = '{"ok":true,"doc":true,"sel":' + items.length + ',"docUnit":"' + u[0] + '","docUnitPt":' + jsonNum(u[1]);
+            if (items.length) {
+                var b = unionBounds(items, false);
+                out += ',"w":' + jsonNum((b[2] - b[0]) * f) + ',"h":' + jsonNum((b[1] - b[3]) * f);
+            }
+            return out + "}";
+        } catch (e) { return res(false, e.message); }
+    }
+
+    function rebuildDims(d, gs, styleStr) {
+        var made = [], failed = 0;
+        for (var i = 0; i < gs.length; i++) {
+            var ng = null;
+            try { ng = rebuildDim(d, gs[i], styleStr); } catch (e) {}
+            if (ng) made.push(ng); else failed++;
+        }
+        return { made: made, failed: failed };
+    }
+
+    // 文件中所有尺寸套用目前樣式（位置不變）
+    function dimSync(styleStr) {
+        try {
+            var d = getDoc(), gs = allDims(d);
+            if (gs.length === 0) return res(true, "文件中沒有尺寸");
+            var r = rebuildDims(d, gs, styleStr);
+            return res(true, "已同步 " + r.made.length + " 個尺寸的樣式" + (r.failed ? "（" + r.failed + " 個無法更新）" : ""));
+        } catch (e) { return res(false, e.message); }
+    }
+
+    function dimRestyle(styleStr) {
+        try {
+            var d = getDoc(), gs = selectedDims(d);
+            if (gs.length === 0) return res(false, "請先選取尺寸");
+            var r = rebuildDims(d, gs, styleStr);
+            d.selection = r.made;
+            return res(true, "已更新 " + r.made.length + " 個尺寸的樣式" + (r.failed ? "（" + r.failed + " 個無法更新）" : ""));
+        } catch (e) { return res(false, e.message); }
+    }
+
+    function dimSelectAll() {
+        try {
+            var d = getDoc(), gs = allDims(d);
+            if (gs.length === 0) return res(false, "文件中沒有尺寸");
+            d.selection = gs;
+            return res(true, "已選取 " + gs.length + " 個尺寸");
+        } catch (e) { return res(false, e.message); }
+    }
+
+    function dimToggle() {
+        try {
+            var L = getLayer(getDoc(), false, DIM_LAYER);
+            if (!L) return res(false, "還沒有「" + DIM_LAYER + "」圖層");
+            L.visible = !L.visible;
+            return res(true, L.visible ? "尺寸圖層已顯示" : "尺寸圖層已隱藏");
+        } catch (e) { return res(false, e.message); }
     }
 
     // ---------- 設定檔（給快捷鍵腳本使用） ----------
@@ -1101,6 +1718,12 @@ $.global.CMF = (function () {
         setLinks: setLinks,
         scaleInfo: scaleInfo,
         scaleDoc: scaleDoc,
+        dimAdd: dimAdd,
+        dimInfo: dimInfo,
+        dimSync: dimSync,
+        dimRestyle: dimRestyle,
+        dimSelectAll: dimSelectAll,
+        dimToggle: dimToggle,
         loadSettings: loadSettings,
         saveSettings: saveSettings
     };

@@ -9,6 +9,7 @@
 
 <nav class="tabs" role="tablist">
   <button class="tab is-active" data-tab="callout" role="tab">標註</button>
+  <button class="tab" data-tab="dim" role="tab">尺寸</button>
   <button class="tab" data-tab="excel" role="tab">Excel</button>
   <button class="tab" data-tab="scale" role="tab">縮放</button>
 </nav>
@@ -160,6 +161,171 @@
   </details>
 </section>
 
+<!-- ==================== 尺寸 ==================== -->
+<section class="page" id="page-dim" role="tabpanel" hidden>
+  <div class="preview"><svg id="dimPreview" viewBox="0 0 260 84" aria-label="尺寸樣式預覽"></svg></div>
+
+  <div class="sect-head">
+    <span class="sect-title">選取</span>
+    <span class="sect-meta" id="dimSel"></span>
+    <button class="icon-btn" id="btnDimRefresh" title="重新讀取選取的物件">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5"/></svg>
+    </button>
+  </div>
+  <div class="dim-tools" id="dimTools">
+    <button class="tool" data-kind="w" title="標選取物件的寬度">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="3" y="10" width="14" height="7" rx="1.5"/><path d="M3 3v5M17 3v5M5.5 5.5h9"/><path d="M3.6 5.5 6.6 4v3zM16.4 5.5 13.4 4v3z" fill="currentColor" stroke="none"/></svg>
+      <span>寬度</span>
+    </button>
+    <button class="tool" data-kind="h" title="標選取物件的高度">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="3" y="3" width="7" height="14" rx="1.5"/><path d="M12 3h5M12 17h5M14.5 5.5v9"/><path d="M14.5 3.6 13 6.6h3zM14.5 16.4 13 13.4h3z" fill="currentColor" stroke="none"/></svg>
+      <span>高度</span>
+    </button>
+    <button class="tool" data-kind="wh" title="寬度和高度一起標">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="3" y="8" width="10" height="9" rx="1.5"/><path d="M3 4.5h10M3 3v3M13 3v3M16.5 8v9M15 8h3M15 17h3"/></svg>
+      <span>寬＋高</span>
+    </button>
+    <button class="tool wide" data-kind="dia" title="標圓的直徑；選群組時，每種大小的圓標一個">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M5.4 14.6 14.6 5.4"/></svg>
+      <span>直徑 Ø</span>
+    </button>
+    <button class="tool wide" data-kind="rad" title="標圓弧、圓角的半徑；同樣大小的圓角標一個">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M4 17v-7a6 6 0 0 1 6-6h7"/><path d="M10 10 6 6"/><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/></svg>
+      <span>半徑 R</span>
+    </button>
+  </div>
+
+  <div class="row mt">
+    <label for="dimWSide">位置</label>
+    <div class="pair">
+      <select id="dimWSide" title="寬度標在物件上方或下方">
+        <option value="top">寬在上</option>
+        <option value="bottom">寬在下</option>
+      </select>
+      <select id="dimHSide" aria-label="高度的位置" title="高度標在物件右側或左側">
+        <option value="right">高在右</option>
+        <option value="left">高在左</option>
+      </select>
+    </div>
+  </div>
+  <div class="row">
+    <label for="dimOffset">距離</label>
+    <input type="number" id="dimOffset" min="0" step="1" value="12" title="尺寸線離物件的距離；直徑、半徑標不下時，引線拉出去的長度 (pt)">
+  </div>
+  <div class="row">
+    <label for="dimAngle">角度</label>
+    <input type="number" id="dimAngle" step="15" value="45" title="直徑、半徑標在哪個方向 (°)：0 = 右，90 = 上，45 = 右上。圓角也會挑最靠這個方向的角">
+  </div>
+  <label class="check" title="選了好幾個物件時，每個物件各自標寬高；不勾 = 標它們合起來的外框"><input type="checkbox" id="dimEach">每個物件分別標寬高</label>
+
+  <details data-key="dimnum" open>
+    <summary>數字</summary>
+    <div class="row">
+      <label for="dimUnit">單位</label>
+      <div class="pair">
+        <select id="dimUnit">
+          <option value="mm">mm</option>
+          <option value="cm">cm</option>
+          <option value="in">in</option>
+          <option value="pt">pt</option>
+          <option value="px">px</option>
+          <option value="doc">文件單位</option>
+        </select>
+        <select id="dimDecimals" aria-label="小數位數" title="最多幾位小數，尾數的 0 會去掉">
+          <option value="0">整數</option>
+          <option value="1" selected>1 位小數</option>
+          <option value="2">2 位小數</option>
+          <option value="3">3 位小數</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <label for="dimRatio">比例</label>
+      <input type="text" id="dimRatio" value="1:1" spellcheck="false" autocomplete="off"
+             title="圖面比例：圖畫成實物的一半大 = 1:2，標出來的數字會乘 2">
+    </div>
+    <label class="check"><input type="checkbox" id="dimShowUnit" checked>數字後面加單位</label>
+  </details>
+
+  <details data-key="dimstyle">
+    <summary>樣式</summary>
+    <div class="grid2">
+      <button class="btn" id="btnDimSync" title="文件中所有尺寸套用目前的樣式和數字格式（位置不變）">同步全部</button>
+      <button class="btn" id="btnDimRestyle" title="只改選取的尺寸">套用選取</button>
+    </div>
+
+    <div class="sub">文字</div>
+    <div class="row">
+      <label for="dimFontSize">字級</label>
+      <div class="pair">
+        <input type="number" id="dimFontSize" min="1" step="0.5" value="8" title="字級 (pt)">
+        <input type="color" id="dimTextColor" value="#000000" title="文字顏色">
+      </div>
+    </div>
+    <div class="row">
+      <label for="dimFontFamily">字體</label>
+      <select id="dimFontFamily"><option value="">預設字體</option></select>
+    </div>
+    <div class="row">
+      <label for="dimFontStyle">字重</label>
+      <div class="pair">
+        <select id="dimFontStyle" disabled></select>
+        <button class="icon-btn" id="btnDimFonts" title="重新讀取字體清單（安裝新字體後）">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5"/></svg>
+        </button>
+      </div>
+    </div>
+    <input type="hidden" id="dimFontName">
+    <div class="row">
+      <label for="dimTextAlign">方向</label>
+      <select id="dimTextAlign" title="高度、斜的直徑和半徑，文字要沿著線轉向，還是保持水平">
+        <option value="aligned">沿著尺寸線</option>
+        <option value="horizontal">一律水平</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="dimTextGap">間距</label>
+      <input type="number" id="dimTextGap" min="0" step="0.5" value="2" title="文字離尺寸線的距離 (pt)">
+    </div>
+
+    <div class="sub">線條</div>
+    <div class="row">
+      <label for="dimLineWidth">線寬</label>
+      <div class="pair">
+        <input type="number" id="dimLineWidth" min="0.1" step="0.25" value="0.5" title="線寬 (pt)">
+        <input type="color" id="dimLineColor" value="#000000" title="線條和箭頭的顏色">
+      </div>
+    </div>
+    <div class="row">
+      <label for="dimEndStyle">端點</label>
+      <div class="pair">
+        <select id="dimEndStyle">
+          <option value="arrow">箭頭</option>
+          <option value="tick">斜線</option>
+          <option value="dot">圓點</option>
+          <option value="none">無</option>
+        </select>
+        <input type="number" id="dimEndSize" min="0.5" step="0.5" value="4" title="箭頭長度 (pt)">
+      </div>
+    </div>
+    <div class="row">
+      <label for="dimExtGap">延伸線</label>
+      <div class="pair">
+        <input type="number" id="dimExtGap" min="0" step="0.5" value="2" title="延伸線跟物件之間留的空隙 (pt)">
+        <input type="number" id="dimExtOver" min="0" step="0.5" value="2" title="延伸線超出尺寸線的長度 (pt)">
+      </div>
+    </div>
+  </details>
+
+  <details data-key="dimmore">
+    <summary>其他</summary>
+    <div class="grid2">
+      <button class="btn" id="btnDimSelectAll">選取全部尺寸</button>
+      <button class="btn" id="btnDimToggle">顯示 / 隱藏圖層</button>
+    </div>
+  </details>
+</section>
+
 <!-- ==================== Excel ==================== -->
 <section class="page" id="page-excel" role="tabpanel" hidden>
   <div class="file">
@@ -302,6 +468,7 @@
 <script src="js/app.js"></script>
 <script src="js/excel.js"></script>
 <script src="js/callout.js"></script>
+<script src="js/dimension.js"></script>
 <script src="js/scale.js"></script>
 </body>
 </html>
