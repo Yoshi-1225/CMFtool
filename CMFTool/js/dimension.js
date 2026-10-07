@@ -33,7 +33,7 @@
   function val(id) {
     var el = $(id);
     if (el.type === 'checkbox') return el.checked;
-    if (el.type === 'number') return parseFloat(el.value);
+    if (App.isNum(el)) return parseFloat(el.value);
     return el.value;
   }
 

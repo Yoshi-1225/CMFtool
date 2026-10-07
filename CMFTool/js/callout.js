@@ -47,7 +47,7 @@
     FIELDS.forEach(function (k) {
       var el = $(k);
       if (el.type === "checkbox") o[k] = el.checked;
-      else if (el.type === "number") o[k] = parseFloat(el.value) || 0;
+      else if (App.isNum(el)) o[k] = parseFloat(el.value) || 0;
       else o[k] = el.value;
     });
     o.hostPath = extensionPath() + "/jsx/host.jsx";

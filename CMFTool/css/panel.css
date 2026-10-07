@@ -297,6 +297,13 @@ details > .dim-tools { margin-bottom: 6px; }
 .dim-tools.busy .tool { opacity: .5; pointer-events: none; }
 input.invalid { border-color: var(--error); }
 
+/* ---------- 數字欄位（js/numfield.js）：鎖成唯讀時自己畫的游標 ---------- */
+input[type=text] { user-select: text; }
+input[data-ime-lock] { cursor: text; }
+.ime-caret { position: fixed; z-index: 20; width: 1px; background: var(--fg); pointer-events: none; }
+.ime-caret.blink { animation: ime-caret 1.06s steps(1) infinite; }
+@keyframes ime-caret { 50% { opacity: 0; } }
+
 /* ---------- 狀態列 ---------- */
 .status {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
