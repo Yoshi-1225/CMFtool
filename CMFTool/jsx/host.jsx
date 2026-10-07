@@ -897,7 +897,7 @@ $.global.CMF = (function () {
         var p = noteParts(g);
         var re = /"(fontSize|badgePadding|badgeStrokeWidth|lineWidth|endSize|gap)"\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)/g;
         var style = p.style.replace(re, function (m, k, v) {
-            return '"' + k + '":' + Math.round(Number(v) * s * 10000) / 10000;
+            return '"' + k + '":' + roundTo(Number(v) * s, 3);
         });
         if (style !== p.style) g.note = makeNote(p.num, p.key, style);
     }
@@ -1042,7 +1042,8 @@ $.global.CMF = (function () {
                 }
                 if (hits.length) msg += "；跟工作區" + hits.join("、") + "重疊了";
             }
-            return res(true, msg);
+            // factor：面板縮放全部工作區後，標註樣式也用同一個倍率縮放
+            return '{"ok":true,"msg":"' + esc(msg) + '","factor":' + jsonNum(s) + "}";
         } catch (e) { return res(false, e.message); }
         finally {
             for (i = saved.length - 1; i >= 0; i--) { try { saved[i][0][saved[i][1]] = saved[i][2]; } catch (eR) {} }
