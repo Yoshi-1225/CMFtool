@@ -7,11 +7,14 @@
   var $ = function (id) { return document.getElementById(id); };
   var KEY = 'cmftool:dim';
   // 樣式欄位：記在每個尺寸上，「同步全部」會套用。id 去掉 dim 就是樣式的名稱（dimFontSize → fontSize）
-  var STYLE = ['dimFontSize', 'dimTextColor', 'dimFontName', 'dimTextAlign', 'dimTextGap', 'dimLineWidth', 'dimLineColor',
-    'dimEndStyle', 'dimEndSize', 'dimExtGap', 'dimExtOver', 'dimUnit', 'dimDecimals', 'dimShowUnit', 'dimRatio'];
-  var FIELDS = ['dimWSide', 'dimHSide', 'dimOffset', 'dimAngle', 'dimEach'].concat(STYLE);
+  var STYLE = ['dimFontSize', 'dimTextColor', 'dimFontName', 'dimTextAlign', 'dimTextPos', 'dimTextGap', 'dimTextBg', 'dimTextBgColor',
+    'dimLineWidth', 'dimLineColor', 'dimEndStyle', 'dimEndSize', 'dimArrowPos', 'dimExtLine', 'dimExtGap', 'dimExtOver',
+    'dimUnit', 'dimDecimals', 'dimShowUnit', 'dimRatio', 'dimDiaSym', 'dimCount', 'dimPrefix', 'dimSuffix',
+    'dimRadMode', 'dimLeader', 'dimShelf', 'dimCenterMark'];
+  var FIELDS = ['dimWSide', 'dimHSide', 'dimOffset', 'dimAngle', 'dimEach', 'dimVisible', 'dimAutoApply'].concat(STYLE);
   var UNIT_PT = { mm: 72 / 25.4, cm: 72 / 2.54, 'in': 72, pt: 1, px: 1 };
-  var DIA = '\u00D8';
+  var DIA_SYMS = { slash: '\u00D8', phi: '\u03C6', sign: '\u2300' };
+  var DIA = DIA_SYMS.slash;
 
   var info = null;   // CMF.dimInfo()：{ doc, sel, w, h, docUnit, docUnitPt }
   var busy = false;
@@ -49,6 +52,7 @@
     o.textGap = num('dimTextGap', 2);
     o.extGap = num('dimExtGap', 2);
     o.extOver = num('dimExtOver', 2);
+    o.leader = num('dimLeader', 12);
     return o;
   }
 
@@ -93,6 +97,8 @@
 
   function decimals() { return parseInt($('dimDecimals').value, 10) || 0; }
 
+  function diaSym() { return DIA_SYMS[$('dimDiaSym').value] || DIA; }
+
   /* ---------- 選取的物件 ---------- */
   function renderInfo() {
     var el = $('dimSel'), text = '';
@@ -112,7 +118,7 @@
     if (!cep || $('page-dim').hidden) return;
     if (loading) { again = true; return; }
     loading = true;
-    call('dimInfo', null, function (r) {
+    call('dimInfo', { visible: $('dimVisible').checked }, function (r) {
       loading = false;
       info = r && r.ok ? r : null;
       renderInfo();
@@ -157,6 +163,7 @@
   function setFontName(name) {
     $('dimFontName').value = name;
     changed();
+    scheduleApply();
   }
 
   // 預覽用：PostScript 名稱 → CSS 字體
@@ -189,16 +196,21 @@
     var st = readStyle(), k = 1.4, parts = [];
     var lw = Math.max(0.6, st.lineWidth * k), L = st.endSize * k, fs = Math.max(6, st.fontSize * k);
     var gap = st.textGap * k, eg = st.extGap * k, eo = st.extOver * k;
-    var lc = shown(st.lineColor), tc = shown(st.textColor), font = cssFont(fs), th = fs * 0.72;
-    var aligned = st.textAlign !== 'horizontal', kind = st.endStyle;
+    // 有底色時文字畫在底色上，用原本的顏色
+    var lc = shown(st.lineColor), tc = st.textBg === 'box' ? st.textColor : shown(st.textColor), font = cssFont(fs), th = fs * 0.72;
+    var aligned = st.textAlign !== 'horizontal', kind = st.endStyle, middle = st.textPos === 'middle';
     var unit = st.showUnit ? unitOf()[0] : '', ratio = ratioOf(st.ratio) || 1;
+    var pad = Math.max(0, Math.min(fs * 0.2, gap * 0.75)), minLen = Math.max(L, 2 * k);
     measureCtx.font = font;
 
     function pt(p) { return p[0].toFixed(2) + ' ' + p[1].toFixed(2); }
     function along(p, u, s) { return [p[0] + u[0] * s, p[1] + u[1] * s]; }
-    function line(pts) {
-      parts.push('<path d="M' + pts.map(pt).join('L') + '" fill="none" stroke="' + lc + '" stroke-width="' + lw + '"/>');
+    function dot(p, q) { return p[0] * q[0] + p[1] * q[1]; }
+    function line(pts, width) {
+      parts.push('<path d="M' + pts.map(pt).join('L') + '" fill="none" stroke="' + lc + '" stroke-width="' + (width || lw) + '"/>');
     }
+    function arrowLike(how) { return how === 'arrow' || how === 'open'; }
+    function trim(how) { return how === 'arrow' ? L * 0.9 : 0; }
     // u：指向尖端的方向；斜線用尺寸線的方向
     function end(tip, u, how) {
       if (how === 'none' || !(L > 0)) return;
@@ -208,16 +220,25 @@
         var v = [(u[0] + u[1]) * Math.SQRT1_2, (u[1] - u[0]) * Math.SQRT1_2]; // 往右上 45°（y 往下）
         parts.push('<path d="M' + pt(along(tip, v, -L / 2)) + 'L' + pt(along(tip, v, L / 2)) + '" stroke="' + lc +
           '" stroke-width="' + lw * 2 + '"/>');
+      } else if (how === 'open') {
+        var ow = L * 0.27, O = along(tip, u, -L);
+        parts.push('<path d="M' + pt([O[0] - u[1] * ow, O[1] + u[0] * ow]) + 'L' + pt(tip) + 'L' + pt([O[0] + u[1] * ow, O[1] - u[0] * ow]) +
+          '" fill="none" stroke="' + lc + '" stroke-width="' + lw + '" stroke-linejoin="round"/>');
       } else {
         var hw = L * 0.18, B = along(tip, u, -L);
         parts.push('<path d="M' + pt(tip) + 'L' + pt([B[0] - u[1] * hw, B[1] + u[0] * hw]) + 'L' +
           pt([B[0] + u[1] * hw, B[1] - u[0] * hw]) + 'Z" fill="' + lc + '"/>');
       }
     }
-    // c：文字中心；angle：逆時針的角度
-    function text(label, c, angle) {
-      parts.push('<text x="' + c[0].toFixed(2) + '" y="' + c[1].toFixed(2) + '" transform="rotate(' + (-angle) + ' ' + pt(c) +
-        ')" fill="' + tc + '" style=\'font:' + font + '\' text-anchor="middle" dominant-baseline="central">' + esc(label) + '</text>');
+    // c：文字中心；angle：逆時針的角度；有底色時先畫一塊底
+    function text(lb, c, angle) {
+      var tw = measureCtx.measureText(lb).width, rot = ' transform="rotate(' + (-angle) + ' ' + pt(c) + ')"';
+      if (st.textBg === 'box') {
+        parts.push('<rect x="' + (c[0] - tw / 2 - pad).toFixed(2) + '" y="' + (c[1] - th / 2 - pad).toFixed(2) + '" width="' +
+          (tw + pad * 2).toFixed(2) + '" height="' + (th + pad * 2).toFixed(2) + '"' + rot + ' fill="' + esc(st.textBgColor) + '"/>');
+      }
+      parts.push('<text x="' + c[0].toFixed(2) + '" y="' + c[1].toFixed(2) + '"' + rot + ' fill="' + tc + '" style=\'font:' + font +
+        '\' text-anchor="middle" dominant-baseline="central">' + esc(lb) + '</text>');
     }
     function readAngle(u) { // SVG 方向 → 逆時針角度，(-90, 90]
       var a = Math.atan2(-u[1], u[0]) * 180 / Math.PI;
@@ -227,22 +248,42 @@
       var ext = isAligned ? th / 2 : tw / 2 * Math.abs(n[0]) + th / 2 * Math.abs(n[1]);
       return along(mid, n, gap + ext);
     }
-    function label(v, prefix) { return (prefix || '') + fmt(v * ratio, decimals()) + unit; }
+    function textAlong(tw, v, isAligned) { return isAligned ? tw / 2 : tw / 2 * Math.abs(v[0]) + th / 2 * Math.abs(v[1]); }
+    function label(v, sym, q) {
+      var s = (sym || '') + fmt(v * ratio, decimals()) + unit;
+      if (q > 1 && st.count === 'x') s = q + '×' + s;
+      else if (q > 1 && st.count === 'dash') s = q + '-' + s;
+      return (st.prefix || '') + s + (st.suffix || '');
+    }
+    // 文字放在線中間：p → q（方向 a）的線在 mid 前後各空 half；放不下回傳 false，線由呼叫的人畫
+    function split(p, q, a, mid, half) {
+      if (dot([mid[0] - p[0], mid[1] - p[1]], a) - half < minLen || dot([q[0] - mid[0], q[1] - mid[1]], a) - half < minLen) return false;
+      line([p, along(mid, a, -half)]);
+      line([along(mid, a, half), q]);
+      return true;
+    }
 
     function linear(p1, p2, a, n, off, value) {
       var Q1 = along(p1, n, off), Q2 = along(p2, n, off);
-      [[p1, Q1], [p2, Q2]].forEach(function (e) { if (off - eg > 0.5) line([along(e[0], n, eg), along(e[1], n, eo)]); });
-      var len = Math.hypot(Q2[0] - Q1[0], Q2[1] - Q1[1]), inside = len >= L * 2.6;
-      if (kind === 'arrow') line(inside ? [along(Q1, a, L * 0.9), along(Q2, a, -L * 0.9)] : [along(Q1, a, -L * 2.2), along(Q2, a, L * 2.2)]);
-      else line(kind === 'tick' ? [along(Q1, a, -L * 0.6), along(Q2, a, L * 0.6)] : [Q1, Q2]);
+      if (st.extLine !== 'none') {
+        var ew = st.extLine === 'thin' ? Math.max(0.4, lw / 2) : lw;
+        [[p1, Q1], [p2, Q2]].forEach(function (e) { if (off - eg > 0.5) line([along(e[0], n, eg), along(e[1], n, eo)], ew); });
+      }
+      var len = Math.hypot(Q2[0] - Q1[0], Q2[1] - Q1[1]), pts;
+      var inside = st.arrowPos === 'inside' ? true : st.arrowPos === 'outside' ? false : len >= L * 2.6;
+      if (arrowLike(kind)) pts = inside ? [along(Q1, a, trim(kind)), along(Q2, a, -trim(kind))] : [along(Q1, a, -L * 2.2), along(Q2, a, L * 2.2)];
+      else if (kind === 'tick') pts = [along(Q1, a, -L * 0.6), along(Q2, a, L * 0.6)];
+      else pts = [Q1, Q2];
+      var lb = label(value), tw = measureCtx.measureText(lb).width, mid = [(Q1[0] + Q2[0]) / 2, (Q1[1] + Q2[1]) / 2];
+      var isSplit = middle && (inside || !arrowLike(kind)) && split(pts[0], pts[1], a, mid, textAlong(tw, a, aligned) + gap);
+      if (!isSplit) line(pts);
       if (kind === 'tick') { end(Q1, a, kind); end(Q2, a, kind); }
       else {
-        var s = kind === 'arrow' && !inside ? 1 : -1;
+        var s = arrowLike(kind) && !inside ? 1 : -1;
         end(Q1, [a[0] * s, a[1] * s], kind);
         end(Q2, [-a[0] * s, -a[1] * s], kind);
       }
-      var lb = label(value), tw = measureCtx.measureText(lb).width;
-      text(lb, textCenter([(Q1[0] + Q2[0]) / 2, (Q1[1] + Q2[1]) / 2], n, tw, aligned), aligned ? readAngle(a) : 0);
+      text(lb, isSplit ? mid : textCenter(mid, n, tw, aligned), aligned ? readAngle(a) : 0);
     }
 
     // 產品：圓角矩形，寬標在上、高標在右（跟面板設定的位置一樣）
@@ -256,24 +297,51 @@
     if (hRight) linear([x1, y1], [x1, y0], [0, -1], [1, 0], off, 50);
     else linear([x0, y1], [x0, y0], [0, -1], [-1, 0], off, 50);
 
-    // 圓：直徑
-    var C = [182, 48], r = 20, ang = num('dimAngle', 45, -1e9) * Math.PI / 180, u = [Math.cos(ang), -Math.sin(ang)];
-    var how = kind === 'tick' ? 'arrow' : kind, lb = label(40, DIA), tw = measureCtx.measureText(lb).width;
+    // 圓：直徑，用面板選的標法（自動 = 這個大小放不放得下）
+    var mode = st.radMode, inner = mode === 'inside';
+    var C = inner ? [192, 42] : [182, 50], r = inner ? 28 : 20;
+    var ang = num('dimAngle', 45, -1e9) * Math.PI / 180, u = [Math.cos(ang), -Math.sin(ang)], back = [-u[0], -u[1]];
+    var how = kind === 'tick' ? 'arrow' : kind, lb = label(40, diaSym()), tw = measureCtx.measureText(lb).width;
+    if (mode !== 'leader' && mode !== 'through' && mode !== 'inside') {
+      var span = aligned ? tw : 2 * (tw / 2 * Math.abs(u[0]) + th / 2 * Math.abs(u[1]));
+      mode = r * 2 >= span + (how === 'none' ? 0 : L * 1.2) * 2 + gap * 4 ? 'inside' : 'leader';
+    }
+    // 引線：預覽框裡最長 30。文字太長時把圓往旁邊挪（跟 Illustrator 一樣不換邊，挪不下就超出預覽框）
+    var lead = Math.min(30, Math.max(st.leader * k, L * 1.5, 2 * k)), sx = u[0] < -0.0001 ? -1 : 1;
+    var shelf = st.shelf === 'end' || st.shelf === 'none' ? st.shelf : 'over', sl = Math.max(L * 1.5, fs * 0.6);
+    var need = shelf === 'over' ? tw + gap * 2 : (shelf === 'end' ? sl : 0) + gap + tw;
+    if (mode !== 'inside') {
+      var lo = 150 + r, hi = 256 - r, reach = u[0] * (r + lead) + sx * need;
+      if (sx > 0) hi = Math.min(hi, 252 - reach); else lo = Math.max(lo, 150 - reach);
+      C[0] = sx > 0 ? Math.max(150 + r, Math.min(hi, C[0])) : Math.min(256 - r, Math.max(lo, C[0]));
+    }
+    var M = along(C, u, r), M1 = along(C, u, -r);
     parts.push('<circle cx="' + C[0] + '" cy="' + C[1] + '" r="' + r + '" fill="var(--product)"/>');
-    var span = aligned ? tw : 2 * (tw / 2 * Math.abs(u[0]) + th / 2 * Math.abs(u[1]));
-    var endRoom = how === 'none' ? 0 : L * 1.2, M = along(C, u, r);
-    if (r * 2 >= span + endRoom * 2 + gap * 4) {
-      var M1 = along(C, u, -r), ta = readAngle(u), up = [-Math.sin(ta * Math.PI / 180), -Math.cos(ta * Math.PI / 180)];
-      line(how === 'arrow' ? [along(M1, u, L * 0.9), along(M, u, -L * 0.9)] : [M1, M]);
-      end(M1, [-u[0], -u[1]], how);
+    if (mode === 'inside') {
+      var ta = readAngle(u), up = [-Math.sin(ta * Math.PI / 180), -Math.cos(ta * Math.PI / 180)];
+      var p = along(M1, u, trim(how)), q = along(M, u, -trim(how));
+      var isSplit = middle && split(p, q, u, C, textAlong(tw, u, aligned) + gap);
+      if (!isSplit) line([p, q]);
+      end(M1, back, how);
       end(M, u, how);
-      text(lb, textCenter(C, up, tw, aligned), aligned ? ta : 0);
+      text(lb, isSplit ? C : textCenter(C, up, tw, aligned), aligned ? ta : 0);
     } else {
-      var K = along(M, u, Math.max(8, L * 1.5)), sx = u[0] < -0.0001 ? -1 : 1, shelf = tw + gap * 2;
-      if (K[0] + sx * shelf > 256 || K[0] + sx * shelf < 4) sx = -sx; // 預覽框放不下就換邊
-      line([how === 'arrow' ? along(M, u, L * 0.9) : M, K, [K[0] + sx * shelf, K[1]]]);
-      end(M, [-u[0], -u[1]], how);
-      text(lb, [K[0] + sx * shelf / 2, K[1] - gap - th / 2], 0);
+      // 引線（箭頭從外面指向圓心）或穿過圓心（箭頭往外指），拉到 K 之後轉水平
+      var K = along(M, u, lead);
+      var pts = [mode === 'through' ? along(M1, u, trim(how)) : along(M, u, trim(how)), K];
+      if (mode === 'through') { end(M1, back, how); end(M, u, how); }
+      else end(M, back, how);
+      var c;
+      if (shelf === 'over') {
+        pts.push([K[0] + sx * (tw + gap * 2), K[1]]);
+        c = [K[0] + sx * (tw / 2 + gap), K[1] - gap - th / 2];
+      } else {
+        var S = shelf === 'end' ? [K[0] + sx * sl, K[1]] : K;
+        if (shelf === 'end') pts.push(S);
+        c = [S[0] + sx * (gap + tw / 2), S[1]];
+      }
+      line(pts);
+      text(lb, c, 0);
     }
     $('dimPreview').innerHTML = parts.join('');
   }
@@ -292,6 +360,7 @@
       hSide: $('dimHSide').value,
       angle: num('dimAngle', 45, -1e9),
       each: $('dimEach').checked,
+      visible: $('dimVisible').checked,
       style: JSON.stringify(readStyle())
     }, function (r) {
       busy = false;
@@ -306,18 +375,41 @@
     call(fn, readStyle(), function (r) { App.setStatus(r.msg, !r.ok); });
   }
 
+  // 「修改時自動套用到選取的尺寸」：停手一下才套用；沒有選取尺寸時不提示
+  var applyTimer = null;
+  function scheduleApply() {
+    if (!$('dimAutoApply').checked || !cep) return;
+    clearTimeout(applyTimer);
+    applyTimer = setTimeout(function () {
+      if (!(ratioOf($('dimRatio').value) > 0)) return;
+      call('dimRestyle', readStyle(), function (r) { if (r.ok) App.setStatus(r.msg); });
+    }, 600);
+  }
+
   /* ---------- 事件 ---------- */
   function changed() {
     $('dimRatio').classList.toggle('invalid', !(ratioOf($('dimRatio').value) > 0));
+    $('dimTextBgColor').disabled = $('dimTextBg').value !== 'box';
+    // 數量的選項跟著直徑符號
+    var sym = diaSym(), opts = $('dimCount').options;
+    opts[1].text = '4\u00D7' + sym + '3';
+    opts[2].text = '4-' + sym + '3';
     save();
     renderInfo();
     renderPreview();
   }
 
   FIELDS.forEach(function (id) {
-    $(id).addEventListener('input', changed);
-    $(id).addEventListener('change', changed);
+    var isStyle = STYLE.indexOf(id) >= 0;
+    var handler = function () {
+      changed();
+      if (isStyle) scheduleApply();
+    };
+    $(id).addEventListener('input', handler);
+    $(id).addEventListener('change', handler);
   });
+  // 量寬高的範圍改了：重新讀取選取物件的寬高
+  $('dimVisible').addEventListener('change', refresh);
   $('dimFontFamily').addEventListener('change', function () {
     fillStyles(null);
     setFontName($('dimFontFamily').value ? $('dimFontStyle').value : '');
@@ -338,7 +430,7 @@
   App.on('tab', function (name) { if (name === 'dim') refresh(); });
   // 縮放分頁縮放了全部工作區：樣式裡跟大小有關的數值和「距離」用同一個倍率縮放，
   // 之後新增的尺寸、按「同步全部」才會跟縮放後的尺寸一樣大（跟 host.jsx 的 scaleDimStyle 一樣的欄位）
-  var SIZE_FIELDS = ['dimFontSize', 'dimLineWidth', 'dimEndSize', 'dimTextGap', 'dimExtGap', 'dimExtOver', 'dimOffset'];
+  var SIZE_FIELDS = ['dimFontSize', 'dimLineWidth', 'dimEndSize', 'dimTextGap', 'dimExtGap', 'dimExtOver', 'dimLeader', 'dimOffset'];
   App.on('scaled', function (s) {
     SIZE_FIELDS.forEach(function (id) {
       var el = $(id);

@@ -1065,14 +1065,17 @@ $.global.CMF = (function () {
     // 選取物件後標寬度、高度（外框尺寸），或圓的直徑 Ø、圓弧和圓角的半徑 R。
     // 每個尺寸是一個群組，放在「CMF Dimensions」圖層，備註存著：CMF_DIM|幾何 JSON|樣式 JSON
     //   寬高：{ t:"lin", p1, p2 量測點（延伸線起點）, a 量測方向, n 尺寸線在哪一側, off 尺寸線離量測點的距離 }
-    //   直徑、半徑：{ t:"dia" | "rad", c 圓心, r 半徑, u 標註方向（圓心 → 箭頭指的點）, off 引線長度, out = 1 一律用引線 }
+    //   直徑、半徑：{ t:"dia" | "rad", c 圓心, r 半徑, u 標註方向（圓心 → 箭頭指的點）, out = 1 一律用引線,
+    //     x 引線比樣式的「引線」多拉的長度（同心圓的內圈）, q 同樣大小的圓有幾個 }
+    //     舊版的尺寸沒有 x，引線長度記在 off
     //   ref：建立時 DIM_Line 頭尾兩個錨點的位置
     // 重建時比對 DIM_Line 現在的位置，算出尺寸被移動、等比縮放、旋轉了多少，套用到記錄的點上，
     // 所以搬過的尺寸重建後還在原地，縮放整份文件後數字也會跟著變。
     var DIM_LAYER = "CMF Dimensions";
     var DIM_TAG = "CMF_DIM";
     var DIM_UNITS = { mm: ["mm", 72 / 25.4], cm: ["cm", 72 / 2.54], "in": ["in", 72], pt: ["pt", 1], px: ["px", 1] };
-    var DIA = "\u00D8";
+    var DIA_SYMS = { slash: "\u00D8", phi: "\u03C6", sign: "\u2300" };
+    var DIA = DIA_SYMS.slash;
     var MAX_SEGS = 4000;  // 找圓弧時最多看幾段曲線，避免複雜的圖跑太久
     var MAX_ARCS = 20;    // 一個物件最多標幾種半徑
 
@@ -1152,13 +1155,22 @@ $.global.CMF = (function () {
         return n > 0 ? n : 1;
     }
 
-    // 圖上長度（腳本座標）→ 標示的文字
-    function dimLabel(d, st, len, prefix) {
+    // 圖上長度（腳本座標）→ 標示的文字：前綴 + 數量（4×）+ 符號（Ø、R）+ 數字 + 單位 + 後綴
+    function dimLabel(d, st, len, sym, q) {
         var u = st.unit === "doc" || !DIM_UNITS[st.unit] ? docUnit(d) : DIM_UNITS[st.unit];
         var dec = Math.max(0, Math.min(4, parseInt(st.decimals, 10) || 0));
         var v = len * docScaleFactor(d) * ratioOf(st.ratio) / u[1];
-        return (prefix || "") + fmtNum(v, dec) + (st.showUnit ? u[0] : "");
+        var s = (sym || "") + fmtNum(v, dec) + (st.showUnit ? u[0] : "");
+        if (q > 1 && st.count === "x") s = q + "\u00D7" + s;
+        else if (q > 1 && st.count === "dash") s = q + "-" + s;
+        return String(st.prefix || "") + s + String(st.suffix || "");
     }
+
+    function diaSym(st) { return DIA_SYMS[st.diaSym] || DIA; }
+
+    // 實心箭頭的尖端比線細，線要縮短一點才不會凸出去
+    function arrowLike(kind) { return kind === "arrow" || kind === "open"; }
+    function arrowTrim(kind, L) { return kind === "arrow" ? L * 0.9 : 0; }
 
     // ---- 畫 ----
     function dimPath(g, pts, st, col, name) {
@@ -1189,6 +1201,11 @@ $.global.CMF = (function () {
             var v = [(u[0] - u[1]) * Math.SQRT1_2, (u[0] + u[1]) * Math.SQRT1_2];
             var tk = dimPath(g, [along(tip, v, -L / 2), along(tip, v, L / 2)], st, col, "DIM_End");
             tk.strokeWidth = Number(st.lineWidth) * 2;
+        } else if (kind === "open") {
+            // 開放箭頭：兩條線，夾角約 30°
+            var ow = L * 0.27, OB = along(tip, u, -L), ox = -u[1] * ow, oy = u[0] * ow;
+            var op = dimPath(g, [[OB[0] + ox, OB[1] + oy], [tip[0], tip[1]], [OB[0] - ox, OB[1] - oy]], st, col, "DIM_End");
+            op.strokeJoin = StrokeJoin.ROUNDENDJOIN; // 尖角接合會讓尖端凸出去
         } else {
             var hw = L * 0.18, B = along(tip, u, -L), px = -u[1] * hw, py = u[0] * hw;
             var tri = g.pathItems.add();
@@ -1212,7 +1229,7 @@ $.global.CMF = (function () {
         ca.fillColor = hexToColor(st.textColor, d);
         t.textRange.paragraphAttributes.justification = Justification.CENTER;
         var b = glyphBounds(t);
-        return { t: t, b: b, hw: (b[2] - b[0]) / 2, hh: (b[1] - b[3]) / 2 };
+        return { t: t, b: b, hw: (b[2] - b[0]) / 2, hh: (b[1] - b[3]) / 2, d: d, g: g, st: st };
     }
 
     // 文字放在 mid 的 n 那一側、離線 gap；aligned = 沿著線（文字跟 n 垂直）
@@ -1221,88 +1238,160 @@ $.global.CMF = (function () {
         return along(mid, n, gap + ext);
     }
 
-    // 旋轉後重新量字形，把字形中心移到 c
+    // 文字在 v 方向佔的長度的一半
+    function textAlong(tx, v, aligned) {
+        return aligned ? tx.hw : tx.hw * Math.abs(v[0]) + tx.hh * Math.abs(v[1]);
+    }
+
+    // 旋轉後重新量字形，把字形中心移到 c。文字移到群組最上層；有底色時在文字後面墊一塊
     function placeText(tx, c, angle) {
-        var b = tx.b;
+        var b = tx.b, st = tx.st;
         if (Math.abs(angle) > 0.01) {
             tx.t.rotate(angle);
             b = glyphBounds(tx.t);
         }
         tx.t.translate(c[0] - (b[0] + b[2]) / 2, c[1] - (b[1] + b[3]) / 2);
+        tx.t.move(tx.g, ElementPlacement.PLACEATBEGINNING);
+        if (st.textBg !== "box") return;
+        // 留的邊不超過文字間距，才不會蓋到尺寸線
+        var pad = Math.max(0, Math.min(Number(st.fontSize) * 0.2, Number(st.textGap) * 0.75));
+        var w = tx.hw + pad, h = tx.hh + pad;
+        var bg = tx.g.pathItems.rectangle(c[1] + h, c[0] - w, w * 2, h * 2);
+        bg.name = "DIM_TextBg";
+        bg.stroked = false;
+        bg.filled = true;
+        bg.fillColor = hexToColor(st.textBgColor || "#ffffff", tx.d);
+        if (Math.abs(angle) > 0.01) bg.rotate(angle);
+        bg.move(tx.t, ElementPlacement.PLACEAFTER);
+    }
+
+    // 文字放在線中間、把線斷開：p → q（方向 a）的線在 mid 前後各空 half，兩邊剩不到 minLen 時不斷開、回傳 null
+    // 前半段叫 DIM_Line（重建時用它的頭尾判斷尺寸被移動了多少）
+    function splitLine(g, p, q, a, mid, half, minLen, st, col) {
+        if (vdot(vsub(mid, p), a) - half < minLen || vdot(vsub(q, mid), a) - half < minLen) return null;
+        var first = dimPath(g, [p, along(mid, a, -half)], st, col, "DIM_Line");
+        dimPath(g, [along(mid, a, half), q], st, col, "DIM_Line2");
+        return first;
     }
 
     // 寬度、高度：回傳 DIM_Line
     function buildLinear(d, g, gm, st) {
         var a = gm.a, n = gm.n, col = hexToColor(st.lineColor, d), i;
         var L = Number(st.endSize), kind = st.endStyle, gapE = Number(st.extGap), over = Number(st.extOver);
+        var gap = Number(st.textGap), tr = arrowTrim(kind, L);
         var level = Math.max(vdot(gm.p1, n), vdot(gm.p2, n)) + Number(gm.off);
         var P = [gm.p1, gm.p2], Q = [];
         for (i = 0; i < 2; i++) {
             var dist = level - vdot(P[i], n);
             Q.push(along(P[i], n, dist));
-            if (dist - gapE > 0.1) dimPath(g, [along(P[i], n, gapE), along(Q[i], n, over)], st, col, "DIM_Ext");
+            if (dist - gapE > 0.1 && st.extLine !== "none") {
+                var ext = dimPath(g, [along(P[i], n, gapE), along(Q[i], n, over)], st, col, "DIM_Ext");
+                if (st.extLine === "thin") ext.strokeWidth = Number(st.lineWidth) / 2;
+            }
         }
         if (vdot(vsub(Q[1], Q[0]), a) < 0) Q.reverse();
         var Q1 = Q[0], Q2 = Q[1], len = vlen(vsub(Q2, Q1));
 
-        // 箭頭放不下時改放在延伸線外面，往內指
-        var inside = len >= L * 2.6, pts;
-        if (kind === "arrow") pts = inside ? [along(Q1, a, L * 0.9), along(Q2, a, -L * 0.9)] : [along(Q1, a, -L * 2.2), along(Q2, a, L * 2.2)];
+        // 箭頭放在延伸線內側往外指，或外側往內指；自動 = 放不下時放外側
+        var inside = st.arrowPos === "inside" ? true : st.arrowPos === "outside" ? false : len >= L * 2.6, pts;
+        if (arrowLike(kind)) pts = inside ? [along(Q1, a, tr), along(Q2, a, -tr)] : [along(Q1, a, -L * 2.2), along(Q2, a, L * 2.2)];
         else if (kind === "tick") pts = [along(Q1, a, -L * 0.6), along(Q2, a, L * 0.6)];
         else pts = [Q1, Q2];
-        var line = dimPath(g, pts, st, col, "DIM_Line");
+
+        var tx = dimText(d, g, dimLabel(d, st, len), st), aligned = st.textAlign !== "horizontal";
+        var mid = [(Q1[0] + Q2[0]) / 2, (Q1[1] + Q2[1]) / 2], line = null;
+        // 文字放在線中間；箭頭在外面（線很短）或放不下時，放在線的旁邊
+        if (st.textPos === "middle" && (inside || !arrowLike(kind))) {
+            line = splitLine(g, pts[0], pts[1], a, mid, textAlong(tx, a, aligned) + gap, Math.max(L, 2), st, col);
+        }
+        var split = !!line;
+        if (!line) line = dimPath(g, pts, st, col, "DIM_Line");
         if (kind === "tick") {
             dimEnd(g, Q1, a, st, col, kind);
             dimEnd(g, Q2, a, st, col, kind);
         } else {
-            var s = kind === "arrow" && !inside ? 1 : -1;
+            var s = arrowLike(kind) && !inside ? 1 : -1;
             dimEnd(g, Q1, [a[0] * s, a[1] * s], st, col, kind);
             dimEnd(g, Q2, [-a[0] * s, -a[1] * s], st, col, kind);
         }
-
-        var tx = dimText(d, g, dimLabel(d, st, len), st), aligned = st.textAlign !== "horizontal";
-        var mid = [(Q1[0] + Q2[0]) / 2, (Q1[1] + Q2[1]) / 2];
-        placeText(tx, textCenter(mid, n, tx, aligned, Number(st.textGap)), aligned ? readAngle(a) : 0);
+        placeText(tx, split ? mid : textCenter(mid, n, tx, aligned, gap), aligned ? readAngle(a) : 0);
         return line;
     }
 
-    // 直徑、半徑：放得下就畫在圓裡面，放不下就用引線拉到外面
+    // 直徑、半徑的標法：leader 引線拉到外面、through 穿過圓心再拉出去、inside 畫在圓裡面、auto 放得下就畫在圓裡面
+    function radMode(st) {
+        var m = st.radMode;
+        return m === "leader" || m === "through" || m === "inside" ? m : "auto";
+    }
+
+    // 引線長度 = 樣式的「引線」+ 同心圓內圈多拉的 x
+    // 舊版的尺寸沒有 x、長度記在 off：同心圓的內圈維持原本的長度，其他的改用樣式的「引線」
+    function leaderLen(gm, st) {
+        var base = Number(st.leader), has = st.leader !== undefined && st.leader !== null && st.leader !== "" && base >= 0;
+        if (gm.x !== undefined) return (has ? base : 12) + Number(gm.x);
+        return has && !gm.out ? base : Number(gm.off) || 0;
+    }
+
+    // 直徑、半徑：回傳 DIM_Line
     function buildRadial(d, g, gm, st) {
         var c = gm.c, r = gm.r, u = gm.u, dia = gm.t === "dia", col = hexToColor(st.lineColor, d);
         var L = Number(st.endSize), kind = st.endStyle === "tick" ? "arrow" : st.endStyle, gap = Number(st.textGap);
-        var tx = dimText(d, g, dimLabel(d, st, dia ? r * 2 : r, dia ? DIA : "R"), st);
+        var tr = arrowTrim(kind, L), back = [-u[0], -u[1]];
+        var tx = dimText(d, g, dimLabel(d, st, dia ? r * 2 : r, dia ? diaSym(st) : "R", gm.q), st);
         var aligned = st.textAlign !== "horizontal";
         var span = aligned ? tx.hw * 2 : 2 * (tx.hw * Math.abs(u[0]) + tx.hh * Math.abs(u[1]));
         var endRoom = kind === "none" ? 0 : L * 1.2, arm = Math.max(L * 0.6, Number(st.lineWidth) * 3);
-        var M = along(c, u, r), line, ang, up;
-        var inside = !gm.out && (dia ? r * 2 >= span + endRoom * 2 + gap * 4 : r >= span + endRoom + arm + gap * 3);
+        var M = along(c, u, r), M1 = along(c, u, -r), mode = radMode(st), line = null, pts, tc, ang = 0;
 
-        if (inside) {
-            ang = readAngle(u);
-            up = dirOf(ang + 90);
-            if (dia) {
-                var M1 = along(c, u, -r);
-                line = dimPath(g, kind === "arrow" ? [along(M1, u, L * 0.9), along(M, u, -L * 0.9)] : [M1, M], st, col, "DIM_Line");
-                dimEnd(g, M1, [-u[0], -u[1]], st, col, kind);
-                dimEnd(g, M, u, st, col, kind);
-                placeText(tx, textCenter(c, up, tx, aligned, gap), aligned ? ang : 0);
-            } else {
-                line = dimPath(g, [[c[0], c[1]], kind === "arrow" ? along(M, u, -L * 0.9) : M], st, col, "DIM_Line");
-                dimEnd(g, M, u, st, col, kind);
-                // 圓心十字
-                dimPath(g, [[c[0] - arm, c[1]], [c[0] + arm, c[1]]], st, col, "DIM_Center");
-                dimPath(g, [[c[0], c[1] - arm], [c[0], c[1] + arm]], st, col, "DIM_Center");
-                placeText(tx, textCenter(along(c, u, (r - endRoom + arm) / 2), up, tx, aligned, gap), aligned ? ang : 0);
-            }
-        } else {
-            // 引線：箭頭從外面指向圓心，往外拉 off 之後轉水平，文字放在水平線上
-            var K = along(M, u, Math.max(Number(gm.off), L * 1.5));
-            var sx = u[0] < -0.0001 ? -1 : 1, shelf = tx.hw * 2 + gap * 2;
-            var S = [K[0] + sx * shelf, K[1]];
-            line = dimPath(g, [kind === "arrow" ? along(M, u, L * 0.9) : M, K, S], st, col, "DIM_Line");
-            dimEnd(g, M, [-u[0], -u[1]], st, col, kind);
-            placeText(tx, [K[0] + sx * shelf / 2, K[1] + gap + tx.hh], 0);
+        // 同心圓的內圈一律用引線，文字才不會跟外圈的疊在一起
+        if (gm.out) mode = "leader";
+        else if (mode === "auto") {
+            mode = (dia ? r * 2 >= span + endRoom * 2 + gap * 4 : r >= span + endRoom + arm + gap * 3) ? "inside" : "leader";
         }
+        // 半徑的線從圓心出發時，圓心畫十字
+        if (!dia && mode !== "leader" && st.centerMark !== false) {
+            dimPath(g, [[c[0] - arm, c[1]], [c[0] + arm, c[1]]], st, col, "DIM_Center");
+            dimPath(g, [[c[0], c[1] - arm], [c[0], c[1] + arm]], st, col, "DIM_Center");
+        }
+
+        if (mode === "inside") {
+            ang = aligned ? readAngle(u) : 0;
+            var p = dia ? along(M1, u, tr) : c, q = along(M, u, -tr);
+            var mid = dia ? c : along(c, u, (r - endRoom + arm) / 2);
+            if (st.textPos === "middle") line = splitLine(g, p, q, u, mid, textAlong(tx, u, aligned) + gap, Math.max(L, 2), st, col);
+            if (line) tc = mid;
+            else {
+                line = dimPath(g, [p, q], st, col, "DIM_Line");
+                tc = textCenter(mid, dirOf(readAngle(u) + 90), tx, aligned, gap);
+            }
+            if (dia) dimEnd(g, M1, back, st, col, kind);
+            dimEnd(g, M, u, st, col, kind);
+        } else {
+            // 引線：箭頭從外面指向圓心；穿過圓心：線從圓心（直徑從對面的圓周）穿出來，箭頭往外指
+            // 線拉到圓外 K 之後轉水平，文字放在水平線那一邊
+            var K = along(M, u, Math.max(leaderLen(gm, st), L * 1.5, 2)), sx = u[0] < -0.0001 ? -1 : 1;
+            var shelf = st.shelf === "end" || st.shelf === "none" ? st.shelf : "over";
+            if (mode === "through") {
+                pts = [dia ? along(M1, u, tr) : c, K];
+                if (dia) dimEnd(g, M1, back, st, col, kind);
+                dimEnd(g, M, u, st, col, kind);
+            } else {
+                pts = [along(M, u, tr), K];
+                dimEnd(g, M, back, st, col, kind);
+            }
+            if (shelf === "over") {
+                // 文字站在水平線上，水平線跟文字一樣長
+                pts.push([K[0] + sx * (tx.hw * 2 + gap * 2), K[1]]);
+                tc = [K[0] + sx * (tx.hw + gap), K[1] + gap + tx.hh];
+            } else {
+                // 文字接在水平線（或引線）的後面，跟線的末端一樣高
+                var S = K;
+                if (shelf === "end") { S = [K[0] + sx * Math.max(L * 1.5, Number(st.fontSize) * 0.6), K[1]]; pts.push(S); }
+                tc = [S[0] + sx * (gap + tx.hw), S[1]];
+            }
+            line = dimPath(g, pts, st, col, "DIM_Line");
+        }
+        placeText(tx, tc, ang);
         return line;
     }
 
@@ -1311,7 +1400,8 @@ $.global.CMF = (function () {
     function geomStr(gm) {
         var s = '{"t":"' + gm.t + '"';
         if (gm.t === "lin") s += ',"p1":' + ptStr(gm.p1) + ',"p2":' + ptStr(gm.p2) + ',"a":' + ptStr(gm.a) + ',"n":' + ptStr(gm.n);
-        else s += ',"c":' + ptStr(gm.c) + ',"r":' + jsonNum(gm.r) + ',"u":' + ptStr(gm.u) + (gm.out ? ',"out":1' : "");
+        else s += ',"c":' + ptStr(gm.c) + ',"r":' + jsonNum(gm.r) + ',"u":' + ptStr(gm.u) + (gm.out ? ',"out":1' : "") +
+            (gm.x !== undefined ? ',"x":' + jsonNum(gm.x) : "") + (gm.q > 1 ? ',"q":' + gm.q : "");
         return s + ',"off":' + jsonNum(gm.off) + ',"ref":[' + ptStr(gm.ref[0]) + "," + ptStr(gm.ref[1]) + "]}";
     }
 
@@ -1348,7 +1438,8 @@ $.global.CMF = (function () {
         if (gm.t === "lin") {
             o.p1 = simPt(T, gm.p1); o.p2 = simPt(T, gm.p2); o.a = simDir(T, gm.a); o.n = simDir(T, gm.n);
         } else {
-            o.c = simPt(T, gm.c); o.r = gm.r * T.s; o.u = simDir(T, gm.u); o.out = gm.out;
+            o.c = simPt(T, gm.c); o.r = gm.r * T.s; o.u = simDir(T, gm.u); o.out = gm.out; o.q = gm.q;
+            if (gm.x !== undefined) o.x = gm.x * T.s;
         }
         return o;
     }
@@ -1372,7 +1463,7 @@ $.global.CMF = (function () {
 
     // 縮放整份文件時，尺寸的字級、線寬等也跟著縮放
     function scaleDimStyle(style, s) {
-        var re = /"(fontSize|lineWidth|endSize|extGap|extOver|textGap)"\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)/g;
+        var re = /"(fontSize|lineWidth|endSize|extGap|extOver|textGap|leader)"\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)/g;
         return style.replace(re, function (m, k, v) {
             return '"' + k + '":' + roundTo(Number(v) * s, 3);
         });
@@ -1533,6 +1624,7 @@ $.global.CMF = (function () {
 
     // 一個物件要標的圓弧：同樣大小只標一個，挑物件上最靠「角度」那一側的（45° = 右上角）
     // 直徑只看整圓、半圓以上的弧和直接選取的弧；半徑看全部
+    // n：同樣大小的有幾個（標「4×Ø3」用）；直徑只數整圓，長圓孔兩端的半圓不算兩個孔
     function pickArcs(arcs, dia, b, angle) {
         var picks = [], i, k, want = dirOf(angle);
         var cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
@@ -1541,19 +1633,26 @@ $.global.CMF = (function () {
             var a = arcs[i];
             if (dia && !a.full && !a.sel && Math.abs(a.sw) < Math.PI - 0.05) continue;
             var u = arcDir(a, angle, dia), M = along(a.c, u, a.r);
-            var cand = { c: a.c, r: a.r, u: u, score: vdot([(M[0] - cx) / W, (M[1] - cy) / H], want) }, same = -1;
+            var cand = { c: a.c, r: a.r, u: u, score: vdot([(M[0] - cx) / W, (M[1] - cy) / H], want), n: 0 }, same = -1;
             for (k = 0; k < picks.length; k++) {
                 if (Math.abs(picks[k].r - a.r) <= Math.max(0.05, a.r * 0.005)) { same = k; break; }
             }
-            if (same < 0) { if (picks.length < MAX_ARCS) picks.push(cand); }
-            else if (cand.score > picks[same].score + 1e-6) picks[same] = cand;
+            if (same < 0) {
+                if (picks.length < MAX_ARCS) { picks.push(cand); same = picks.length - 1; }
+            } else if (cand.score > picks[same].score + 1e-6) {
+                cand.n = picks[same].n;
+                picks[same] = cand;
+            }
+            if (same >= 0 && (!dia || a.full)) picks[same].n++;
         }
         picks.sort(function (p, q) { return q.r - p.r; });
         return picks;
     }
 
     // ---- 對外 ----
-    // o = { kind: "w" | "h" | "wh" | "dia" | "rad", offset, wSide, hSide, angle, each, style: 樣式 JSON 字串 }
+    // o = { kind: "w" | "h" | "wh" | "dia" | "rad", offset 寬高的尺寸線距離, wSide, hSide, angle, each,
+    //       visible 寬高含線寬, style: 樣式 JSON 字串 }
+    // 直徑、半徑的引線長度在樣式裡（「同步全部」會一起改）
     function dimAdd(optStr) {
         try {
             var d = getDoc(), o = parse(optStr), kind = o.kind, i, j;
@@ -1567,7 +1666,7 @@ $.global.CMF = (function () {
                 if (o.each) { for (i = 0; i < items.length; i++) sets.push([items[i]]); }
                 else sets.push(items);
                 for (i = 0; i < sets.length; i++) {
-                    var b = unionBounds(sets[i], false);
+                    var b = unionBounds(sets[i], !!o.visible);
                     if (kind !== "h") {
                         if (b[2] - b[0] > 0.001) made.push(buildDim(d, layer, linGeom(b, o.wSide === "bottom" ? "bottom" : "top", off), o.style));
                         else zero++;
@@ -1583,13 +1682,13 @@ $.global.CMF = (function () {
                 for (i = 0; i < items.length; i++) {
                     var picks = pickArcs(itemArcs(items[i], budget), dia, boundsOf(items[i], false), angle);
                     for (j = 0; j < picks.length; j++) {
-                        var pk = picks[j], gm = { t: dia ? "dia" : "rad", c: pk.c, r: pk.r, u: pk.u, off: off };
+                        var pk = picks[j], gm = { t: dia ? "dia" : "rad", c: pk.c, r: pk.r, u: pk.u, off: 0, x: 0, q: Math.max(1, pk.n) };
                         // 同心圓（例如圓環的內外圈）：最大的照常標，小的轉 45°、用引線拉到最外圈外面，文字才不會疊在一起
                         var inner = 0, outerR = pk.r;
                         for (var k = 0; k < j; k++) {
                             if (vlen(vsub(picks[k].c, pk.c)) <= Math.max(0.05, pk.r * 0.005)) { inner++; outerR = Math.max(outerR, picks[k].r); }
                         }
-                        if (inner) { gm.u = rotDir(pk.u, -45 * inner); gm.out = 1; gm.off = off + outerR - pk.r; }
+                        if (inner) { gm.u = rotDir(pk.u, -45 * inner); gm.out = 1; gm.x = outerR - pk.r; }
                         made.push(buildDim(d, layer, gm, o.style));
                     }
                 }
@@ -1607,14 +1706,15 @@ $.global.CMF = (function () {
         } catch (e) { return res(false, e.message); }
     }
 
-    // 面板顯示用：選取物件合起來的寬高（pt）、文件單位
-    function dimInfo() {
+    // 面板顯示用：選取物件合起來的寬高（pt）、文件單位；o.visible = 含線寬
+    function dimInfo(optStr) {
         try {
             if (app.documents.length === 0) return '{"ok":true,"doc":false}';
+            var o = optStr ? parse(optStr) : {};
             var d = app.activeDocument, u = docUnit(d), f = docScaleFactor(d), items = measuredItems(d);
             var out = '{"ok":true,"doc":true,"sel":' + items.length + ',"docUnit":"' + u[0] + '","docUnitPt":' + jsonNum(u[1]);
             if (items.length) {
-                var b = unionBounds(items, false);
+                var b = unionBounds(items, !!o.visible);
                 out += ',"w":' + jsonNum((b[2] - b[0]) * f) + ',"h":' + jsonNum((b[1] - b[3]) * f);
             }
             return out + "}";
