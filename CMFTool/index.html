@@ -460,6 +460,14 @@
 
   <button class="add mt" id="btnScale" disabled>縮放</button>
   <p class="hint">物件、文字、線寬、效果和工作區一起等比縮放，看起來跟原本一樣，只有尺寸改變。</p>
+
+  <details open data-key="swap">
+    <summary>交換位置和大小</summary>
+    <button class="btn block" id="btnSwap" title="選取兩個物件（圖片、群組都可以），兩個互換位置和大小">交換選取的兩個物件</button>
+    <label class="check" title="比例不同時，放進對方的範圍裡、置中，不會變形。取消勾選 = 寬高完全換成對方的">
+      <input type="checkbox" id="swapRatio" checked>保持比例（放進對方的範圍、置中）
+    </label>
+  </details>
 </section>
 
 <div class="status" id="status">就緒</div>

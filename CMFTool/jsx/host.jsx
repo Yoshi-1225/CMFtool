@@ -1061,6 +1061,52 @@ $.global.CMF = (function () {
         }
     }
 
+    // ---------- 交換兩個物件的位置和大小 ----------
+    // 選兩個物件（圖片、群組都可以）按一下：A 換到 B 的位置和大小，B 換到 A 的。
+    // 保持比例時放進對方的外框裡、置中，不會變形；不保持比例時，寬高完全換成對方的。
+    // 外框跟「變形」面板一樣（預視邊界、剪裁群組用遮色片的範圍）。圖層和上下順序不變。
+    function isInside(it, outer) {
+        for (var p = it.parent; p && p.typename !== "Layer" && p.typename !== "Document"; p = p.parent) {
+            if (p === outer) return true;
+        }
+        return false;
+    }
+
+    function fitInto(it, box, keepRatio, preview) {
+        var b = boundsOf(it, preview), w = b[2] - b[0], h = b[1] - b[3];
+        var sx = w > 0.001 ? (box[2] - box[0]) / w : null, sy = h > 0.001 ? (box[1] - box[3]) / h : null;
+        if (keepRatio || sx === null || sy === null) {
+            // 寬或高是 0 的物件（水平線、垂直線）只看另一邊
+            var k = sx === null ? sy : sy === null ? sx : Math.min(sx, sy);
+            sx = sy = k === null ? 1 : k;
+        }
+        if (Math.abs(sx - 1) > 0.000001 || Math.abs(sy - 1) > 0.000001) {
+            it.resize(sx * 100, sy * 100, true, true, true, true, Math.sqrt(sx * sy) * 100, Transformation.CENTER);
+        }
+        var nb = boundsOf(it, preview);
+        it.translate((box[0] + box[2]) / 2 - (nb[0] + nb[2]) / 2, (box[1] + box[3]) / 2 - (nb[1] + nb[3]) / 2, true, true, true, true);
+    }
+
+    // o = { keepRatio }
+    function swapItems(optStr) {
+        try {
+            var d = getDoc(), o = parse(optStr), items = selectedItems(d);
+            if (items.length !== 2) {
+                var hint = items.length === 1 && items[0].typename === "GroupItem" ? "；群組裡的物件請用群組選取或直接選取工具選" : "";
+                return res(false, "請選取兩個物件（目前選了 " + items.length + " 個）" + hint);
+            }
+            var a = items[0], b = items[1];
+            if (isInside(a, b) || isInside(b, a)) return res(false, "選取的兩個物件一個在另一個的群組裡，請改選兩個各自獨立的物件");
+            var preview = usePreviewBounds(), keep = o.keepRatio !== false;
+            var ba = boundsOf(a, preview), bb = boundsOf(b, preview);
+            fitInto(a, bb, keep, preview);
+            fitInto(b, ba, keep, preview);
+            var p = (ba[2] - ba[0]) * (bb[1] - bb[3]), q = (bb[2] - bb[0]) * (ba[1] - ba[3]);
+            var sameRatio = Math.abs(p - q) <= 0.005 * Math.max(Math.abs(p), Math.abs(q));
+            return res(true, "已交換兩個物件的位置和大小" + (keep && !sameRatio ? "（比例不同，保持比例放進對方的範圍、置中）" : ""));
+        } catch (e) { return res(false, e.message); }
+    }
+
     // ---------- 尺寸標註 ----------
     // 選取物件後標寬度、高度（外框尺寸），或圓的直徑 Ø、圓弧和圓角的半徑 R。
     // 每個尺寸是一個群組，放在「CMF Dimensions」圖層，備註存著：CMF_DIM|幾何 JSON|樣式 JSON
@@ -1719,6 +1765,7 @@ $.global.CMF = (function () {
         setLinks: setLinks,
         scaleInfo: scaleInfo,
         scaleDoc: scaleDoc,
+        swapItems: swapItems,
         dimAdd: dimAdd,
         dimInfo: dimInfo,
         dimSync: dimSync,

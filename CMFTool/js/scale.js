@@ -155,10 +155,25 @@
   $('btnScale').addEventListener('click', doScale);
   $('btnScaleRefresh').addEventListener('click', refresh);
 
+  /* ---------- 交換兩個物件的位置和大小 ---------- */
+  var RATIO_KEY = 'cmftool:swapRatio';
+  try { $('swapRatio').checked = localStorage.getItem(RATIO_KEY) !== '0'; } catch (e) {}
+  $('swapRatio').addEventListener('change', function () {
+    try { localStorage.setItem(RATIO_KEY, $('swapRatio').checked ? '1' : '0'); } catch (e) {}
+  });
+  $('btnSwap').addEventListener('click', function () {
+    if (busy) return;
+    call('swapItems', { keepRatio: $('swapRatio').checked }, function (r) {
+      App.setStatus(r.msg, !r.ok);
+      if (r.ok) refresh();
+    });
+  });
+
   // 在 Illustrator 裡換了選取之後，滑鼠移回面板時更新
   App.on('tab', function (name) { if (name === 'scale') refresh(); });
-  document.documentElement.addEventListener('mouseenter', refresh);
-  window.addEventListener('focus', refresh);
+  var autoRefresh = App.whenIdle(refresh);
+  document.documentElement.addEventListener('mouseenter', autoRefresh);
+  window.addEventListener('focus', autoRefresh);
   if (cep) {
     try { cep.addEventListener('documentAfterActivate', refresh); } catch (e) {}
   }
