@@ -4,7 +4,7 @@
   var cep = window.__adobe_cep__;
   var KEY = "cmfCalloutSettings";
   var STYLE_FIELDS = ["fontSize", "textColor", "fontName", "badge", "badgeColor", "badgeTextColor", "badgePadding",
-    "badgeStrokeWidth", "badgeStrokeColor", "lineWidth", "lineColor", "endStyle", "endSize", "styleName", "gap"];
+    "badgeStrokeWidth", "badgeStrokeColor", "lineWidth", "lineColor", "endStyle", "endSize", "styleName", "styleScale", "gap"];
   var FIELDS = ["lineMode", "continuous", "startMode", "startNumber", "sortMode", "sameNumber", "autoSync"].concat(STYLE_FIELDS);
   var MODE_TIPS = {
     straight: "點目標點 → 點編號位置",
@@ -566,9 +566,9 @@
   App.on("theme", renderPreview);
   App.on("numbers", refreshTable);   // Excel 分頁改了 CMF 清單或自動對應之後
 
-  // 縮放分頁縮放了全部工作區：樣式裡跟尺寸有關的數值用同一個倍率縮放
+  // 縮放分頁縮放了文件：樣式裡跟尺寸有關的數值用同一個倍率縮放
   // （跟 host.jsx 的 scaleNote 一樣的欄位；只存檔，不觸發自動同步）
-  var SIZE_FIELDS = ["fontSize", "badgePadding", "badgeStrokeWidth", "lineWidth", "endSize", "gap"];
+  var SIZE_FIELDS = ["fontSize", "badgePadding", "badgeStrokeWidth", "lineWidth", "endSize", "styleScale", "gap"];
   App.on("scaled", function (s) {
     SIZE_FIELDS.forEach(function (k) {
       var el = $(k);

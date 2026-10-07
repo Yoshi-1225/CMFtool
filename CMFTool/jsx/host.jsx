@@ -229,6 +229,14 @@ $.global.CMF = (function () {
             try { gs = d.graphicStyles.getByName(o.styleName); } catch (e) { gs = null; }
             if (!gs) throw new Error("找不到繪圖樣式「" + o.styleName + "」，請先在繪圖樣式面板建立");
             gs.applyTo(line);
+            // 縮放過的文件：繪圖樣式的線寬、箭頭跟著放大縮小（舊的標註沒有 styleScale = 100%）
+            var pct = Number(o.styleScale);
+            if (pct > 0 && Math.abs(pct - 100) > 0.001) {
+                var prefs = [];
+                setPref("scaleLineWeight", true, prefs);
+                try { line.resize(100, 100, true, true, true, true, pct, Transformation.CENTER); }
+                finally { for (var pi = 0; pi < prefs.length; pi++) { try { app.preferences.setBooleanPreference(prefs[pi][0], prefs[pi][1]); } catch (eP) {} } }
+            }
         }
 
         // 編號文字
@@ -898,10 +906,12 @@ $.global.CMF = (function () {
     // 標註備註裡跟尺寸有關的樣式也跟著縮放，之後重新編號、重新排版才會維持縮放後的大小
     function scaleNote(g, s) {
         var p = noteParts(g);
-        var re = /"(fontSize|badgePadding|badgeStrokeWidth|lineWidth|endSize|gap)"\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)/g;
+        var re = /"(fontSize|badgePadding|badgeStrokeWidth|lineWidth|endSize|styleScale|gap)"\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)/g;
         var style = p.style.replace(re, function (m, k, v) {
             return '"' + k + '":' + roundTo(Number(v) * s, 3);
         });
+        // 舊的標註沒有 styleScale（= 100%）：補上，之後重新產生時繪圖樣式的線寬才會維持縮放後的大小
+        if (!/"styleScale"\s*:/.test(style)) style = style.replace(/\}\s*$/, ',"styleScale":' + roundTo(100 * s, 3) + "}");
         if (style !== p.style) g.note = makeNote(p.num, p.key, style);
     }
 

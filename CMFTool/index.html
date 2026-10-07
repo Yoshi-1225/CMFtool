@@ -126,7 +126,13 @@
     </div>
     <div class="row" id="styleRow">
       <label for="styleName">樣式名稱</label>
-      <input type="text" id="styleName" value="CMF_Arrow" title="文件裡繪圖樣式的名稱，可在樣式中設定箭頭">
+      <div class="pair">
+        <input type="text" id="styleName" value="CMF_Arrow" title="文件裡繪圖樣式的名稱，可在樣式中設定箭頭">
+        <div class="unit-field">
+          <input type="number" id="styleScale" min="1" step="10" value="100" title="繪圖樣式的線寬、箭頭放大或縮小多少 (%)；縮放分頁縮放文件時會跟著改">
+          <span class="unit">%</span>
+        </div>
+      </div>
     </div>
     <div class="row">
       <label for="gap">間距</label>
@@ -546,6 +552,7 @@
       <input type="radio" name="scaleScope" value="all"><span id="scaleAllLabel">全部工作區</span>
     </label>
   </div>
+  <label class="check" title="縮放後，標註和尺寸分頁的樣式設定（字級、線寬、端點、間距、引線、距離⋯）乘上同一個比例，之後新增的標註、尺寸跟縮放後的一樣大，不用重新設定"><input type="checkbox" id="scaleStyles" checked>標註、尺寸的樣式設定也跟著縮放</label>
 
   <button class="add mt" id="btnScale" disabled>縮放</button>
   <p class="hint">物件、文字、線寬、效果和工作區一起等比縮放，看起來跟原本一樣，只有尺寸改變。</p>

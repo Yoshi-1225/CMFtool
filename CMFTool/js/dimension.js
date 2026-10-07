@@ -443,7 +443,7 @@
 
   // 在 Illustrator 裡換了選取之後，滑鼠移回面板時更新
   App.on('tab', function (name) { if (name === 'dim') refresh(); });
-  // 縮放分頁縮放了全部工作區：樣式裡跟大小有關的數值和「距離」用同一個倍率縮放，
+  // 縮放分頁縮放了文件：樣式裡跟大小有關的數值和「距離」用同一個倍率縮放，
   // 之後新增的尺寸、按「同步全部」才會跟縮放後的尺寸一樣大（跟 host.jsx 的 scaleDimStyle 一樣的欄位）
   var SIZE_FIELDS = ['dimFontSize', 'dimLineWidth', 'dimEndSize', 'dimTextGap', 'dimBreakGap', 'dimExtGap', 'dimExtOver', 'dimLeader', 'dimOffset'];
   App.on('scaled', function (s) {
