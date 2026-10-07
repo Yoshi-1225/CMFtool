@@ -357,11 +357,16 @@
   }
 
   /* ---------- 標註 ---------- */
+  // 標註中：寬高和直徑半徑的按鈕都先停用
+  function setBusy(on) {
+    busy = on;
+    Array.prototype.forEach.call(document.querySelectorAll('#page-dim .dim-tools'), function (el) { el.classList.toggle('busy', on); });
+  }
+
   function add(kind) {
     if (busy) return;
     if (!(ratioOf($('dimRatio').value) > 0)) { App.setStatus('比例請寫成 1:2 這樣的格式', true); return; }
-    busy = true;
-    $('dimTools').classList.add('busy');
+    setBusy(true);
     App.setStatus('標註中…');
     call('dimAdd', {
       kind: kind,
@@ -373,11 +378,10 @@
       visible: $('dimVisible').checked,
       style: JSON.stringify(readStyle())
     }, function (r) {
-      busy = false;
-      $('dimTools').classList.remove('busy');
+      setBusy(false);
       App.setStatus(r.msg, !r.ok);
     });
-    if (!cep) { busy = false; $('dimTools').classList.remove('busy'); }
+    if (!cep) setBusy(false);
   }
 
   function restyle(fn) {
@@ -428,7 +432,7 @@
   $('dimFontStyle').addEventListener('change', function () { setFontName($('dimFontStyle').value); });
   $('btnDimFonts').addEventListener('click', function () { if (App.reloadFonts) App.reloadFonts(); });
 
-  Array.prototype.forEach.call(document.querySelectorAll('#dimTools .tool'), function (b) {
+  Array.prototype.forEach.call(document.querySelectorAll('#page-dim .dim-tools .tool'), function (b) {
     b.addEventListener('click', function () { add(b.getAttribute('data-kind')); });
   });
   $('btnDimSync').addEventListener('click', function () { restyle('dimSync'); });

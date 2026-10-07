@@ -185,14 +185,6 @@
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="3" y="8" width="10" height="9" rx="1.5"/><path d="M3 4.5h10M3 3v3M13 3v3M16.5 8v9M15 8h3M15 17h3"/></svg>
       <span>寬＋高</span>
     </button>
-    <button class="tool wide" data-kind="dia" title="標圓的直徑；選群組時，每種大小的圓標一個">
-      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M5.4 14.6 14.6 5.4"/></svg>
-      <span>直徑 Ø</span>
-    </button>
-    <button class="tool wide" data-kind="rad" title="標圓弧、圓角的半徑；同樣大小的圓角標一個">
-      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M4 17v-7a6 6 0 0 1 6-6h7"/><path d="M10 10 6 6"/><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/></svg>
-      <span>半徑 R</span>
-    </button>
   </div>
 
   <div class="row mt">
@@ -217,6 +209,16 @@
 
   <details data-key="dimrad" open>
     <summary>直徑・半徑</summary>
+    <div class="dim-tools" id="dimRadTools">
+      <button class="tool wide" data-kind="dia" title="標圓的直徑；選群組時，每種大小的圓標一個">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M5.4 14.6 14.6 5.4"/></svg>
+        <span>直徑 Ø</span>
+      </button>
+      <button class="tool wide" data-kind="rad" title="標圓弧、圓角的半徑；同樣大小的圓角標一個">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M4 17v-7a6 6 0 0 1 6-6h7"/><path d="M10 10 6 6"/><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/></svg>
+        <span>半徑 R</span>
+      </button>
+    </div>
     <div class="row">
       <label for="dimRadMode">標法</label>
       <select id="dimRadMode" title="直徑、半徑怎麼標。已經標好的尺寸，按「樣式 → 同步全部」或「套用選取」改成新的標法">
