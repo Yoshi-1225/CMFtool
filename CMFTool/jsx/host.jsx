@@ -743,6 +743,314 @@ $.global.CMF = (function () {
         } catch (e) { return res(false, e.message); }
     }
 
+    // ---------- 依物件尺寸縮放整份文件 ----------
+    // 選一個物件、指定它的目標寬度或高度：物件、文字、線寬、效果和工作區一起等比縮放，
+    // 看起來跟原本一樣，只有尺寸改變。範圍是物件所在的工作區，或全部工作區。
+    // 寬高跟「變形」面板一樣：有勾「使用預視邊界」就含線寬，剪裁群組用遮色片的範圍。
+    var UNITS = {
+        Points: ["pt", 1], Picas: ["pc", 12], Inches: ["in", 72], Millimeters: ["mm", 72 / 25.4],
+        Centimeters: ["cm", 72 / 2.54], Pixels: ["px", 1], Qs: ["Q", 72 / 25.4 / 4],
+        Feet: ["ft", 864], Yards: ["yd", 2592], Meters: ["m", 72 / 0.0254]
+    };
+    var MAX_ARTBOARD = 16383; // Illustrator 工作區的上限 (pt)
+
+    function docUnit(d) {
+        var u = null;
+        try { u = UNITS[String(d.rulerUnits).replace(/^.*\./, "")]; } catch (e) {}
+        return u || UNITS.Points;
+    }
+
+    // 大型畫布文件（Illustrator 2019 以後）腳本裡的數值是實際尺寸的 1/scaleFactor
+    function docScaleFactor(d) {
+        var f = 1;
+        try { f = Number(d.scaleFactor) || 1; } catch (e) {}
+        return f;
+    }
+
+    function usePreviewBounds() {
+        try { return app.preferences.getBooleanPreference("includeStrokeInBounds"); } catch (e) { return false; }
+    }
+
+    function clipPathOf(g) {
+        for (var i = 0; i < g.pageItems.length; i++) {
+            var c = g.pageItems[i];
+            if (c.typename === "PathItem" && c.clipping) return c;
+            if (c.typename === "CompoundPathItem" && c.pathItems.length && c.pathItems[0].clipping) return c;
+        }
+        return null;
+    }
+
+    // [左, 上, 右, 下]；剪裁群組用遮色片的範圍
+    function boundsOf(it, preview) {
+        if (it.typename === "GroupItem" && it.clipped) {
+            var c = clipPathOf(it);
+            if (c) return c.geometricBounds;
+        }
+        return preview ? it.visibleBounds : it.geometricBounds;
+    }
+
+    function unionBounds(items, preview) {
+        var u = null;
+        for (var i = 0; i < items.length; i++) {
+            var b = boundsOf(items[i], preview);
+            if (!u) { u = [b[0], b[1], b[2], b[3]]; continue; }
+            if (b[0] < u[0]) u[0] = b[0];
+            if (b[1] > u[1]) u[1] = b[1];
+            if (b[2] > u[2]) u[2] = b[2];
+            if (b[3] < u[3]) u[3] = b[3];
+        }
+        return u;
+    }
+
+    // 用文字工具點在文字裡時，selection 是 TextRange：改用它所在的文字框
+    function selectedItems(d) {
+        var sel = d.selection, out = [], i;
+        if (!sel) return out;
+        if (sel.typename === "TextRange") {
+            try { for (i = 0; i < sel.story.textFrames.length; i++) out.push(sel.story.textFrames[i]); } catch (e) {}
+            return out;
+        }
+        for (i = 0; i < sel.length; i++) out.push(sel[i]);
+        return out;
+    }
+
+    // 重疊面積；pad 讓寬或高是 0 的物件（水平線、垂直線）也算得到
+    function overlapArea(b, r, pad) {
+        var w = Math.min(b[2] + pad, r[2]) - Math.max(b[0] - pad, r[0]);
+        var h = Math.min(b[1] + pad, r[1]) - Math.max(b[3] - pad, r[3]);
+        return w > 0 && h > 0 ? w * h : 0;
+    }
+
+    // 物件屬於重疊面積最大的工作區；不在任何工作區上 = -1
+    function artboardOf(d, b) {
+        var best = -1, most = 0;
+        for (var i = 0; i < d.artboards.length; i++) {
+            var a = overlapArea(b, d.artboards[i].artboardRect, 0.01);
+            if (a > most) { most = a; best = i; }
+        }
+        return best;
+    }
+
+    // 圖層裡最上層的物件（群組裡的物件 → 整個群組）
+    function topItem(it) {
+        while (it.parent && it.parent.typename !== "Layer" && it.parent.typename !== "Document") it = it.parent;
+        return it;
+    }
+
+    function collectTop(layers, out) {
+        for (var i = 0; i < layers.length; i++) {
+            var items = layers[i].pageItems;
+            for (var k = 0; k < items.length; k++) out.push(items[k]);
+            collectTop(layers[i].layers, out);
+        }
+    }
+
+    // 暫時改屬性（解除鎖定、顯示），結束後依相反順序還原
+    function setTemp(obj, prop, val, saved) {
+        try {
+            if (obj[prop] !== val) { saved.push([obj, prop, obj[prop]]); obj[prop] = val; }
+        } catch (e) {}
+    }
+
+    function openLayers(layers, saved) {
+        for (var i = 0; i < layers.length; i++) {
+            setTemp(layers[i], "locked", false, saved);
+            setTemp(layers[i], "visible", true, saved); // 隱藏圖層中的物件無法修改
+            openLayers(layers[i].layers, saved);
+        }
+    }
+
+    function setPref(name, val, saved) {
+        try {
+            var old = app.preferences.getBooleanPreference(name);
+            if (old !== val) { app.preferences.setBooleanPreference(name, val); saved.push([name, old]); }
+        } catch (e) {}
+    }
+
+    // 標準座標（跟 artboardRect 一致），結束後還原使用者原本的設定
+    function useDocCoords() {
+        try {
+            var old = app.coordinateSystem;
+            app.coordinateSystem = CoordinateSystem.DOCUMENTCOORDINATESYSTEM;
+            return old;
+        } catch (e) { return null; }
+    }
+
+    function restoreCoords(old) {
+        if (old !== null) { try { app.coordinateSystem = old; } catch (e) {} }
+    }
+
+    function mapPt(p, origin, s) {
+        return [origin[0] + (p[0] - origin[0]) * s, origin[1] + (p[1] - origin[1]) * s];
+    }
+
+    // 以 origin 為基準等比縮放：線寬、圖樣、漸層一起縮放，縮放後再把左上角對到正確位置
+    function scaleItem(it, s, origin) {
+        var b0 = it.geometricBounds, pct = s * 100;
+        it.resize(pct, pct, true, true, true, true, pct, Transformation.TOPLEFT);
+        var b1 = it.geometricBounds, to = mapPt([b0[0], b0[1]], origin, s);
+        it.translate(to[0] - b1[0], to[1] - b1[1], true, true, true, true);
+    }
+
+    // 標註備註裡跟尺寸有關的樣式也跟著縮放，之後重新編號、重新排版才會維持縮放後的大小
+    function scaleNote(g, s) {
+        var p = noteParts(g);
+        var re = /"(fontSize|badgePadding|badgeStrokeWidth|lineWidth|endSize|gap)"\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)/g;
+        var style = p.style.replace(re, function (m, k, v) {
+            return '"' + k + '":' + Math.round(Number(v) * s * 10000) / 10000;
+        });
+        if (style !== p.style) g.note = makeNote(p.num, p.key, style);
+    }
+
+    function jsonNum(v) { return isFinite(v) ? String(v) : "0"; }
+
+    function roundTo(v, n) { var f = Math.pow(10, n); return Math.round(v * f) / f; }
+
+    // 面板顯示用：選取物件的寬高 (pt)、文件單位、所在的工作區
+    function scaleInfo() {
+        var coords = useDocCoords();
+        try {
+            if (app.documents.length === 0) return '{"ok":true,"doc":false}';
+            var d = app.activeDocument, u = docUnit(d), f = docScaleFactor(d), preview = usePreviewBounds();
+            var items = selectedItems(d), b = items.length ? unionBounds(items, preview) : null;
+            var ab = b ? artboardOf(d, b) : d.artboards.getActiveArtboardIndex();
+            var out = '{"ok":true,"doc":true,"unit":"' + u[0] + '","unitPt":' + jsonNum(u[1]) +
+                ',"preview":' + (preview ? "true" : "false") + ',"sel":' + items.length + ',"artboards":' + d.artboards.length;
+            if (b) out += ',"w":' + jsonNum((b[2] - b[0]) * f) + ',"h":' + jsonNum((b[1] - b[3]) * f);
+            if (ab >= 0) out += ',"ab":' + ab + ',"abName":"' + esc(d.artboards[ab].name) + '"';
+            return out + "}";
+        } catch (e) { return res(false, e.message); }
+        finally { restoreCoords(coords); }
+    }
+
+    // o = { side: "w" | "h" | "pct", value, scope: "artboard" | "all" }
+    // value：w、h 是選取物件的目標尺寸 (pt)，pct 是百分比
+    function scaleDoc(optStr) {
+        var coords = useDocCoords(), saved = [], prefs = [], i, j;
+        try {
+            var d = getDoc(), o = parse(optStr), u = docUnit(d), f = docScaleFactor(d);
+            var items = selectedItems(d), b = items.length ? unionBounds(items, usePreviewBounds()) : null;
+            var s = Number(o.value) / 100;
+            if (o.side !== "pct") {
+                if (!b) return res(false, "請先選取一個物件");
+                var cur = (o.side === "h" ? b[1] - b[3] : b[2] - b[0]) * f;
+                if (!(cur > 0.001)) return res(false, "選取的物件" + (o.side === "h" ? "高度" : "寬度") + "是 0，無法依它縮放");
+                s = Number(o.value) / cur;
+            }
+            if (!(s > 0) || !isFinite(s)) return res(false, "請輸入大於 0 的數字");
+            if (Math.abs(s - 1) < 0.000001) return res(true, "尺寸已經一樣，不需要縮放");
+
+            // 縮放哪些工作區、以哪裡為基準：單一工作區時它的左上角不動；全部時以所有工作區的中心為基準
+            var all = o.scope === "all", boards = [], ab = -1, origin, r;
+            if (all) {
+                var ub = null;
+                for (i = 0; i < d.artboards.length; i++) {
+                    boards.push(i);
+                    r = d.artboards[i].artboardRect;
+                    ub = ub ? [Math.min(ub[0], r[0]), Math.max(ub[1], r[1]), Math.max(ub[2], r[2]), Math.min(ub[3], r[3])]
+                        : [r[0], r[1], r[2], r[3]];
+                }
+                origin = [(ub[0] + ub[2]) / 2, (ub[1] + ub[3]) / 2];
+            } else {
+                ab = b ? artboardOf(d, b) : d.artboards.getActiveArtboardIndex();
+                if (ab < 0) return res(false, "選取的物件不在任何工作區上，請改選「全部工作區」");
+                boards.push(ab);
+                r = d.artboards[ab].artboardRect;
+                origin = [r[0], r[1]];
+            }
+
+            // 先確認工作區的新尺寸可以用，再開始改
+            var oldRects = [], newRects = [];
+            for (i = 0; i < boards.length; i++) {
+                r = d.artboards[boards[i]].artboardRect;
+                var tl = mapPt([r[0], r[1]], origin, s), br = mapPt([r[2], r[3]], origin, s);
+                var nr = [tl[0], tl[1], br[0], br[1]];
+                if (nr[2] - nr[0] > MAX_ARTBOARD + 0.5 || nr[1] - nr[3] > MAX_ARTBOARD + 0.5) {
+                    return res(false, "放大後工作區會超過 Illustrator 的上限 " + roundTo(MAX_ARTBOARD * f / u[1], 1) + " " + u[0]);
+                }
+                if (nr[2] - nr[0] < 1 || nr[1] - nr[3] < 1) return res(false, "縮小後工作區太小了");
+                oldRects.push(r);
+                newRects.push(nr);
+            }
+
+            // 縮放的物件：圖層裡最上層的物件。單一工作區時只取屬於這個工作區的，選取的物件一定算進去
+            setPref("scaleLineWeight", true, prefs); // 縮放線條和效果
+            setPref("scaleCorners", true, prefs);    // 縮放圓角
+            openLayers(d.layers, saved);
+            var every = d.pageItems, n = every.length;
+            for (i = 0; i < n; i++) {
+                setTemp(every[i], "locked", false, saved);
+                setTemp(every[i], "hidden", false, saved);
+            }
+            var units = [], picked = [];
+            for (i = 0; i < items.length; i++) {
+                var t = topItem(items[i]);
+                if (!contains(picked, t)) picked.push(t);
+            }
+            var inScope = function (top) {
+                return all || contains(picked, top) || artboardOf(d, boundsOf(top, false)) === ab;
+            };
+            collectTop(d.layers, units);
+            if (!all) {
+                var keep = [];
+                for (i = 0; i < units.length; i++) if (inScope(units[i])) keep.push(units[i]);
+                units = keep;
+            }
+            // 先判斷標註在不在範圍內（縮放後位置就變了）
+            var callouts = allCallouts(d), scaledCallouts = [];
+            for (i = 0; i < callouts.length; i++) if (inScope(topItem(callouts[i]))) scaledCallouts.push(callouts[i]);
+
+            var done = [];
+            for (i = 0; i < boards.length; i++) {
+                var A = d.artboards[boards[i]];
+                try { A.artboardRect = newRects[i]; done.push(i); }
+                catch (eA) {
+                    for (j = done.length - 1; j >= 0; j--) {
+                        try { d.artboards[boards[done[j]]].artboardRect = oldRects[done[j]]; } catch (eB) {}
+                    }
+                    return res(false, "工作區「" + A.name + "」無法縮放到這個大小（" + eA.message + "）");
+                }
+            }
+
+            var failed = 0;
+            for (i = 0; i < units.length; i++) {
+                try { scaleItem(units[i], s, origin); } catch (eI) { failed++; }
+            }
+            for (i = 0; i < scaledCallouts.length; i++) {
+                try { scaleNote(scaledCallouts[i], s); } catch (eN) {}
+            }
+
+            // 畫面跟著縮放，看起來跟縮放前一樣
+            try {
+                var v = d.views[0], c = v.centerPoint;
+                v.zoom = Math.max(0.0313, Math.min(640, v.zoom / s));
+                v.centerPoint = mapPt(c, origin, s);
+            } catch (eV) {}
+
+            var msg = "已縮放 " + roundTo(s * 100, 2) + "%：" +
+                (all ? "全部 " + boards.length + " 個工作區" : "工作區「" + d.artboards[ab].name + "」") +
+                "和 " + (units.length - failed) + " 個物件";
+            if (failed) msg += "（" + failed + " 個無法縮放）";
+            if (!all) {
+                var hits = [];
+                for (i = 0; i < d.artboards.length; i++) {
+                    if (i === ab) continue;
+                    var other = d.artboards[i].artboardRect;
+                    if (overlapArea(other, newRects[0], 0) > 1 && overlapArea(other, oldRects[0], 0) <= 1) {
+                        hits.push("「" + d.artboards[i].name + "」");
+                    }
+                }
+                if (hits.length) msg += "；跟工作區" + hits.join("、") + "重疊了";
+            }
+            return res(true, msg);
+        } catch (e) { return res(false, e.message); }
+        finally {
+            for (i = saved.length - 1; i >= 0; i--) { try { saved[i][0][saved[i][1]] = saved[i][2]; } catch (eR) {} }
+            for (i = 0; i < prefs.length; i++) { try { app.preferences.setBooleanPreference(prefs[i][0], prefs[i][1]); } catch (eP) {} }
+            restoreCoords(coords);
+        }
+    }
+
     // ---------- 設定檔（給快捷鍵腳本使用） ----------
     // 面板第一次開啟（還沒有自己的設定）時，沿用快捷鍵腳本用的設定檔
     function loadSettings() {
@@ -791,6 +1099,8 @@ $.global.CMF = (function () {
         endPick: endPick,
         setLink: setLink,
         setLinks: setLinks,
+        scaleInfo: scaleInfo,
+        scaleDoc: scaleDoc,
         loadSettings: loadSettings,
         saveSettings: saveSettings
     };

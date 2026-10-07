@@ -258,6 +258,25 @@ summary .count { font-weight: 400; color: var(--muted); }
 .ref-chip.is-table { font-family: inherit; }
 .ref-chip.is-cmf { border-color: var(--accent); }
 
+/* ---------- 縮放分頁 ---------- */
+.size-grid {
+  display: grid; grid-template-columns: 30px 1fr 1fr;
+  align-items: center; gap: 5px 6px; margin: 8px 0 4px;
+}
+.size-grid > label { color: var(--muted); }
+.size-grid .head { color: var(--muted); font-size: 10px; letter-spacing: .04em; }
+.size-grid .now { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.unit-field { position: relative; min-width: 0; }
+.unit-field input { padding-right: 24px; }
+.unit-field .unit {
+  position: absolute; top: 0; right: 6px; bottom: 0;
+  display: flex; align-items: center;
+  color: var(--muted); pointer-events: none;
+}
+.scope .check { margin: 4px 0; }
+.scope .check span { overflow: hidden; text-overflow: ellipsis; }
+.hint { margin: 8px 0 0; color: var(--muted); }
+
 /* ---------- 狀態列 ---------- */
 .status {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;

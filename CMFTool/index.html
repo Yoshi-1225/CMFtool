@@ -10,6 +10,7 @@
 <nav class="tabs" role="tablist">
   <button class="tab is-active" data-tab="callout" role="tab">標註</button>
   <button class="tab" data-tab="excel" role="tab">Excel</button>
+  <button class="tab" data-tab="scale" role="tab">縮放</button>
 </nav>
 
 <!-- ==================== 標註 ==================== -->
@@ -248,11 +249,59 @@
   </details>
 </section>
 
+<!-- ==================== 縮放 ==================== -->
+<section class="page" id="page-scale" role="tabpanel" hidden>
+  <div class="sect-head">
+    <span class="sect-title">依物件尺寸縮放</span>
+    <span class="sect-meta" id="scaleSel"></span>
+    <button class="icon-btn" id="btnScaleRefresh" title="重新讀取選取的物件">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5"/></svg>
+    </button>
+  </div>
+  <div class="size-grid">
+    <span></span><span class="head">目前</span><span class="head">目標</span>
+    <label for="scaleW">寬度</label>
+    <span class="now" id="scaleNowW">—</span>
+    <div class="unit-field">
+      <input type="text" id="scaleW" inputmode="decimal" spellcheck="false" autocomplete="off"
+             title="選取物件的目標寬度。可以加單位：150mm、15cm、6in；沒寫單位 = 文件的單位">
+      <span class="unit" data-len></span>
+    </div>
+    <label for="scaleH">高度</label>
+    <span class="now" id="scaleNowH">—</span>
+    <div class="unit-field">
+      <input type="text" id="scaleH" inputmode="decimal" spellcheck="false" autocomplete="off"
+             title="選取物件的目標高度。可以加單位：150mm、15cm、6in；沒寫單位 = 文件的單位">
+      <span class="unit" data-len></span>
+    </div>
+    <label for="scalePct">比例</label>
+    <span class="now">100%</span>
+    <div class="unit-field">
+      <input type="text" id="scalePct" inputmode="decimal" spellcheck="false" autocomplete="off" title="縮放比例">
+      <span class="unit">%</span>
+    </div>
+  </div>
+
+  <div class="sub">範圍</div>
+  <div class="scope">
+    <label class="check" title="只縮放這個工作區和上面的物件，工作區左上角不動">
+      <input type="radio" name="scaleScope" value="artboard" checked><span id="scaleAbLabel">物件所在的工作區</span>
+    </label>
+    <label class="check" title="所有工作區和整份文件的物件一起縮放">
+      <input type="radio" name="scaleScope" value="all"><span id="scaleAllLabel">全部工作區</span>
+    </label>
+  </div>
+
+  <button class="add mt" id="btnScale" disabled>縮放</button>
+  <p class="hint">物件、文字、線寬、效果和工作區一起等比縮放，看起來跟原本一樣，只有尺寸改變。</p>
+</section>
+
 <div class="status" id="status">就緒</div>
 
 <script src="js/CSInterface.js"></script>
 <script src="js/app.js"></script>
 <script src="js/excel.js"></script>
 <script src="js/callout.js"></script>
+<script src="js/scale.js"></script>
 </body>
 </html>
