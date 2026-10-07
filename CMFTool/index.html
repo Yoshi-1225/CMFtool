@@ -179,17 +179,14 @@
     </button>
   </div>
   <div class="dim-tools" id="dimTools">
-    <button class="tool" data-kind="w" title="標選取物件的寬度">
+    <button class="tool" data-kind="w" title="標選取物件的寬度" aria-label="寬度">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="3" y="10" width="14" height="7" rx="1.5"/><path d="M3 3v5M17 3v5M5.5 5.5h9"/><path d="M3.6 5.5 6.6 4v3zM16.4 5.5 13.4 4v3z" fill="currentColor" stroke="none"/></svg>
-      <span>寬度</span>
     </button>
-    <button class="tool" data-kind="h" title="標選取物件的高度">
+    <button class="tool" data-kind="h" title="標選取物件的高度" aria-label="高度">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="3" y="3" width="7" height="14" rx="1.5"/><path d="M12 3h5M12 17h5M14.5 5.5v9"/><path d="M14.5 3.6 13 6.6h3zM14.5 16.4 13 13.4h3z" fill="currentColor" stroke="none"/></svg>
-      <span>高度</span>
     </button>
-    <button class="tool" data-kind="wh" title="寬度和高度一起標">
+    <button class="tool" data-kind="wh" title="寬度和高度一起標" aria-label="寬＋高">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="3" y="8" width="10" height="9" rx="1.5"/><path d="M3 4.5h10M3 3v3M13 3v3M16.5 8v9M15 8h3M15 17h3"/></svg>
-      <span>寬＋高</span>
     </button>
   </div>
 
@@ -212,6 +209,15 @@
   </div>
   <label class="check" title="選了好幾個物件時，每個物件各自標寬高；不勾 = 標它們合起來的外框"><input type="checkbox" id="dimEach">每個物件分別標寬高</label>
   <label class="check" title="寬高量到線條的外緣（跟「變形」面板勾「使用預視邊界」一樣）；不勾 = 只量形狀，不含線寬"><input type="checkbox" id="dimVisible">寬高含線寬</label>
+  <label class="check" title="字級、線寬、箭頭、間距、引線和距離跟著量的物件大小等比調整：下面「樣式」的數值是給「基準」大小的物件用的，物件比較大就放大、比較小就縮小（最多縮到一半）。按「同步全部」、「套用選取」時也照每個尺寸量的物件重算"><input type="checkbox" id="dimAuto">依物件大小自動調整樣式</label>
+  <div class="row" id="dimAutoRow">
+    <label for="dimAutoBase">基準</label>
+    <div class="unit-field">
+      <input type="number" id="dimAutoBase" min="1" step="10" value="100" title="「樣式」的字級、線寬等適合多大的物件：物件較長的一邊等於這個大小時，照樣式原樣標">
+      <span class="unit">mm</span>
+    </div>
+  </div>
+  <div class="hint" id="dimAutoHint"></div>
 
   <details data-key="dimrad" open>
     <summary>直徑・半徑</summary>

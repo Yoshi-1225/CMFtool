@@ -10,7 +10,7 @@
   var STYLE = ['dimFontSize', 'dimTextColor', 'dimFontName', 'dimTextAlign', 'dimTextPos', 'dimTextGap', 'dimBreakGap', 'dimTextBg', 'dimTextBgColor',
     'dimLineWidth', 'dimLineColor', 'dimEndStyle', 'dimEndSize', 'dimArrowPos', 'dimExtLine', 'dimExtGap', 'dimExtOver',
     'dimUnit', 'dimDecimals', 'dimShowUnit', 'dimRatio', 'dimDiaSym', 'dimCount', 'dimPrefix', 'dimSuffix',
-    'dimRadMode', 'dimLeader', 'dimShelf', 'dimCenterMark'];
+    'dimRadMode', 'dimLeader', 'dimShelf', 'dimCenterMark', 'dimAuto', 'dimAutoBase'];
   var FIELDS = ['dimWSide', 'dimHSide', 'dimOffset', 'dimAngle', 'dimEach', 'dimVisible', 'dimAutoApply'].concat(STYLE);
   var UNIT_PT = { mm: 72 / 25.4, cm: 72 / 2.54, 'in': 72, pt: 1, px: 1 };
   var DIA_SYMS = { slash: '\u00D8', phi: '\u03C6', sign: '\u2300' };
@@ -54,6 +54,9 @@
     o.extGap = num('dimExtGap', 2);
     o.extOver = num('dimExtOver', 2);
     o.leader = num('dimLeader', 12);
+    // 依物件大小自動調整：樣式是給多大 (pt) 的物件用的，0 = 不調整（host.jsx 的 autoFactor）
+    o.autoBase = o.auto ? num('dimAutoBase', 100, 0.001) * UNIT_PT.mm : 0;
+    delete o.auto;
     return o;
   }
 
@@ -111,6 +114,20 @@
     }
     el.textContent = text;
     el.title = info && info.sel ? '選取的物件合起來的寬 × 高（依下面的單位和比例）' : '';
+    renderAuto();
+  }
+
+  // 依物件大小自動調整：目前選取的物件會用幾倍的樣式（跟 host.jsx 的 autoFactor 一樣）
+  var AUTO_MIN = 0.5, AUTO_MAX = 50;
+  function renderAuto() {
+    var on = $('dimAuto').checked, hint = $('dimAutoHint');
+    $('dimAutoRow').hidden = hint.hidden = !on;
+    if (!on) return;
+    var base = num('dimAutoBase', 100, 0.001) * UNIT_PT.mm;
+    if (!(info && info.sel)) { hint.textContent = '依量的物件大小，等比調整「樣式」的字級、線寬、箭頭和距離'; return; }
+    var z = Math.max(info.w, info.h), k = Math.max(AUTO_MIN, Math.min(AUTO_MAX, z / base));
+    hint.textContent = '選取的物件較長邊 ' + fmt(z / UNIT_PT.mm, 1) + ' mm → 樣式 × ' + fmt(k, 2) +
+      '（字級 ' + fmt(num('dimFontSize', 8, 0.1) * k, 1) + ' pt）' + (k === AUTO_MIN ? '，已是最小' : '');
   }
 
   // 只在尺寸分頁開著時讀取
@@ -445,7 +462,9 @@
   App.on('tab', function (name) { if (name === 'dim') refresh(); });
   // 縮放分頁縮放了文件：樣式裡跟大小有關的數值和「距離」用同一個倍率縮放，
   // 之後新增的尺寸、按「同步全部」才會跟縮放後的尺寸一樣大（跟 host.jsx 的 scaleDimStyle 一樣的欄位）
-  var SIZE_FIELDS = ['dimFontSize', 'dimLineWidth', 'dimEndSize', 'dimTextGap', 'dimBreakGap', 'dimExtGap', 'dimExtOver', 'dimLeader', 'dimOffset'];
+  // 基準也跟著縮放：樣式放大了，適合的物件也變大，自動調整的倍率才不會重複放大
+  var SIZE_FIELDS = ['dimFontSize', 'dimLineWidth', 'dimEndSize', 'dimTextGap', 'dimBreakGap', 'dimExtGap', 'dimExtOver', 'dimLeader', 'dimOffset',
+    'dimAutoBase'];
   App.on('scaled', function (s) {
     SIZE_FIELDS.forEach(function (id) {
       var el = $(id);

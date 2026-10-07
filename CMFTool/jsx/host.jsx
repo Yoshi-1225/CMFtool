@@ -1125,6 +1125,7 @@ $.global.CMF = (function () {
     //     x 引線比樣式的「引線」多拉的長度（同心圓的內圈）, q 同樣大小的圓有幾個 }
     //     舊版的尺寸沒有 x，引線長度記在 off
     //   ref：建立時 DIM_Line 頭尾兩個錨點的位置
+    //   z：量的物件較長的一邊（「依物件大小自動調整樣式」用，跟著尺寸一起移動、縮放）
     // 重建時比對 DIM_Line 現在的位置，算出尺寸被移動、等比縮放、旋轉了多少，套用到記錄的點上，
     // 所以搬過的尺寸重建後還在原地，縮放整份文件後數字也會跟著變。
     var DIM_LAYER = "CMF Dimensions";
@@ -1467,6 +1468,7 @@ $.global.CMF = (function () {
         if (gm.t === "lin") s += ',"p1":' + ptStr(gm.p1) + ',"p2":' + ptStr(gm.p2) + ',"a":' + ptStr(gm.a) + ',"n":' + ptStr(gm.n);
         else s += ',"c":' + ptStr(gm.c) + ',"r":' + jsonNum(gm.r) + ',"u":' + ptStr(gm.u) + (gm.out ? ',"out":1' : "") +
             (gm.x !== undefined ? ',"x":' + jsonNum(gm.x) : "") + (gm.q > 1 ? ',"q":' + gm.q : "");
+        if (gm.z > 0) s += ',"z":' + jsonNum(gm.z);
         return s + ',"off":' + jsonNum(gm.off) + ',"ref":[' + ptStr(gm.ref[0]) + "," + ptStr(gm.ref[1]) + "]}";
     }
 
@@ -1506,16 +1508,23 @@ $.global.CMF = (function () {
             o.c = simPt(T, gm.c); o.r = gm.r * T.s; o.u = simDir(T, gm.u); o.out = gm.out; o.q = gm.q;
             if (gm.x !== undefined) o.x = gm.x * T.s;
         }
+        if (gm.z > 0) o.z = gm.z * T.s;
         return o;
     }
 
     // 用尺寸自己的記錄重建；styleStr 省略 = 原本的樣式
-    function rebuildDim(d, g, styleStr) {
+    // fit：styleStr 是面板的樣式，開著「依物件大小自動調整樣式」時照這個尺寸量的物件大小縮放
+    function rebuildDim(d, g, styleStr, fit) {
         var p = dimNote(g), gm = parse(p.geom), line = findChild(g, "DIM_Line");
         if (!line || !gm.ref) return null;
         var pts = line.pathPoints;
         var T = similarity(gm.ref[0], gm.ref[1], pts[0].anchor, pts[pts.length - 1].anchor);
         if (T) gm = simGeom(gm, T);
+        if (fit && styleStr) {
+            // 舊的尺寸沒有記錄物件大小：用量到的長度、直徑代替
+            var z = gm.z > 0 ? gm.z : gm.t === "lin" ? vlen(vsub(gm.p2, gm.p1)) : gm.r * 2;
+            styleStr = autoStyle(d, styleStr, z);
+        }
         var L = g.layer;
         L.locked = false;
         L.visible = true; // 隱藏圖層中的物件無法修改
@@ -1533,6 +1542,23 @@ $.global.CMF = (function () {
             return '"' + k + '":' + roundTo(Number(v) * s, 3);
         });
     }
+
+    // 「依物件大小自動調整樣式」：面板的樣式是給 autoBase (pt) 大的物件用的（樣式裡的 autoBase，0 = 關閉）。
+    // 物件較長的一邊 z 跟它不同時，字級、線寬、箭頭、間距、引線和「距離」等比縮放；最小縮到一半
+    var AUTO_MIN = 0.5, AUTO_MAX = 50;
+
+    function autoFactor(d, styleStr, z) {
+        var m = /"autoBase"\s*:\s*([0-9.eE+-]+)/.exec(styleStr), base = m ? Number(m[1]) : 0;
+        if (!(base > 0) || !(z > 0)) return 1;
+        return Math.max(AUTO_MIN, Math.min(AUTO_MAX, z * docScaleFactor(d) / base));
+    }
+
+    function autoStyle(d, styleStr, z) {
+        var k = autoFactor(d, styleStr, z);
+        return Math.abs(k - 1) < 0.000001 ? styleStr : scaleDimStyle(styleStr, k);
+    }
+
+    function longSide(b) { return Math.max(b[2] - b[0], b[1] - b[3]); }
 
     // ---- 寬高 ----
     // b = [左, 上, 右, 下]；寬度標在上方或下方，高度標在右側或左側
@@ -1731,30 +1757,34 @@ $.global.CMF = (function () {
                 if (o.each) { for (i = 0; i < items.length; i++) sets.push([items[i]]); }
                 else sets.push(items);
                 for (i = 0; i < sets.length; i++) {
-                    var b = unionBounds(sets[i], !!o.visible);
+                    var b = unionBounds(sets[i], !!o.visible), z = longSide(b), k = autoFactor(d, o.style, z);
+                    var st = autoStyle(d, o.style, z), gw = null;
                     if (kind !== "h") {
-                        if (b[2] - b[0] > 0.001) made.push(buildDim(d, layer, linGeom(b, o.wSide === "bottom" ? "bottom" : "top", off), o.style));
+                        if (b[2] - b[0] > 0.001) gw = linGeom(b, o.wSide === "bottom" ? "bottom" : "top", off * k);
                         else zero++;
                     }
+                    if (gw) { gw.z = z; made.push(buildDim(d, layer, gw, st)); gw = null; }
                     if (kind !== "w") {
-                        if (b[1] - b[3] > 0.001) made.push(buildDim(d, layer, linGeom(b, o.hSide === "left" ? "left" : "right", off), o.style));
+                        if (b[1] - b[3] > 0.001) gw = linGeom(b, o.hSide === "left" ? "left" : "right", off * k);
                         else zero++;
                     }
+                    if (gw) { gw.z = z; made.push(buildDim(d, layer, gw, st)); }
                 }
                 if (!made.length) return res(false, "選取的物件" + (kind === "h" ? "高度" : "寬度") + "是 0");
             } else {
                 var dia = kind === "dia", budget = { n: 0, over: false }, angle = Number(o.angle) || 0;
                 for (i = 0; i < items.length; i++) {
-                    var picks = pickArcs(itemArcs(items[i], budget), dia, boundsOf(items[i], false), angle);
+                    var ib = boundsOf(items[i], false), iz = longSide(ib), ist = autoStyle(d, o.style, iz);
+                    var picks = pickArcs(itemArcs(items[i], budget), dia, ib, angle);
                     for (j = 0; j < picks.length; j++) {
-                        var pk = picks[j], gm = { t: dia ? "dia" : "rad", c: pk.c, r: pk.r, u: pk.u, off: 0, x: 0, q: Math.max(1, pk.n) };
+                        var pk = picks[j], gm = { t: dia ? "dia" : "rad", c: pk.c, r: pk.r, u: pk.u, off: 0, x: 0, q: Math.max(1, pk.n), z: iz };
                         // 同心圓（例如圓環的內外圈）：最大的照常標，小的轉 45°、用引線拉到最外圈外面，文字才不會疊在一起
                         var inner = 0, outerR = pk.r;
                         for (var k = 0; k < j; k++) {
                             if (vlen(vsub(picks[k].c, pk.c)) <= Math.max(0.05, pk.r * 0.005)) { inner++; outerR = Math.max(outerR, picks[k].r); }
                         }
                         if (inner) { gm.u = rotDir(pk.u, -45 * inner); gm.out = 1; gm.x = outerR - pk.r; }
-                        made.push(buildDim(d, layer, gm, o.style));
+                        made.push(buildDim(d, layer, gm, ist));
                     }
                 }
                 if (!made.length) {
@@ -1790,7 +1820,7 @@ $.global.CMF = (function () {
         var made = [], failed = 0;
         for (var i = 0; i < gs.length; i++) {
             var ng = null;
-            try { ng = rebuildDim(d, gs[i], styleStr); } catch (e) {}
+            try { ng = rebuildDim(d, gs[i], styleStr, true); } catch (e) {}
             if (ng) made.push(ng); else failed++;
         }
         return { made: made, failed: failed };
