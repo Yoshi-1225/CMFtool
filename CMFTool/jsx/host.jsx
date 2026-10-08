@@ -1716,12 +1716,27 @@ $.global.CMF = (function () {
         else if (t === "GroupItem") for (i = 0; i < it.pageItems.length; i++) collectPaths(it.pageItems[i], out);
     }
 
-    function itemArcs(it, budget) {
+    // 線條超出路徑多少：看 visibleBounds 和 geometricBounds 的差，線條對齊內側、外側也算得對；
+    // 最多算到線寬（效果撐大外框時不會多算）
+    function strokeOut(p) {
+        try {
+            if (!p.stroked || !(p.strokeWidth > 0)) return 0;
+            var gb = p.geometricBounds, vb = p.visibleBounds;
+            var e = Math.min(vb[2] - vb[0] - (gb[2] - gb[0]), vb[1] - vb[3] - (gb[1] - gb[3])) / 2;
+            return Math.max(0, Math.min(p.strokeWidth, e));
+        } catch (err) { return 0; }
+    }
+
+    // visible：「含線寬」，直徑、半徑量到線條的外緣
+    function itemArcs(it, budget, visible) {
         var paths = [], out = [], i, k;
         collectPaths(it, paths);
         for (i = 0; i < paths.length && !budget.over; i++) {
-            var arcs = pathArcs(paths[i], paths[i] === it, budget);
-            for (k = 0; k < arcs.length; k++) out.push(arcs[k]);
+            var arcs = pathArcs(paths[i], paths[i] === it, budget), ext = visible ? strokeOut(paths[i]) : 0;
+            for (k = 0; k < arcs.length; k++) {
+                arcs[k].r += ext;
+                out.push(arcs[k]);
+            }
         }
         return out;
     }
@@ -1772,7 +1787,7 @@ $.global.CMF = (function () {
 
     // ---- 對外 ----
     // o = { jobs: [{ kind: "w" | "h", side: "top" | "bottom" | "left" | "right", each }, { kind: "dia" | "rad" }],
-    //       offset 寬高的尺寸線距離, angle, visible 寬高含線寬, style: 樣式 JSON 字串 }
+    //       offset 寬高的尺寸線距離, angle, visible 含線寬（寬高、直徑、半徑都量到線條外緣）, style: 樣式 JSON 字串 }
     //   each：每個物件各自標；否則標選取的物件合起來的外框。一次呼叫做完全部
     //   舊的寫法 { kind: "w" | "h" | "wh" | "dia" | "rad", wSide, hSide, each } 也可以用
     // 直徑、半徑的引線長度在樣式裡（「同步全部」會一起改）
@@ -1818,7 +1833,7 @@ $.global.CMF = (function () {
                     var dia = kind === "dia", before = made.length;
                     for (i = 0; i < items.length; i++) {
                         var ib = boundsOf(items[i], false), iz = longSide(ib), ist = autoStyle(d, o.style, iz);
-                        var picks = pickArcs(itemArcs(items[i], budget), dia, ib, angle);
+                        var picks = pickArcs(itemArcs(items[i], budget, !!o.visible), dia, ib, angle);
                         if (picks.length && !firstK) firstK = autoFactor(d, o.style, iz);
                         for (j = 0; j < picks.length; j++) {
                             var pk = picks[j], gm = { t: dia ? "dia" : "rad", c: pk.c, r: pk.r, u: pk.u, off: 0, x: 0, q: Math.max(1, pk.n), z: iz };
