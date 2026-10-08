@@ -169,7 +169,40 @@
 
 <!-- ==================== 尺寸 ==================== -->
 <section class="page" id="page-dim" role="tabpanel" hidden>
-  <div class="preview"><svg id="dimPreview" viewBox="0 0 260 84" aria-label="尺寸樣式預覽"></svg></div>
+
+  <!-- 常用設定（參考 Specees）：比例、單位、加單位、小數；字級、文字顏色、線寬、線條顏色 -->
+  <div class="quick" role="group" aria-label="常用設定">
+    <div class="quick-row r1">
+      <label class="qi" for="dimRatio" title="圖面比例">1:x</label>
+      <input type="text" id="dimRatio" value="1:1" spellcheck="false" autocomplete="off" data-ime="off"
+             title="圖面比例：圖畫成實物的一半大 = 1:2（或只寫 2），標出來的數字會乘 2">
+      <select id="dimUnit" title="單位">
+        <option value="mm">mm</option>
+        <option value="cm">cm</option>
+        <option value="in">in</option>
+        <option value="pt">pt</option>
+        <option value="px">px</option>
+        <option value="doc">文件單位</option>
+      </select>
+      <input type="checkbox" class="tgl-in" id="dimShowUnit" checked>
+      <label class="qtgl" for="dimShowUnit" title="數字後面加單位（眼睛閉起來 = 不加）" aria-label="加單位"><svg class="on" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10z"/><circle cx="10" cy="10" r="2.4"/></svg><svg class="off" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10z"/><circle cx="10" cy="10" r="2.4"/><path d="M3.5 16.5 16.5 3.5"/></svg></label>
+      <label class="qi" for="dimDecimals" title="小數位數">.00</label>
+      <select id="dimDecimals" title="最多幾位小數，尾數的 0 會去掉">
+        <option value="0">1</option>
+        <option value="1" selected>0.1</option>
+        <option value="2">0.01</option>
+        <option value="3">0.001</option>
+      </select>
+    </div>
+    <div class="quick-row r2">
+      <label class="qi tt" for="dimFontSize" title="字級 (pt)">T<small>t</small></label>
+      <input type="number" id="dimFontSize" min="1" step="0.5" value="8" title="字級 (pt)">
+      <input type="color" id="dimTextColor" value="#000000" title="文字顏色">
+      <label class="qi" for="dimLineWidth" title="線寬 (pt)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 14.5h14" stroke-width="2.6"/><path d="M3 7.5h14" stroke-width="1"/></svg></label>
+      <input type="number" id="dimLineWidth" min="0.1" step="0.25" value="0.5" title="線寬 (pt)">
+      <input type="color" id="dimLineColor" value="#000000" title="線條和箭頭的顏色">
+    </div>
+  </div>
 
   <div class="sect-head">
     <span class="sect-title">選取</span>
@@ -178,36 +211,30 @@
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5"/></svg>
     </button>
   </div>
-  <!-- 參考 Specees：左邊選寬高標在哪一邊、按中間的「標尺寸」；右邊選要標的類型（都可以多選） -->
+  <!-- 參考 Specees：中間按鈕標尺寸，四周的圓點選寬高標在哪一邊；右邊選要標的類型（都可以多選） -->
   <div class="dim-pick">
-    <div class="dpad" id="dimPad" role="group" aria-label="寬高標在哪一邊（可以多選），中間的按鈕標尺寸">
+    <div class="pad" id="dimPad" role="group" aria-label="寬高標在哪一邊（可以多選），中間的按鈕標尺寸">
       <input type="checkbox" class="tgl-in" id="dimPosTop" checked>
-      <label class="tgl up" for="dimPosTop" title="寬度標在上方" aria-label="上"><svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M6 2.5 10.5 8h-9z"/></svg></label>
+      <label class="dot up" for="dimPosTop" title="寬度標在上方" aria-label="上"></label>
       <input type="checkbox" class="tgl-in" id="dimPosLeft">
-      <label class="tgl left" for="dimPosLeft" title="高度標在左側" aria-label="左"><svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M2.5 6 8 1.5v9z"/></svg></label>
-      <button class="add go" id="btnDimAdd" title="照選好的類型和位置，標註選取的物件">標尺寸</button>
+      <label class="dot left" for="dimPosLeft" title="高度標在左側" aria-label="左"></label>
+      <div class="pad-core">
+        <button class="go" id="btnDimAdd" title="標尺寸：照選好的類型和位置，標註選取的物件" aria-label="標尺寸"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="11" width="16" height="16" rx="1.5"/><path d="M5 6h16M5 4v4M21 4v4M26 11v16M24 11h4M24 27h4"/></svg></button>
+      </div>
       <input type="checkbox" class="tgl-in" id="dimPosRight" checked>
-      <label class="tgl right" for="dimPosRight" title="高度標在右側" aria-label="右"><svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M9.5 6 4 10.5v-9z"/></svg></label>
+      <label class="dot right" for="dimPosRight" title="高度標在右側" aria-label="右"></label>
       <input type="checkbox" class="tgl-in" id="dimPosBottom">
-      <label class="tgl down" for="dimPosBottom" title="寬度標在下方" aria-label="下"><svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M6 9.5 1.5 4h9z"/></svg></label>
+      <label class="dot down" for="dimPosBottom" title="寬度標在下方" aria-label="下"></label>
     </div>
-    <div class="dim-types" role="group" aria-label="要標的尺寸（可以多選）">
+    <div class="types" role="group" aria-label="要標的尺寸（可以多選）">
       <input type="checkbox" class="tgl-in" id="dimTypeSel" checked>
-      <label class="tgl" for="dimTypeSel" title="選取範圍的寬高：好幾個物件時標它們合起來的外框" aria-label="選取範圍寬高">
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="2.5" y="8.5" width="15" height="9" rx="1" stroke-dasharray="1.6 1.4"/><rect x="4.5" y="11" width="4.5" height="4.5" rx=".8"/><rect x="11" y="10.5" width="4.5" height="5" rx=".8"/><path d="M2.5 5h15M2.5 3.5v3M17.5 3.5v3"/></svg>
-      </label>
+      <label class="ticon" for="dimTypeSel" title="選取範圍的寬高：好幾個物件時標它們合起來的外框" aria-label="選取範圍寬高"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="2.5" y="8.5" width="15" height="9" rx="1" stroke-dasharray="1.6 1.4"/><rect x="4.5" y="11" width="4.5" height="4.5" rx=".8"/><rect x="11" y="10.5" width="4.5" height="5" rx=".8"/><path d="M2.5 5h15M2.5 3.5v3M17.5 3.5v3"/></svg></label>
       <input type="checkbox" class="tgl-in" id="dimTypeEach">
-      <label class="tgl" for="dimTypeEach" title="每個物件各自的寬高" aria-label="各物件寬高">
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="2" y="9" width="6.5" height="8" rx="1"/><rect x="11.5" y="11" width="6.5" height="6" rx="1"/><path d="M2 5.5h6.5M2 4v3M8.5 4v3M11.5 7.5H18M11.5 6v3M18 6v3"/></svg>
-      </label>
+      <label class="ticon" for="dimTypeEach" title="每個物件各自的寬高" aria-label="各物件寬高"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="2" y="9" width="6.5" height="8" rx="1"/><rect x="11.5" y="11" width="6.5" height="6" rx="1"/><path d="M2 5.5h6.5M2 4v3M8.5 4v3M11.5 7.5H18M11.5 6v3M18 6v3"/></svg></label>
       <input type="checkbox" class="tgl-in" id="dimTypeDia">
-      <label class="tgl" for="dimTypeDia" title="圓的直徑；選群組時，每種大小的圓標一個" aria-label="直徑">
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M5.4 14.6 14.6 5.4"/></svg>
-      </label>
+      <label class="ticon" for="dimTypeDia" title="圓的直徑；選群組時，每種大小的圓標一個" aria-label="直徑"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M5.4 14.6 14.6 5.4"/></svg></label>
       <input type="checkbox" class="tgl-in" id="dimTypeRad">
-      <label class="tgl" for="dimTypeRad" title="圓弧、圓角的半徑；同樣大小的圓角標一個" aria-label="半徑">
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M4 17v-7a6 6 0 0 1 6-6h7"/><path d="M10 10 6 6"/><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/></svg>
-      </label>
+      <label class="ticon" for="dimTypeRad" title="圓弧、圓角的半徑；同樣大小的圓角標一個" aria-label="半徑"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M4 17v-7a6 6 0 0 1 6-6h7"/><path d="M10 10 6 6"/><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/></svg></label>
     </div>
   </div>
 
@@ -258,30 +285,6 @@
   <details data-key="dimnum" open>
     <summary>數字</summary>
     <div class="row">
-      <label for="dimUnit">單位</label>
-      <div class="pair">
-        <select id="dimUnit">
-          <option value="mm">mm</option>
-          <option value="cm">cm</option>
-          <option value="in">in</option>
-          <option value="pt">pt</option>
-          <option value="px">px</option>
-          <option value="doc">文件單位</option>
-        </select>
-        <select id="dimDecimals" aria-label="小數位數" title="最多幾位小數，尾數的 0 會去掉">
-          <option value="0">整數</option>
-          <option value="1" selected>1 位小數</option>
-          <option value="2">2 位小數</option>
-          <option value="3">3 位小數</option>
-        </select>
-      </div>
-    </div>
-    <div class="row">
-      <label for="dimRatio">比例</label>
-      <input type="text" id="dimRatio" value="1:1" spellcheck="false" autocomplete="off" data-ime="off"
-             title="圖面比例：圖畫成實物的一半大 = 1:2，標出來的數字會乘 2">
-    </div>
-    <div class="row">
       <label for="dimDiaSym">符號</label>
       <div class="pair">
         <select id="dimDiaSym" title="直徑的符號（字體裡要有這個字）">
@@ -303,11 +306,11 @@
         <input type="text" id="dimSuffix" placeholder="後綴 &#xB1;0.1" spellcheck="false" autocomplete="off" title="加在數字（和單位）後面的文字，例如公差 ±0.1、(參考)">
       </div>
     </div>
-    <label class="check"><input type="checkbox" id="dimShowUnit" checked>數字後面加單位</label>
   </details>
 
   <details data-key="dimstyle">
     <summary>樣式</summary>
+    <div class="preview"><svg id="dimPreview" viewBox="0 0 260 84" aria-label="尺寸樣式預覽"></svg></div>
     <div class="grid2">
       <button class="btn" id="btnDimSync" title="文件中所有尺寸套用目前的樣式、數字格式和直徑半徑的標法（位置不變）">同步全部</button>
       <button class="btn" id="btnDimRestyle" title="只改選取的尺寸">套用選取</button>
@@ -315,13 +318,6 @@
     <label class="check" title="選取尺寸之後修改樣式、數字或標法，選取的尺寸馬上跟著改"><input type="checkbox" id="dimAutoApply">修改時自動套用到選取的尺寸</label>
 
     <div class="sub">文字</div>
-    <div class="row">
-      <label for="dimFontSize">字級</label>
-      <div class="pair">
-        <input type="number" id="dimFontSize" min="1" step="0.5" value="8" title="字級 (pt)">
-        <input type="color" id="dimTextColor" value="#000000" title="文字顏色">
-      </div>
-    </div>
     <div class="row">
       <label for="dimFontFamily">字體</label>
       <select id="dimFontFamily"><option value="">預設字體</option></select>
@@ -370,13 +366,6 @@
     </div>
 
     <div class="sub">線條</div>
-    <div class="row">
-      <label for="dimLineWidth">線寬</label>
-      <div class="pair">
-        <input type="number" id="dimLineWidth" min="0.1" step="0.25" value="0.5" title="線寬 (pt)">
-        <input type="color" id="dimLineColor" value="#000000" title="線條和箭頭的顏色">
-      </div>
-    </div>
     <div class="row">
       <label for="dimEndStyle">端點</label>
       <div class="pair">
