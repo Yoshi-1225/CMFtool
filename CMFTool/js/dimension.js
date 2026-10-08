@@ -152,7 +152,6 @@
       loading = false;
       info = r && r.ok ? r : null;
       renderInfo();
-      renderPreview();
       if (again) { again = false; refresh(); }
     });
   }
@@ -176,7 +175,6 @@
     var hit = fontIndex[$('dimFontName').value];
     $('dimFontFamily').value = hit ? hit[0] : '';
     fillStyles(hit ? hit[1] : null);
-    renderPreview();
   }
 
   function fillStyles(selected) {
@@ -194,196 +192,6 @@
     $('dimFontName').value = name;
     changed();
     scheduleApply();
-  }
-
-  // 預覽用：PostScript 名稱 → CSS 字體
-  function cssFont(size) {
-    var hit = fontIndex[$('dimFontName').value];
-    if (!hit) return '400 ' + size + 'px sans-serif';
-    var st = hit[1];
-    var w = /thin|hairline|w1/i.test(st) ? 200 : /extralight|ultralight|light|w2|w3/i.test(st) ? 300
-      : /semibold|demibold|w6/i.test(st) ? 600 : /extrabold|ultrabold|heavy|black|w8|w9/i.test(st) ? 800
-      : /bold|w7/i.test(st) ? 700 : /medium|w5/i.test(st) ? 500 : 400;
-    return (/italic|oblique/i.test(st) ? 'italic ' : '') + w + ' ' + size + 'px "' + hit[0].replace(/"/g, '') + '", sans-serif';
-  }
-
-  /* ---------- 預覽 ---------- */
-  // 跟 host.jsx 的版面規則一樣，只是用 SVG 座標（y 往下）
-  var measureCtx = document.createElement('canvas').getContext('2d');
-
-  function isDark(hex) {
-    var h = hex.replace('#', '');
-    var r = parseInt(h.substr(0, 2), 16), g = parseInt(h.substr(2, 2), 16), b = parseInt(h.substr(4, 2), 16);
-    return (0.299 * r + 0.587 * g + 0.114 * b) < 60;
-  }
-
-  // 深色介面上，黑色改成淺灰才看得到
-  function shown(hex) {
-    return document.documentElement.classList.contains('light') || !isDark(hex) ? hex : '#e6e6e6';
-  }
-
-  function renderPreview() {
-    var st = readStyle(), k = 1.4, parts = [];
-    var lw = Math.max(0.6, st.lineWidth * k), L = st.endSize * k, fs = Math.max(6, st.fontSize * k);
-    var gap = st.textGap * k, brk = st.breakGap * k, eg = st.extGap * k, eo = st.extOver * k;
-    // 有底色時文字畫在底色上，用原本的顏色
-    var lc = shown(st.lineColor), tc = st.textBg === 'box' ? st.textColor : shown(st.textColor), font = cssFont(fs), th = fs * 0.72;
-    var aligned = st.textAlign !== 'horizontal', kind = st.endStyle, middle = st.textPos === 'middle';
-    var unit = st.showUnit ? unitOf()[0] : '', ratio = ratioOf(st.ratio) || 1;
-    var pad = Math.max(0, Math.min(fs * 0.2, Math.min(gap, brk) * 0.75)), minLen = Math.max(L, 2 * k);
-    var side = gap + lw / 2; // 文字離線：從線的邊緣算
-    measureCtx.font = font;
-
-    function pt(p) { return p[0].toFixed(2) + ' ' + p[1].toFixed(2); }
-    function along(p, u, s) { return [p[0] + u[0] * s, p[1] + u[1] * s]; }
-    function dot(p, q) { return p[0] * q[0] + p[1] * q[1]; }
-    var right = 0; // 畫到最右邊的位置：圓要放在寬高的右邊，不要蓋到
-    function line(pts, width) {
-      pts.forEach(function (p) { right = Math.max(right, p[0]); });
-      parts.push('<path d="M' + pts.map(pt).join('L') + '" fill="none" stroke="' + lc + '" stroke-width="' + (width || lw) + '"/>');
-    }
-    function arrowLike(how) { return how === 'arrow' || how === 'open'; }
-    function trim(how) { return how === 'arrow' ? L * 0.9 : 0; }
-    // u：指向尖端的方向；斜線用尺寸線的方向
-    function end(tip, u, how) {
-      if (how === 'none' || !(L > 0)) return;
-      if (how === 'dot') {
-        parts.push('<circle cx="' + tip[0] + '" cy="' + tip[1] + '" r="' + L * 0.3 + '" fill="' + lc + '"/>');
-      } else if (how === 'tick') {
-        var v = [(u[0] + u[1]) * Math.SQRT1_2, (u[1] - u[0]) * Math.SQRT1_2]; // 往右上 45°（y 往下）
-        parts.push('<path d="M' + pt(along(tip, v, -L / 2)) + 'L' + pt(along(tip, v, L / 2)) + '" stroke="' + lc +
-          '" stroke-width="' + lw * 2 + '"/>');
-      } else if (how === 'open') {
-        var ow = L * 0.27, O = along(tip, u, -L);
-        parts.push('<path d="M' + pt([O[0] - u[1] * ow, O[1] + u[0] * ow]) + 'L' + pt(tip) + 'L' + pt([O[0] + u[1] * ow, O[1] - u[0] * ow]) +
-          '" fill="none" stroke="' + lc + '" stroke-width="' + lw + '" stroke-linejoin="round"/>');
-      } else {
-        var hw = L * 0.18, B = along(tip, u, -L);
-        parts.push('<path d="M' + pt(tip) + 'L' + pt([B[0] - u[1] * hw, B[1] + u[0] * hw]) + 'L' +
-          pt([B[0] + u[1] * hw, B[1] - u[0] * hw]) + 'Z" fill="' + lc + '"/>');
-      }
-    }
-    // c：文字中心；angle：逆時針的角度；有底色時先畫一塊底
-    function text(lb, c, angle) {
-      var tw = measureCtx.measureText(lb).width, rot = ' transform="rotate(' + (-angle) + ' ' + pt(c) + ')"';
-      var t = angle * Math.PI / 180;
-      right = Math.max(right, c[0] + Math.abs(Math.cos(t)) * (tw / 2 + pad) + Math.abs(Math.sin(t)) * (th / 2 + pad));
-      if (st.textBg === 'box') {
-        parts.push('<rect x="' + (c[0] - tw / 2 - pad).toFixed(2) + '" y="' + (c[1] - th / 2 - pad).toFixed(2) + '" width="' +
-          (tw + pad * 2).toFixed(2) + '" height="' + (th + pad * 2).toFixed(2) + '"' + rot + ' fill="' + esc(st.textBgColor) + '"/>');
-      }
-      parts.push('<text x="' + c[0].toFixed(2) + '" y="' + c[1].toFixed(2) + '"' + rot + ' fill="' + tc + '" style=\'font:' + font +
-        '\' text-anchor="middle" dominant-baseline="central">' + esc(lb) + '</text>');
-    }
-    function readAngle(u) { // SVG 方向 → 逆時針角度，(-90, 90]
-      var a = Math.atan2(-u[1], u[0]) * 180 / Math.PI;
-      return a > 90.01 ? a - 180 : a <= -89.99 ? a + 180 : a;
-    }
-    function textCenter(mid, n, tw, isAligned) {
-      var ext = isAligned ? th / 2 : tw / 2 * Math.abs(n[0]) + th / 2 * Math.abs(n[1]);
-      return along(mid, n, side + ext);
-    }
-    function textAlong(tw, v, isAligned) { return isAligned ? tw / 2 : tw / 2 * Math.abs(v[0]) + th / 2 * Math.abs(v[1]); }
-    function label(v, sym, q) {
-      var s = (sym || '') + fmt(v * ratio, decimals()) + unit;
-      if (q > 1 && st.count === 'x') s = q + '×' + s;
-      else if (q > 1 && st.count === 'dash') s = q + '-' + s;
-      return (st.prefix || '') + s + (st.suffix || '');
-    }
-    // 文字放在線中間：p → q（方向 a）的線在 mid 前後各空 half；放不下回傳 false，線由呼叫的人畫
-    function split(p, q, a, mid, half) {
-      if (dot([mid[0] - p[0], mid[1] - p[1]], a) - half < minLen || dot([q[0] - mid[0], q[1] - mid[1]], a) - half < minLen) return false;
-      line([p, along(mid, a, -half)]);
-      line([along(mid, a, half), q]);
-      return true;
-    }
-
-    function linear(p1, p2, a, n, off, value) {
-      var Q1 = along(p1, n, off), Q2 = along(p2, n, off);
-      if (st.extLine !== 'none') {
-        var ew = st.extLine === 'thin' ? Math.max(0.4, lw / 2) : lw;
-        [[p1, Q1], [p2, Q2]].forEach(function (e) { if (off - eg > 0.5) line([along(e[0], n, eg), along(e[1], n, eo)], ew); });
-      }
-      var len = Math.hypot(Q2[0] - Q1[0], Q2[1] - Q1[1]), pts;
-      var inside = st.arrowPos === 'inside' ? true : st.arrowPos === 'outside' ? false : len >= L * 2.6;
-      if (arrowLike(kind)) pts = inside ? [along(Q1, a, trim(kind)), along(Q2, a, -trim(kind))] : [along(Q1, a, -L * 2.2), along(Q2, a, L * 2.2)];
-      else if (kind === 'tick') pts = [along(Q1, a, -L * 0.6), along(Q2, a, L * 0.6)];
-      else pts = [Q1, Q2];
-      var lb = label(value), tw = measureCtx.measureText(lb).width, mid = [(Q1[0] + Q2[0]) / 2, (Q1[1] + Q2[1]) / 2];
-      var isSplit = middle && (inside || !arrowLike(kind)) && split(pts[0], pts[1], a, mid, textAlong(tw, a, aligned) + brk);
-      if (!isSplit) line(pts);
-      if (kind === 'tick') { end(Q1, a, kind); end(Q2, a, kind); }
-      else {
-        var s = arrowLike(kind) && !inside ? 1 : -1;
-        end(Q1, [a[0] * s, a[1] * s], kind);
-        end(Q2, [-a[0] * s, -a[1] * s], kind);
-      }
-      text(lb, isSplit ? mid : textCenter(mid, n, tw, aligned), aligned ? readAngle(a) : 0);
-    }
-
-    // 產品：圓角矩形，寬高標在上下左右選的位置（都沒選時照上、右畫，看樣式用）
-    var pos = {}, x0 = 22, x1 = 118, y0 = 34, y1 = 74, off = 14;
-    POS.forEach(function (id) { pos[id] = $(id).checked; });
-    if (!pos.dimPosTop && !pos.dimPosBottom && !pos.dimPosLeft && !pos.dimPosRight) pos.dimPosTop = pos.dimPosRight = true;
-    if (pos.dimPosTop && pos.dimPosBottom) { y0 = 28; y1 = 54; } else if (pos.dimPosBottom) { y0 = 12; y1 = 52; }
-    if (pos.dimPosLeft && pos.dimPosRight) { x0 = 48; x1 = 116; } else if (pos.dimPosLeft) { x0 = 50; x1 = 146; }
-    parts.push('<rect x="' + x0 + '" y="' + y0 + '" width="' + (x1 - x0) + '" height="' + (y1 - y0) + '" rx="7" fill="var(--product)"/>');
-    if (pos.dimPosTop) linear([x0, y0], [x1, y0], [1, 0], [0, -1], off, 120);
-    if (pos.dimPosBottom) linear([x0, y1], [x1, y1], [1, 0], [0, 1], off, 120);
-    if (pos.dimPosRight) linear([x1, y1], [x1, y0], [0, -1], [1, 0], off, 50);
-    if (pos.dimPosLeft) linear([x0, y1], [x0, y0], [0, -1], [-1, 0], off, 50);
-
-    // 圓：直徑，用面板選的標法（自動 = 這個大小放不放得下）
-    var mode = st.radMode, inner = mode === 'inside';
-    var C = inner ? [192, 42] : [182, 50], r = inner ? 28 : 20;
-    var ang = num('dimAngle', 45, -1e9) * Math.PI / 180, u = [Math.cos(ang), -Math.sin(ang)], back = [-u[0], -u[1]];
-    var how = kind === 'tick' ? 'arrow' : kind, lb = label(40, diaSym()), tw = measureCtx.measureText(lb).width;
-    if (mode !== 'leader' && mode !== 'through' && mode !== 'inside') {
-      var span = aligned ? tw : 2 * (tw / 2 * Math.abs(u[0]) + th / 2 * Math.abs(u[1]));
-      mode = r * 2 >= span + (how === 'none' ? 0 : L * 1.2) * 2 + gap * 4 ? 'inside' : 'leader';
-    }
-    // 引線：預覽框裡最長 30。文字太長時把圓往旁邊挪（跟 Illustrator 一樣不換邊，挪不下就超出預覽框）
-    var lead = Math.min(30, Math.max(st.leader * k, L * 1.5, 2 * k)), sx = u[0] < -0.0001 ? -1 : 1;
-    var shelf = st.shelf === 'end' || st.shelf === 'none' ? st.shelf : 'over', sl = Math.max(L * 1.5, fs * 0.6);
-    var need = shelf === 'over' ? tw + gap * 2 : (shelf === 'end' ? sl : 0) + gap + tw;
-    var left = right + 6;
-    if (mode !== 'inside') {
-      // 位置不夠時圓縮小一點（最小 10），文字才放得進預覽框
-      var room = sx > 0 ? (252 - left - u[0] * lead - need) / (1 + u[0]) : (256 - left + u[0] * lead - need) / (1 - u[0]);
-      if (room < r) r = Math.max(10, room);
-      var lo = left + r, hi = 256 - r, reach = u[0] * (r + lead) + sx * need;
-      if (sx > 0) hi = Math.min(hi, 252 - reach); else lo = Math.max(lo, left - reach);
-      C[0] = sx > 0 ? Math.max(left + r, Math.min(hi, C[0])) : Math.min(256 - r, Math.max(lo, C[0]));
-    } else C[0] = Math.min(256 - r, Math.max(left + r, C[0]));
-    var M = along(C, u, r), M1 = along(C, u, -r);
-    parts.push('<circle cx="' + C[0] + '" cy="' + C[1] + '" r="' + r + '" fill="var(--product)"/>');
-    if (mode === 'inside') {
-      var ta = readAngle(u), up = [-Math.sin(ta * Math.PI / 180), -Math.cos(ta * Math.PI / 180)];
-      var p = along(M1, u, trim(how)), q = along(M, u, -trim(how));
-      var isSplit = middle && split(p, q, u, C, textAlong(tw, u, aligned) + brk);
-      if (!isSplit) line([p, q]);
-      end(M1, back, how);
-      end(M, u, how);
-      text(lb, isSplit ? C : textCenter(C, up, tw, aligned), aligned ? ta : 0);
-    } else {
-      // 引線（箭頭從外面指向圓心）或穿過圓心（箭頭往外指），拉到 K 之後轉水平
-      var K = along(M, u, lead);
-      var pts = [mode === 'through' ? along(M1, u, trim(how)) : along(M, u, trim(how)), K];
-      if (mode === 'through') { end(M1, back, how); end(M, u, how); }
-      else end(M, back, how);
-      var c;
-      if (shelf === 'over') {
-        pts.push([K[0] + sx * (tw + gap * 2), K[1]]);
-        c = [K[0] + sx * (tw / 2 + gap), K[1] - side - th / 2];
-      } else {
-        var S = shelf === 'end' ? [K[0] + sx * sl, K[1]] : K;
-        if (shelf === 'end') pts.push(S);
-        c = [S[0] + sx * (gap + tw / 2), S[1]];
-      }
-      line(pts);
-      text(lb, c, 0);
-    }
-    $('dimPreview').innerHTML = parts.join('');
   }
 
   /* ---------- 標註 ---------- */
@@ -462,7 +270,6 @@
     opts[2].text = '4-' + sym + '3';
     save();
     renderInfo();
-    renderPreview();
   }
 
   FIELDS.forEach(function (id) {
@@ -506,7 +313,6 @@
   }
   App.on('scaled', scaleSize);
   App.on('fonts', setFonts);
-  App.on('theme', renderPreview);
   var autoRefresh = App.whenIdle(refresh);
   document.documentElement.addEventListener('mouseenter', autoRefresh);
   window.addEventListener('focus', autoRefresh);
