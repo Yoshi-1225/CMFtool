@@ -53,6 +53,27 @@ $.global.CMF = (function () {
     }
 
     // name 省略 = 標註圖層
+    // 重建標註、尺寸前，暫時解除它和上層圖層、群組的鎖定和隱藏（鎖定、隱藏的東西改不了），做完用 restoreTemp 還原
+    function openAncestors(it) {
+        var saved = [];
+        for (var p = it.parent; p && p.typename !== "Document"; p = p.parent) {
+            setTemp(p, "locked", false, saved);
+            setTemp(p, p.typename === "Layer" ? "visible" : "hidden", p.typename === "Layer", saved);
+        }
+        setTemp(it, "locked", false, saved);
+        setTemp(it, "hidden", false, saved);
+        return saved;
+    }
+
+    function restoreTemp(saved) {
+        for (var i = saved.length - 1; i >= 0; i--) { try { saved[i][0][saved[i][1]] = saved[i][2]; } catch (e) {} }
+    }
+
+    // 換成重建好的新群組時，保留原本的鎖定、隱藏
+    function keepState(ng, locked, hidden) {
+        try { if (hidden) ng.hidden = true; if (locked) ng.locked = true; } catch (e) {}
+    }
+
     function getLayer(d, create, name) {
         var L = null;
         name = name || LAYER_NAME;
@@ -299,13 +320,30 @@ $.global.CMF = (function () {
             var last = line.pathPoints[line.pathPoints.length - 1];
             last.anchor = tip; last.leftDirection = tip; last.rightDirection = tip;
         }
-        var container = g.layer;
-        container.locked = false;
-        container.visible = true; // 隱藏圖層中的物件無法修改
-        line.move(g, ElementPlacement.PLACEBEFORE);
-        g.remove();
-        return buildCallout(d, line, num, styleStr, container, key);
+        var locked = g.locked, hidden = g.hidden, saved = openAncestors(g);
+        try {
+            var container = g.parent; // 留在原本的圖層或群組裡
+            line.move(g, ElementPlacement.PLACEBEFORE);
+            g.remove();
+            var ng = buildCallout(d, line, num, styleStr, container, key);
+            keepState(ng, locked, hidden);
+            return ng;
+        } finally { restoreTemp(saved); }
     }
+
+    // 一個一個重建，有一個失敗也繼續做下一個；styleOf(note) 回傳要用的樣式
+    function rebuildMany(d, cs, styleOf) {
+        var r = { made: [], failed: 0, why: "" };
+        for (var i = 0; i < cs.length; i++) {
+            try {
+                var p = noteParts(cs[i]), ng = rebuild(d, cs[i], p.num, styleOf(p));
+                if (ng) r.made.push(ng); else r.failed++;
+            } catch (e) { r.failed++; if (!r.why) r.why = e.message; }
+        }
+        return r;
+    }
+
+    function failNote(r) { return r.failed ? "（" + r.failed + " 個無法更新" + (r.why ? "：" + r.why : "") + "）" : ""; }
 
     function nextNumber(d, o) {
         return o.startMode === "auto" ? maxNumber(d) + 1 : parseInt(o.startNumber, 10) || 1;
@@ -617,34 +655,31 @@ $.global.CMF = (function () {
             var d = getDoc(), cs = allCallouts(d);
             if (cs.length === 0) return res(true, "文件中沒有標註");
             var sel = selectedCallouts(d);
-            for (var i = 0; i < cs.length; i++) rebuild(d, cs[i], noteParts(cs[i]).num, styleStr);
+            var r = rebuildMany(d, cs, function () { return styleStr; });
             if (sel.length === 0) d.selection = null;
-            return res(true, "已同步 " + cs.length + " 個標註的樣式");
+            return res(r.made.length > 0, "已同步 " + r.made.length + " 個標註的樣式" + failNote(r));
         } catch (e) { return res(false, e.message); }
     }
 
     // 套用到選取的標註
     function restyle(styleStr) {
         try {
-            var d = getDoc(), cs = selectedCallouts(d), made = [];
+            var d = getDoc(), cs = selectedCallouts(d);
             if (cs.length === 0) return res(false, "請先選取標註");
-            for (var i = 0; i < cs.length; i++) made.push(rebuild(d, cs[i], noteParts(cs[i]).num, styleStr));
-            d.selection = made;
-            return res(true, "已更新 " + made.length + " 個標註的樣式");
+            var r = rebuildMany(d, cs, function () { return styleStr; });
+            d.selection = r.made;
+            return res(r.made.length > 0, "已更新 " + r.made.length + " 個標註的樣式" + failNote(r));
         } catch (e) { return res(false, e.message); }
     }
 
     // 移動過線條錨點後，用原本樣式重新排版
     function relayout() {
         try {
-            var d = getDoc(), cs = selectedCallouts(d), made = [];
+            var d = getDoc(), cs = selectedCallouts(d);
             if (cs.length === 0) return res(false, "請先選取要重新排版的標註");
-            for (var i = 0; i < cs.length; i++) {
-                var p = noteParts(cs[i]);
-                made.push(rebuild(d, cs[i], p.num, p.style));
-            }
-            d.selection = made;
-            return res(true, "已重新排版 " + made.length + " 個標註");
+            var r = rebuildMany(d, cs, function (p) { return p.style; });
+            d.selection = r.made;
+            return res(r.made.length > 0, "已重新排版 " + r.made.length + " 個標註" + failNote(r));
         } catch (e) { return res(false, e.message); }
     }
 
@@ -1125,7 +1160,7 @@ $.global.CMF = (function () {
     //     x 引線比樣式的「引線」多拉的長度（同心圓的內圈）, q 同樣大小的圓有幾個 }
     //     舊版的尺寸沒有 x，引線長度記在 off
     //   ref：建立時 DIM_Line 頭尾兩個錨點的位置
-    //   z：量的物件較長的一邊（「依物件大小自動調整樣式」用，跟著尺寸一起移動、縮放）
+    //   z：量的物件較長的一邊（新增時「依物件大小自動調整樣式」算出來的依據，跟著尺寸一起移動、縮放）
     // 重建時比對 DIM_Line 現在的位置，算出尺寸被移動、等比縮放、旋轉了多少，套用到記錄的點上，
     // 所以搬過的尺寸重建後還在原地，縮放整份文件後數字也會跟著變。
     var DIM_LAYER = "CMF Dimensions";
@@ -1512,27 +1547,22 @@ $.global.CMF = (function () {
         return o;
     }
 
-    // 用尺寸自己的記錄重建；styleStr 省略 = 原本的樣式
-    // fit：styleStr 是面板的樣式，開著「依物件大小自動調整樣式」時照這個尺寸量的物件大小縮放
-    function rebuildDim(d, g, styleStr, fit) {
+    // 用尺寸自己的記錄重建；styleStr 省略 = 原本的樣式。「同步全部」、「套用選取」一律照面板的樣式，
+    // 不再依物件大小調整（自動調整只在新增時作用），所有尺寸的字級、線寬才會一致
+    function rebuildDim(d, g, styleStr) {
         var p = dimNote(g), gm = parse(p.geom), line = findChild(g, "DIM_Line");
         if (!line || !gm.ref) return null;
         var pts = line.pathPoints;
         var T = similarity(gm.ref[0], gm.ref[1], pts[0].anchor, pts[pts.length - 1].anchor);
         if (T) gm = simGeom(gm, T);
-        if (fit && styleStr) {
-            // 舊的尺寸沒有記錄物件大小：用量到的長度、直徑代替
-            var z = gm.z > 0 ? gm.z : gm.t === "lin" ? vlen(vsub(gm.p2, gm.p1)) : gm.r * 2;
-            styleStr = autoStyle(d, styleStr, z);
-        }
-        var L = g.layer;
-        L.locked = false;
-        L.visible = true; // 隱藏圖層中的物件無法修改
-        try { g.locked = false; } catch (e) {}
-        var ng = buildDim(d, L, gm, styleStr || p.style);
-        ng.move(g, ElementPlacement.PLACEBEFORE); // 留在原本的位置（圖層、群組、上下順序）
-        g.remove();
-        return ng;
+        var locked = g.locked, hidden = g.hidden, saved = openAncestors(g);
+        try {
+            var ng = buildDim(d, g.layer, gm, styleStr || p.style);
+            ng.move(g, ElementPlacement.PLACEBEFORE); // 留在原本的位置（圖層、群組、上下順序）
+            g.remove();
+            keepState(ng, locked, hidden);
+            return ng;
+        } finally { restoreTemp(saved); }
     }
 
     // 縮放整份文件時，尺寸的字級、線寬等也跟著縮放
@@ -1836,13 +1866,13 @@ $.global.CMF = (function () {
     }
 
     function rebuildDims(d, gs, styleStr) {
-        var made = [], failed = 0;
+        var r = { made: [], failed: 0, why: "" };
         for (var i = 0; i < gs.length; i++) {
             var ng = null;
-            try { ng = rebuildDim(d, gs[i], styleStr, true); } catch (e) {}
-            if (ng) made.push(ng); else failed++;
+            try { ng = rebuildDim(d, gs[i], styleStr); } catch (e) { if (!r.why) r.why = e.message; }
+            if (ng) r.made.push(ng); else r.failed++;
         }
-        return { made: made, failed: failed };
+        return r;
     }
 
     // 文件中所有尺寸套用目前樣式（位置不變）
@@ -1851,7 +1881,7 @@ $.global.CMF = (function () {
             var d = getDoc(), gs = allDims(d);
             if (gs.length === 0) return res(true, "文件中沒有尺寸");
             var r = rebuildDims(d, gs, styleStr);
-            return res(true, "已同步 " + r.made.length + " 個尺寸的樣式" + (r.failed ? "（" + r.failed + " 個無法更新）" : ""));
+            return res(r.made.length > 0, "已同步 " + r.made.length + " 個尺寸的樣式" + failNote(r));
         } catch (e) { return res(false, e.message); }
     }
 
@@ -1861,7 +1891,7 @@ $.global.CMF = (function () {
             if (gs.length === 0) return res(false, "請先選取尺寸");
             var r = rebuildDims(d, gs, styleStr);
             d.selection = r.made;
-            return res(true, "已更新 " + r.made.length + " 個尺寸的樣式" + (r.failed ? "（" + r.failed + " 個無法更新）" : ""));
+            return res(r.made.length > 0, "已更新 " + r.made.length + " 個尺寸的樣式" + failNote(r));
         } catch (e) { return res(false, e.message); }
     }
 

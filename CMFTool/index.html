@@ -243,7 +243,7 @@
     <input type="number" id="dimOffset" min="0" step="1" value="12" title="寬度、高度的尺寸線離物件的距離 (pt)">
   </div>
   <label class="check" title="寬高量到線條的外緣（跟「變形」面板勾「使用預視邊界」一樣）；不勾 = 只量形狀，不含線寬"><input type="checkbox" id="dimVisible">寬高含線寬</label>
-  <label class="check" title="字級、線寬、箭頭、間距、引線和距離跟著量的物件大小等比調整：下面「樣式」的數值是給「基準」大小的物件用的，物件比較大就放大、比較小就縮小（最多縮到一半）。按「同步全部」、「套用選取」時也照每個尺寸量的物件重算"><input type="checkbox" id="dimAuto">依物件大小自動調整樣式</label>
+  <label class="check" title="字級、線寬、箭頭、間距、引線和距離跟著量的物件大小等比調整：下面「樣式」的數值是給「基準」大小的物件用的，物件比較大就放大、比較小就縮小（最多縮到一半）。只在新增尺寸時作用；「同步全部」、「套用選取」會把尺寸都改成面板上的樣式"><input type="checkbox" id="dimAuto">依物件大小自動調整樣式</label>
   <div class="row" id="dimAutoRow">
     <label for="dimAutoBase">基準</label>
     <div class="unit-field">
@@ -311,7 +311,7 @@
   <details data-key="dimstyle">
     <summary>樣式</summary>
     <div class="grid2">
-      <button class="btn" id="btnDimSync" title="文件中所有尺寸套用目前的樣式、數字格式和直徑半徑的標法（位置不變）">同步全部</button>
+      <button class="btn" id="btnDimSync" title="文件中所有尺寸都改成面板上的樣式（字級、線寬一樣大）、數字格式和直徑半徑的標法，位置不變">同步全部</button>
       <button class="btn" id="btnDimRestyle" title="只改選取的尺寸">套用選取</button>
     </div>
     <label class="check" title="選取尺寸之後修改樣式、數字或標法，選取的尺寸馬上跟著改"><input type="checkbox" id="dimAutoApply">修改時自動套用到選取的尺寸</label>
