@@ -82,6 +82,52 @@
 
   function placeSoon() { setTimeout(placeCaret, 0); }
 
+  /* ---------- 按鍵不要傳給 Illustrator ---------- */
+  // CEP：焦點不在可以打字的欄位時，按鍵也會傳給 Illustrator（數字鍵台會被當成方向鍵移動物件、
+  // Backspace 會刪掉選取的物件、字母會切換工具）。鎖住的欄位是唯讀的，所以編輯期間跟 CEP 登記
+  // 這些按鍵由面板自己處理（CSInterface.registerKeyEventsInterest），離開欄位就取消。
+  var cep = window.__adobe_cep__;
+  var KEY_INTEREST = (function () {
+    var mac = /^Mac/.test(navigator.platform), list = [], i;
+    function add(codes, mods) {
+      codes.forEach(function (c) {
+        (mods || [{}]).forEach(function (m) {
+          var o = { keyCode: c };
+          for (var k in m) o[k] = m[k];
+          list.push(o);
+        });
+      });
+    }
+    var plainShift = [{}, { shiftKey: true }], cmd = mac ? 'metaKey' : 'ctrlKey', edit = {}, editShift = {};
+    edit[cmd] = true; editShift[cmd] = true; editShift.shiftKey = true;
+    if (mac) {
+      // Mac 虛擬鍵碼：字母、數字列、數字鍵台、符號、空白、刪除、方向、Home/End、Return、Tab、Esc
+      var keys = [];
+      for (i = 0; i <= 50; i++) if (i !== 10) keys.push(i);
+      add(keys.concat([51, 53, 65, 67, 69, 75, 76, 78, 81, 82, 83, 84, 85, 86, 87, 88, 89, 91, 92, 115, 117, 119, 123, 124, 125, 126]), plainShift);
+      add([0, 6, 7, 8, 9, 51, 117, 123, 124], [edit]);         // ⌘A ⌘Z ⌘X ⌘C ⌘V、刪字、到行首行尾
+      add([6, 123, 124], [editShift]);                          // ⌘⇧Z、選到行首行尾
+    } else {
+      // Windows 虛擬鍵碼：Backspace Tab Enter Esc 空白 End Home 方向 Delete、數字、字母、數字鍵台、符號
+      var win = [8, 9, 13, 27, 32, 35, 36, 37, 38, 39, 40, 46];
+      for (i = 48; i <= 57; i++) win.push(i);
+      for (i = 65; i <= 90; i++) win.push(i);
+      for (i = 96; i <= 111; i++) win.push(i);
+      for (i = 186; i <= 192; i++) win.push(i);
+      for (i = 219; i <= 222; i++) win.push(i);
+      add(win, plainShift);
+      add([65, 67, 86, 88, 89, 90, 8, 46, 35, 36, 37, 39], [edit]);   // Ctrl+A C V X Y Z、刪字、跳字、行首行尾
+      add([90, 35, 36, 37, 39], [editShift]);
+    }
+    return JSON.stringify(list);
+  })();
+
+  var claimed = false;
+  function claimKeys(on) {
+    if (on === claimed || !cep || typeof cep.registerKeyEventsInterest !== 'function') return;
+    try { cep.registerKeyEventsInterest(on ? KEY_INTEREST : ''); claimed = on; } catch (e) {}
+  }
+
   /* ---------- 鎖定 / 暫時解鎖 ---------- */
   var pending = null;   // 暫時解鎖、等這次按鍵處理完的欄位
 
@@ -97,6 +143,7 @@
     if (!applies(el) || (el.readOnly && !isLocked(el))) return;   // 原本就唯讀的欄位不動
     el.setAttribute(LOCK, '');
     el.readOnly = true;
+    claimKeys(true);
     placeSoon();
   });
 
@@ -107,6 +154,7 @@
     el.readOnly = false;
     if (pending === el) pending = null;
     caret.hidden = true;
+    claimKeys(false);
   });
 
   function step(el, dir, times) {

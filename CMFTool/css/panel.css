@@ -293,20 +293,18 @@ input.invalid { border-color: var(--error); }
 .tgl-in:checked + .tgl { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
 .tgl-in:focus-visible + .tgl { outline: 1px solid var(--accent); outline-offset: 1px; }
 .tgl svg { display: block; }
-.dim-types { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
-.dim-types .tgl { height: 32px; }
-.dim-types .tgl svg { width: 20px; height: 20px; }
-.dim-go { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; margin: 8px 0 6px; }
-.dpad { display: grid; grid-template-columns: repeat(3, 24px); grid-template-rows: repeat(3, 24px); gap: 2px; }
+.dim-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 2px 0 8px; }
+.dpad { display: grid; grid-template-columns: 28px 1fr 28px; grid-template-rows: 26px 1fr 26px; gap: 3px; height: 108px; }
 .dpad .tgl svg { width: 10px; height: 10px; }
 .dpad .up { grid-area: 1 / 2; }
 .dpad .left { grid-area: 2 / 1; }
 .dpad .right { grid-area: 2 / 3; }
 .dpad .down { grid-area: 3 / 2; }
-.dpad-obj { grid-area: 2 / 2; align-self: center; justify-self: center; width: 16px; height: 12px; border-radius: 3px; background: var(--product); }
+.dpad .go { grid-area: 2 / 2; width: auto; height: auto; padding: 0; }
+.dpad .go:disabled { opacity: .55; }
 .dpad.off .tgl { opacity: .4; }
-.dim-go .add { height: 48px; }
-.dim-go .add:disabled { opacity: .55; }
+.dim-types { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 4px; height: 108px; }
+.dim-types .tgl svg { width: 24px; height: 24px; }
 
 /* ---------- 數字欄位（js/numfield.js）：鎖成唯讀時自己畫的游標 ---------- */
 input[type=text] { user-select: text; }

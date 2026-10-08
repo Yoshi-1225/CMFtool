@@ -423,6 +423,11 @@
     }, function (r) {
       setBusy(false);
       var msg = r.msg;
+      // 依物件大小自動調整：樣式和基準改成剛建立的尺寸實際用的數值（兩個一起乘，下一個物件照樣算得對）
+      if (r.ok && $('dimAuto').checked && r.k > 0 && Math.abs(r.k - 1) > 1e-6) {
+        scaleSize(r.k);
+        msg += '；樣式改成這個尺寸的數值（× ' + fmt(r.k, 2) + '）';
+      }
       if (r.ok && wh && !POS.some(function (id) { return $(id).checked; })) msg += '（寬高沒有選位置，沒有標）';
       App.setStatus(msg, !r.ok);
     });
@@ -492,13 +497,14 @@
   // 基準也跟著縮放：樣式放大了，適合的物件也變大，自動調整的倍率才不會重複放大
   var SIZE_FIELDS = ['dimFontSize', 'dimLineWidth', 'dimEndSize', 'dimTextGap', 'dimBreakGap', 'dimExtGap', 'dimExtOver', 'dimLeader', 'dimOffset',
     'dimAutoBase'];
-  App.on('scaled', function (s) {
+  function scaleSize(s) {
     SIZE_FIELDS.forEach(function (id) {
       var el = $(id);
       el.value = Math.round((parseFloat(el.value) || 0) * s * 1000) / 1000;
     });
     changed();
-  });
+  }
+  App.on('scaled', scaleSize);
   App.on('fonts', setFonts);
   App.on('theme', renderPreview);
   var autoRefresh = App.whenIdle(refresh);

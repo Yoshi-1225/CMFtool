@@ -1759,6 +1759,7 @@ $.global.CMF = (function () {
         try {
             var d = getDoc(), o = parse(optStr), jobs = dimJobs(o), i, j, q;
             var items = measuredItems(d), off = Number(o.offset) || 0, made = [], zero = 0, noArc = [], done = {};
+            var firstK = 0;   // 第一個尺寸用的自動調整倍率：面板把樣式改成這個尺寸實際用的數值
             if (!items.length) {
                 return res(false, selectedItems(d).length ? "選取的是尺寸或標註，請選取要量的物件" : "請先選取要標尺寸的物件");
             }
@@ -1778,8 +1779,9 @@ $.global.CMF = (function () {
                         if (done[key]) continue;
                         done[key] = true;
                         if (!((kind === "w" ? b[2] - b[0] : b[1] - b[3]) > 0.001)) { zero++; continue; }
-                        var z = longSide(b), gw = linGeom(b, side, off * autoFactor(d, o.style, z));
+                        var z = longSide(b), kz = autoFactor(d, o.style, z), gw = linGeom(b, side, off * kz);
                         gw.z = z;
+                        if (!firstK) firstK = kz;
                         made.push(buildDim(d, layer, gw, autoStyle(d, o.style, z)));
                     }
                 } else if (kind === "dia" || kind === "rad") {
@@ -1787,6 +1789,7 @@ $.global.CMF = (function () {
                     for (i = 0; i < items.length; i++) {
                         var ib = boundsOf(items[i], false), iz = longSide(ib), ist = autoStyle(d, o.style, iz);
                         var picks = pickArcs(itemArcs(items[i], budget), dia, ib, angle);
+                        if (picks.length && !firstK) firstK = autoFactor(d, o.style, iz);
                         for (j = 0; j < picks.length; j++) {
                             var pk = picks[j], gm = { t: dia ? "dia" : "rad", c: pk.c, r: pk.r, u: pk.u, off: 0, x: 0, q: Math.max(1, pk.n), z: iz };
                             // 同心圓（例如圓環的內外圈）：最大的照常標，小的轉 45°、用引線拉到最外圈外面，文字才不會疊在一起
@@ -1813,7 +1816,7 @@ $.global.CMF = (function () {
             if (zero) msg += "（" + zero + " 個是 0，沒有標）";
             for (i = 0; i < noArc.length; i++) msg += "（" + (noArc[i] === "dia" ? "沒有找到圓" : "沒有找到圓弧或圓角") + "）";
             if (budget.over) msg += "（圖太複雜，只找了一部分的圓弧）";
-            return res(true, msg);
+            return '{"ok":true,"msg":"' + esc(msg) + '","k":' + jsonNum(firstK || 1) + "}";
         } catch (e) { return res(false, e.message); }
     }
 
