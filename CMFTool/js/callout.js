@@ -89,86 +89,16 @@
     saveTimer = setTimeout(function () { if (cep) callHost("saveSettings", o, null, true); }, 400);
   }
 
-  // ---------- 標註的圖：點部位，滑鼠旁邊浮出它的設定 ----------
-  // 樣式區塊上面畫一個標註（照目前的樣式），編號、圓圈、引線、端點都可以點：點的地方下面（放不下時上面）
-  // 浮出那個部位的設定，小三角指著點的位置；點別的部位就換過去。點外面、按 Esc 或 ✕ 關掉。
+  // ---------- 標註的圖：點部位，卡片換成它的設定 ----------
+  // 樣式區塊裡畫一個標註（照目前的樣式），編號、圓圈、引線、端點都可以點：圖下面（面板夠寬時右邊）的卡片
+  // 換成那個部位的設定，卡片不會蓋住圖（js/figcard.js）。
   // 圖上的大小 = pt × 2；太小、太大的數值畫成看得到、放得下的大小。每個部位有比畫出來還大的點擊範圍，
-  // 沒有圓圈底、端點是「無」時，滑過圖會出現虛線，一樣點得到。鍵盤：Tab 到部位上按 Enter。
+  // 沒有圓圈底、端點是「無」時，滑過圖會出現虛線，一樣點得到。
   // 在部位上按住左右拖曳，直接改它的大小（js/numfield.js 的拖曳把手）：編號 = 字級、圓圈 = 內距、引線 = 線寬、
   // 端點 = 大小（繪圖樣式 = %）。第一次在圖上點過之後，角落的提示就不再出現
   var PART_NAMES = { text: "文字", badge: "圓圈", line: "引線", end: "端點" };
-  var HINT_KEY = "cmftool:partHint";
-  var part = "text", hint = true, popOpen = false, popByKey = false;
-  try { hint = localStorage.getItem(HINT_KEY) !== "1"; } catch (e) {}
-
-  // 換部位：浮出視窗的標題和裡面的設定
-  function selectPart(p) {
-    part = p;
-    $("popTitle").textContent = PART_NAMES[p];
-    Array.prototype.forEach.call(document.querySelectorAll(".pane"), function (el) { el.hidden = el.getAttribute("data-pane") !== p; });
-    markSel();
-  }
-
-  // 圖上框起來的是正在調整（浮出視窗開著）的部位
-  function markSel() {
-    Array.prototype.forEach.call($("preview").querySelectorAll("[data-part]"), function (g) {
-      g.classList.toggle("sel", popOpen && g.getAttribute("data-part") === part);
-    });
-  }
-
-  // x, y：點的位置（視窗座標）
-  function openPop(p, x, y, byKey) {
-    popOpen = true;
-    popByKey = !!byKey;
-    selectPart(p);
-    $("stylePop").hidden = false;
-    placePop(x, y);
-    // 用鍵盤開的：游標移到第一個欄位
-    if (byKey) { var f = document.querySelector('.pane[data-pane="' + p + '"] input:not([type=hidden]), .pane[data-pane="' + p + '"] select'); if (f) f.focus(); }
-    if (hint) {
-      hint = false;
-      try { localStorage.setItem(HINT_KEY, "1"); } catch (e) {}
-      var h = $("preview").querySelector(".fig-hint");
-      if (h) h.parentNode.removeChild(h);
-    }
-  }
-
-  // refocus：用鍵盤開的，關掉後回到圖上的部位
-  function closePop(refocus) {
-    if (!popOpen) return;
-    var pop = $("stylePop");
-    if (pop.contains(document.activeElement)) document.activeElement.blur();
-    popOpen = false;
-    pop.hidden = true;
-    markSel();
-    if (refocus && popByKey) {
-      var g = $("preview").querySelector('[data-part="' + part + '"]');
-      if (g) g.focus();
-    }
-  }
-
-  // 放在點的地方上面或下面：選蓋到圖比較少的那一邊（點編號、圓圈放上面，點端點放下面），
-  // 圖才看得到、別的部位也點得到；上面一直到面板頂端都放不下時放下面。放不下就捲動面板。
-  // 左右不超出面板，小三角對準點的位置
-  function placePop(x, y) {
-    var pop = $("stylePop"), wr = pop.parentNode.getBoundingClientRect(), fig = $("preview").getBoundingClientRect();
-    var vw = document.documentElement.clientWidth, W = Math.min(252, vw - 12), GAP = 11;
-    pop.style.width = W + "px";
-    var left = Math.max(6, Math.min(x - W / 2, vw - 6 - W));
-    var top = document.querySelector(".tabs").getBoundingClientRect().bottom, bottom = $("status").getBoundingClientRect().top;
-    var h = pop.offsetHeight;
-    var cover = function (a, b) { return Math.max(0, Math.min(b, fig.bottom) - Math.max(a, fig.top)); };
-    var up = cover(y - GAP - h, y - GAP) < cover(y + GAP, y + GAP + h) && y + window.pageYOffset - GAP - h >= top;
-    pop.classList.toggle("above", up);
-    pop.style.left = (left - wr.left) + "px";
-    pop.style.top = up ? "auto" : (y - wr.top + GAP) + "px";
-    pop.style.bottom = up ? (wr.bottom - y + GAP) + "px" : "auto";
-    pop.style.setProperty("--caret", Math.max(14, Math.min(W - 14, x - left)) + "px");
-    // 上下都放不下：捲動面板，讓它整個看得到
-    var r = pop.getBoundingClientRect();
-    if (r.bottom > bottom) window.scrollBy(0, r.bottom - bottom + 6);
-    else if (r.top < top) window.scrollBy(0, r.top - top - 6);
-  }
+  var fc = App.figCard({ svg: $("preview"), card: $("stylePop"), title: $("popTitle"), names: PART_NAMES, first: "text",
+    key: "cmftool:calloutPart", hintKey: "cmftool:partHint" });
 
   // 顏色欄位外面包著滴管按鈕的框（見「取色」）
   function boxOf(id) {
@@ -189,6 +119,7 @@
     boxOf("badgeTextColor").classList.toggle("hidden", !o.badge);
     updateFinishButton();
     $("preview").innerHTML = figure(o);
+    fc.update();
   }
 
   function figure(o) {
@@ -210,12 +141,12 @@
       var z = size[name];
       return '<g data-part="' + name + '" tabindex="0" role="button" aria-label="' + PART_NAMES[name] + '的設定"' +
         (z ? ' data-scrub-for="' + z[0] + '" data-scrub-label="' + z[1] + '" data-scrub-unit="' + z[2] + '"' : "") +
-        (popOpen && part === name ? ' class="sel"' : "") + ">" + body + "</g>";
+        (fc.part() === name ? ' class="sel"' : "") + ">" + body + "</g>";
     };
     var xy = function (p) { return p[0].toFixed(2) + "," + p[1].toFixed(2); };
 
     out.push('<path class="prod" d="M0 150 C 60 152, 120 180, 150 240 L0 240 Z"/>');
-    if (hint) out.push('<text class="fig-hint" x="8" y="15">點一下調整設定，左右拖曳改大小</text>');
+    if (fc.hint()) out.push('<text class="fig-hint" x="8" y="15">點部位換設定，左右拖曳改大小</text>');
 
     // 引線（箭頭時線縮到箭頭底部，跟 host.jsx 一樣）
     var ux = E[0] - E1[0], uy = E[1] - E1[1], L = Math.sqrt(ux * ux + uy * uy) || 1;
@@ -275,28 +206,6 @@
       '<rect class="hit" ' + box + "/>"));
     return out.join("");
   }
-
-  $("preview").addEventListener("click", function (e) {
-    var g = e.target.closest && e.target.closest("[data-part]");
-    if (g) openPop(g.getAttribute("data-part"), e.clientX, e.clientY, false);
-  });
-  $("preview").addEventListener("keydown", function (e) {
-    var g = (e.key === "Enter" || e.key === " ") && e.target.closest && e.target.closest("[data-part]");
-    if (!g) return;
-    e.preventDefault();
-    var r = g.getBoundingClientRect();
-    openPop(g.getAttribute("data-part"), r.left + r.width / 2, r.bottom, true);
-  });
-  $("btnPopClose").addEventListener("click", function () { closePop(true); });
-  // 點浮出視窗和圖上的部位以外的地方就關掉（下拉選單、取色視窗、在欄位上拖曳都不算）
-  document.addEventListener("pointerdown", function (e) {
-    if (!popOpen || $("stylePop").contains(e.target) || (e.target.closest && e.target.closest("#preview [data-part]"))) return;
-    closePop(false);
-  }, true);
-  document.querySelector('details[data-key="style"]').addEventListener("toggle", function (e) { if (!e.target.open) closePop(false); });
-  App.on("tab", function () { closePop(false); });
-  window.addEventListener("resize", function () { closePop(false); });
-  selectPart(part);
 
   // ---------- 字體選單 ----------
   // fonts：{ 家族: [[字重, PostScript 名稱], ...] }，快取在 localStorage，避免每次開面板都掃描
@@ -377,21 +286,22 @@
   $("btnFonts").addEventListener("click", function () { loadFonts(true); });
   App.reloadFonts = function () { loadFonts(true); };
 
-  // 預覽用：PostScript 名稱 → CSS 字體設定
-  function previewFont(o) {
-    var hit = fontIndex[o.fontName];
+  // 預覽用：PostScript 名稱 → CSS 字體設定（尺寸分頁的圖也用）
+  function previewFont(o) { return App.previewFont(o.fontName); }
+  App.previewFont = function (name) {
+    var hit = fontIndex[name];
     if (!hit) return { family: "sans-serif", weight: 400, italic: false };
     var st = hit[1];
     var weight = /thin|hairline|w1/i.test(st) ? 200 : /extralight|ultralight|light|w2|w3/i.test(st) ? 300
       : /semibold|demibold|w6/i.test(st) ? 600 : /extrabold|ultrabold|heavy|black|w8|w9/i.test(st) ? 800
       : /bold|w7/i.test(st) ? 700 : /medium|w5/i.test(st) ? 500 : 400;
     return { family: "'" + hit[0].replace(/'/g, "") + "', sans-serif", weight: weight, italic: /italic|oblique/i.test(st) };
-  }
+  };
 
   // ---------- 取色 ----------
   // 每個顏色欄位旁加一個滴管按鈕：按下後點畫布上的物件，取它的顏色
   var DROPPER = '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.7 2.3a2 2 0 0 0-2.8 0L9.2 4 8.5 3.3 7.1 4.7l.7.7-5.1 5.1-.5 2.4-.9.9 1.4 1.4.9-.9 2.4-.5 5.1-5.1.7.7 1.4-1.4-.7-.7 1.7-1.7a2 2 0 0 0 0-2.8zM5.1 12.3l-1.3.3.3-1.3 5.1-5.1 1 1z"/></svg>';
-  var STROKE_FIRST = { lineColor: true, badgeStrokeColor: true, dimLineColor: true };
+  var STROKE_FIRST = { lineColor: true, badgeStrokeColor: true, dimLineColor: true, dimLineColorM: true };
   var picking = null, pickTimer = null, pickBusy = false, pickStart = 0;
 
   Array.prototype.forEach.call(document.querySelectorAll('input[type=color]'), function (input) {
@@ -713,7 +623,6 @@
   $("btnFinish").addEventListener("click", finishFree);
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && picking) { stopPick("已取消取色"); return; }
-    if (e.key === "Escape" && popOpen) { closePop(true); return; }
     if (e.key === "Escape" && adding && document.activeElement.tagName !== "INPUT") stopAdd(false);
   });
 

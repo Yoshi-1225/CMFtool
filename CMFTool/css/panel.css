@@ -161,13 +161,16 @@ summary .count { font-weight: 400; color: var(--muted); }
 .sub { margin: 10px 0 2px; color: var(--muted); font-size: 10px; letter-spacing: .04em; }
 
 /* ---------- 標註分頁 ---------- */
-/* 樣式：一個標註的圖，點編號、圓圈、引線、端點，滑鼠旁邊浮出設定（js/callout.js 的 figure、openPop） */
-.cfig-wrap { position: relative; }
-.cfig { margin: 8px 0 6px; background: var(--paper); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+/* 樣式的圖（標註、尺寸分頁共用）：點圖上的部位，圖下面的卡片換成它的設定；面板夠寬時卡片在圖的右邊。
+   卡片不會蓋住圖（js/figcard.js；標註的圖在 js/callout.js 的 figure，尺寸的在 js/dimension.js 的 dimFigure） */
+.fig-wrap { margin: 8px 0 6px; }
+.cfig { position: relative; background: var(--paper); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .cfig svg { display: block; width: 100%; height: auto; }
 .cfig .prod { fill: var(--paper-prod); }
 .cfig [data-part] { cursor: pointer; }
 .cfig [data-scrub-for] { cursor: ew-resize; }   /* 可以左右拖曳改大小 */
+/* 只有點擊範圍（.hit）收滑鼠：文字的字框比字高，會蓋到旁邊的線 */
+.cfig [data-part] > :not(.hit) { pointer-events: none; }
 .cfig .hit { fill: transparent; stroke: none; }
 .cfig polyline.hit { fill: none; stroke: transparent; pointer-events: stroke; }
 .cfig .hl {
@@ -179,32 +182,40 @@ summary .count { font-weight: 400; color: var(--muted); }
 .cfig [data-part]:hover .hl { opacity: .6; }
 .cfig [data-part].sel .hl, .cfig [data-part]:focus .hl { opacity: 1; }
 .cfig [data-part]:focus { outline: none; }
-/* 沒有圓圈底、端點是「無」：滑過圖或選到時才出現虛線 */
+/* 沒有圓圈底、端點是「無」、不畫延伸線：滑過圖或選到時才出現虛線 */
 .cfig .ghost { fill: none; stroke: #8a8a8a; stroke-width: 1; stroke-dasharray: 2 2; opacity: 0; transition: opacity .12s; }
 .cfig:hover .ghost, .cfig .sel .ghost { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .cfig .hl, .cfig .ghost { transition: none; } }
 
+/* 示範框左上角：切換示範的物件（尺寸分頁：矩形、圓）。圖是白紙的顏色，深色介面也一樣 */
+.fig-mode { position: absolute; left: 6px; top: 6px; display: flex; gap: 2px; padding: 2px; border-radius: 5px; background: rgba(0, 0, 0, .07); }
+.fm { display: grid; place-items: center; width: 26px; height: 20px; border-radius: 4px; color: #707070; cursor: pointer; }
+.fm:hover { color: #303030; background: rgba(0, 0, 0, .07); }
+.fm svg { width: 16px; height: 16px; }
+.tgl-in:checked + .fm { color: #fff; background: var(--accent); }
+.tgl-in:focus-visible + .fm { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+/* 設定卡片：小三角指著選到的部位（--caret）；在圖的右邊時（.side）小三角在左邊 */
 .pop {
-  position: absolute; z-index: 8; left: 0; top: 0; width: 252px;
+  position: relative; margin-top: 8px;
   padding: 6px 8px 4px;
   background: var(--pop); border: 1px solid var(--line); border-radius: 6px;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, .4);
-  animation: pop-in .12s ease-out;
 }
-/* 小三角：指著點的位置（--caret），放在上面時朝下 */
 .pop::before {
   content: ""; position: absolute; top: -6px; left: var(--caret, 50%); margin-left: -5px;
   width: 9px; height: 9px; background: var(--pop);
   border-left: 1px solid var(--line); border-top: 1px solid var(--line);
   transform: rotate(45deg);
 }
-.pop.above::before { top: auto; bottom: -6px; transform: rotate(225deg); }
-.pop.above { animation-name: pop-in-up; }
-@keyframes pop-in { from { opacity: 0; transform: translateY(-4px); } }
-@keyframes pop-in-up { from { opacity: 0; transform: translateY(4px); } }
-@media (prefers-reduced-motion: reduce) { .pop, .pop.above { animation: none; } }
-.pop-head { display: flex; align-items: center; justify-content: space-between; margin: -2px -4px 2px 0; }
+.pop.side::before { top: var(--caret, 50%); left: -6px; margin: -5px 0 0; transform: rotate(-45deg); }
+.pop-head { margin: -2px 0 2px; }
 .pop-title { color: var(--muted); font-size: 10px; letter-spacing: .04em; }
+.pop[data-mode=rect] .only-circle, .pop[data-mode=circle] .only-rect { display: none; }
+@media (min-width: 480px) {
+  .fig-wrap { display: flex; align-items: flex-start; gap: 10px; }
+  .fig-wrap .cfig { flex: 0 1 300px; min-width: 200px; }
+  .fig-wrap .pop { flex: 1 1 220px; min-width: 200px; margin-top: 0; }
+}
 .pane > .check:first-child { margin-top: 2px; }
 .addopts { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; margin-top: 6px; }
 .addopts .check { margin: 0; }

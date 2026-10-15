@@ -256,6 +256,7 @@
   }
 
   document.addEventListener('pointerdown', function (e) {
+    if (drag && !drag.moved) drag = null;   // 上一次按下沒收到放開（還沒開始拖）：當作沒按過
     var src = !drag && e.button === 0 && !e.ctrlKey && !e.metaKey && sourceOf(e.target);
     if (!src) return;
     var el = src.el, v = parseFloat(el.value), min = parseFloat(el.getAttribute('min'));
