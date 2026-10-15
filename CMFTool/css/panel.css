@@ -267,6 +267,8 @@ summary .count { font-weight: 400; color: var(--muted); }
 .file-name.is-empty { font-weight: 400; color: var(--muted); }
 .file-dir { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .choices { margin-top: 6px; border-color: var(--accent); }
+.check-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.check-row .link { flex: 0 0 auto; }
 .source-row { display: flex; gap: 8px; align-items: baseline; margin: 4px 0 10px; color: var(--muted); }
 .source-row:empty { display: none; }
 

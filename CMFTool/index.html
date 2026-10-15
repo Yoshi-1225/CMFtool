@@ -447,7 +447,11 @@
   <div class="source-row"><span id="fileSource"></span><button class="link" id="btnAuto" hidden>改回自動</button></div>
 
   <button class="add" id="btnUpdate">從 Excel 更新</button>
-  <label class="check" title="Excel 存檔後自動更新文件中的文字和表格"><input type="checkbox" id="chkAuto">存檔時自動更新</label>
+  <label class="check" title="Excel 存檔後自動更新文件中的文字和表格"><input type="checkbox" id="chkAuto">Excel 存檔時自動更新</label>
+  <div class="check-row" id="writeBackRow">
+    <label class="check" title="Illustrator 存檔時，在 Illustrator 裡改過內容的綁定文字寫回 Excel 對應的儲存格。Excel 那邊也改過的格子、公式不會被蓋掉（只有 Windows 可以用）"><input type="checkbox" id="chkWriteBack" checked>存 .ai 時寫回 Excel</label>
+    <button class="link" id="btnWriteBack" title="現在就把 Illustrator 裡改過的綁定文字寫回 Excel；Excel 那邊也改過、或不知道是哪邊改的，也用 Illustrator 的（公式不會被蓋掉）">現在寫回</button>
+  </div>
   <div id="result" class="result" hidden></div>
 
   <details open data-key="cmf" id="cmfBox">

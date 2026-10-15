@@ -32,20 +32,28 @@ module.exports = function (XLSX) {
     };
   }
 
+  // 在合併儲存格裡：左上角那格的位址（值在那裡），不然就是 addr
+  function mergedAddr(ws, addr) {
+    var pos = XLSX.utils.decode_cell(addr);
+    (ws['!merges'] || []).some(function (m) {
+      if (pos.r >= m.s.r && pos.r <= m.e.r && pos.c >= m.s.c && pos.c <= m.e.c) { pos = m.s; return true; }
+      return false;
+    });
+    return XLSX.utils.encode_cell(pos);
+  }
+
+  function cellOf(ws, addr) { return ws[addr] || ws[mergedAddr(ws, addr)] || null; }
+
   function cellText(ws, addr) {
-    var c = ws[addr];
-    if (!c) {
-      var pos = XLSX.utils.decode_cell(addr);
-      (ws['!merges'] || []).some(function (m) {
-        if (pos.r >= m.s.r && pos.r <= m.e.r && pos.c >= m.s.c && pos.c <= m.e.c) {
-          c = ws[XLSX.utils.encode_cell(m.s)];
-          return true;
-        }
-        return false;
-      });
-    }
+    var c = cellOf(ws, addr);
     if (!c || c.v == null) return '';
     return c.w != null ? c.w : String(c.v);
+  }
+
+  // 有公式（不會寫回 Excel）
+  function isFormula(ws, addr) {
+    var c = cellOf(ws, addr);
+    return !!(c && (c.f || c.F));
   }
 
   /* ---------- 讀 .xlsx 裡的原始 XML ---------- */
@@ -637,11 +645,76 @@ module.exports = function (XLSX) {
     };
   }
 
+  /* ---------- 寫回 Excel：Illustrator 裡改過的綁定文字 ---------- */
+
+  function halfWidth(s) {
+    return String(s).replace(/[０-９]/g, function (ch) { return String.fromCharCode(ch.charCodeAt(0) - 0xFEE0); })
+      .replace(/．/g, '.').replace(/，/g, ',').replace(/－/g, '-').replace(/％/g, '%');
+  }
+
+  // 數字前後的字（例如 NT$、%、 元）和中間的數字
+  function splitNumber(s) {
+    var m = /^(.*?)([-+(]?[\d.,\s]*\d[\d.,\s]*\)?)([^\d]*)$/.exec(s);
+    return m ? { pre: m[1], core: m[2], post: m[3] } : null;
+  }
+
+  // Illustrator 裡改的數字，照原本顯示的樣子（千分位、%、前後的貨幣符號、括號負數）讀回數字；
+  // 前後的字跟原本不一樣、日期、科學記號 = null（交給 Excel 照打字的方式判斷）
+  function editedNumber(text, shown, fmt) {
+    if (fmt && XLSX.SSF && XLSX.SSF.is_date(fmt)) return null;
+    shown = String(shown == null ? '' : shown).trim();
+    if (/\d[eE][-+]?\d/.test(shown)) return null;
+    var a = splitNumber(halfWidth(text).trim()), b = shown ? splitNumber(shown) : { pre: '', post: '' };
+    if (!a || !b || a.pre !== b.pre || a.post.trim() !== b.post.trim()) return null;
+    var core = a.core.replace(/[\s,]/g, ''), neg = /^\(.*\)$/.test(core);
+    core = core.replace(/^\((.*)\)$/, '$1');
+    if (!/^[-+]?(\d+\.?\d*|\.\d+)$/.test(core)) return null;
+    var v = parseFloat(core) * (neg ? -1 : 1);
+    if (/%$/.test(a.post.trim())) v /= 100;
+    return isFinite(v) ? v : null;
+  }
+
+  // 要怎麼寫回（excel.jsx 的 es_edited 列出來的文字）。
+  //   items：[{ ref, text, base }]，base = 上次從 Excel 更新（或綁定）時的內容，null = 沒有記錄；{ ref, multi } = 同一格的文字改得不一樣
+  //   force：「現在寫回」：Excel 也改過、沒有記錄的，也用 Illustrator 的
+  // 比的是 Excel 檔顯示的文字（跟從 Excel 更新時一樣），換行一律當成 \n。回傳：
+  //   write：[{ ref, sheet, cell, kind, value, text Illustrator 的內容, raw }]
+  //     kind：num 數字（照原本的格式）、typed 照在 Excel 打字的方式（日期等）、text 文字；
+  //     raw：檔案裡現在的值，腳本拿來確認開著的 Excel 裡這格沒有還沒存檔的修改（錯誤值沒有 raw，不比）
+  //   same：Excel 已經是這個內容；keep：沒有記錄但跟 Excel 一樣（記下來就好）
+  //   conflict / unknown：[{ ref, excel }] Excel 也改過 / 沒有記錄又跟 Excel 不一樣；formula、missing、multi：[ref]
+  function writeBackPlan(wb, items, force) {
+    var out = { write: [], same: [], keep: [], conflict: [], unknown: [], formula: [], missing: [], multi: [] };
+    var nl = function (s) { return String(s == null ? '' : s).replace(/\r\n|\r|\u0003/g, '\n'); };
+    (items || []).forEach(function (it) {
+      if (it.multi) { out.multi.push(it.ref); return; }
+      var p = parseRange(it.ref), name = p && (p.sheet || wb.SheetNames[0]), ws = p && wb.Sheets[name];
+      if (!ws || p.s.r !== p.e.r || p.s.c !== p.e.c) { out.missing.push(it.ref); return; }
+      var addr = mergedAddr(ws, XLSX.utils.encode_cell(p.s)), c = ws[addr];   // 合併儲存格：寫進左上角那格
+      var text = nl(it.text), excel = nl(cellText(ws, addr)), base = it.base == null ? null : nl(it.base);
+      if (isFormula(ws, addr)) { out.formula.push(it.ref); return; }
+      if (excel === text) { (base === null ? out.keep : out.same).push(it.ref); return; }
+      if (!force && base === null) { out.unknown.push({ ref: it.ref, excel: excel }); return; }
+      if (!force && excel !== base) { out.conflict.push({ ref: it.ref, excel: excel }); return; }
+      var t = c && c.v != null ? c.t : 'z';                    // z = 空的
+      var num = t === 'n' || t === 'z' ? editedNumber(text, t === 'n' ? excel : '', c && c.z) : null;
+      var kind = num !== null ? 'num' : t === 'n' || t === 'b' ? 'typed' : 'text';
+      if (kind === 'typed' && /^[=+\-@]/.test(text.trim())) kind = 'text';   // 不能讓 Excel 當成公式
+      var w = { ref: it.ref, sheet: name, cell: addr, value: num !== null ? num : text, kind: kind, text: text, raw: t === 'z' ? null : c.v };
+      if (t === 'e') delete w.raw;                              // 錯誤值（#N/A）：沒辦法比
+      out.write.push(w);
+    });
+    return out;
+  }
+
   return {
     MAX_CELLS: MAX_CELLS,
     quoteSheet: quoteSheet,
     parseRange: parseRange,
     cellText: cellText,
+    isFormula: isFormula,
+    editedNumber: editedNumber,
+    writeBackPlan: writeBackPlan,
     savedSelection: savedSelection,
     buildTable: buildTable,
     normName: normName,

@@ -20,6 +20,7 @@
     fileChoices: $('fileChoices'), fileSource: $('fileSource'), btnAuto: $('btnAuto'),
     selInfo: $('selInfo'), cellRef: $('cellRef'), btnBind: $('btnBind'), btnUnbind: $('btnUnbind'),
     btnUpdate: $('btnUpdate'), chkAuto: $('chkAuto'), result: $('result'),
+    chkWriteBack: $('chkWriteBack'), btnWriteBack: $('btnWriteBack'), writeBackRow: $('writeBackRow'),
     refList: $('refList'), refCount: $('refCount'),
     rangeRef: $('rangeRef'), btnImport: $('btnImport'), chkGrid: $('chkGrid'),
     cmfTable: $('cmfTable'), cmfFields: $('cmfFields'), cmfNum: $('cmfNum'), cmfName: $('cmfName'),
@@ -119,8 +120,9 @@
     return err;
   }
 
+  // writable：不是公式的儲存格（Illustrator 裡改的可以寫回 Excel）
   function collectValues(wb, refs) {
-    var values = {}, missing = [], empty = [];
+    var values = {}, missing = [], empty = [], writable = {};
     refs.forEach(function (ref) {
       var p = parseRef(ref);
       var sheetName = p && (p.sheet || wb.SheetNames[0]);
@@ -129,8 +131,9 @@
       var text = Table.cellText(ws, p.cell);
       if (text === '') empty.push(ref);
       values[ref] = text;
+      if (!Table.isFormula(ws, p.cell)) writable[ref] = 1;
     });
-    return { values: values, missing: missing, empty: empty };
+    return { values: values, missing: missing, empty: empty, writable: writable };
   }
 
   /* ---------- 每份文件記住自己的 Excel 檔 ---------- */
@@ -795,13 +798,17 @@
           // CMF 清單：表格真的換成新的才回報排序結果
           tables.forEach(function (t) { if (t.cmf && done[t.label] && plans[t.label]) cmfReport(plans[t.label], lines); });
 
-          // 2. 個別綁定的文字：只換內容
+          // 2. 個別綁定的文字：只換內容。會寫回 Excel 時，Illustrator 裡改過、還沒寫回的文字留著（見 es_apply）
           if (!refs.length) return null;
           var report = collectValues(wb, refs);
-          return host('es_apply', [JSON.stringify(report.values)]).then(function (res) {
+          var keep = IS_WIN && ui.chkWriteBack.checked ? JSON.stringify(report.writable) : '';
+          return host('es_apply', [JSON.stringify(report.values), keep]).then(function (res) {
             if (res.error) throw new Error(res.error);
-            lines.push(['ok', res.changed ? '更新了 ' + res.changed + ' 個文字' + (res.same ? '，' + res.same + ' 個沒有變動' : '')
-                                          : '文字都是最新的（' + res.same + ' 個）']);
+            var kept = res.kept || [];
+            if (res.changed) lines.push(['ok', '更新了 ' + res.changed + ' 個文字' + (res.same ? '，' + res.same + ' 個沒有變動' : '')]);
+            else if (res.same || !kept.length) lines.push(['ok', '文字都是最新的（' + res.same + ' 個）']);
+            if (kept.length) lines.push(['warn', 'Illustrator 裡改過、還沒寫回的文字留著，存 .ai 時寫回 Excel：' + refList(kept) +
+              '。要換成 Excel 的，先取消勾選「存 .ai 時寫回 Excel」再更新']);
             if (report.missing.length) lines.push(['warn', '找不到工作表：' + report.missing.join('、')]);
             if (report.empty.length) lines.push(['warn', '儲存格是空的：' + report.empty.join('、')]);
             if (res.failed.length) lines.push(['error', '無法修改（物件或圖層可能被鎖定、隱藏）：' + res.failed.join('、')]);
@@ -828,6 +835,7 @@
         cmf.pending = false;
         return update(true, true);
       }
+      return afterBusy();
     });
   }
 
@@ -973,6 +981,7 @@
     }).then(function () {
       state.busy = false;
       ui.btnImport.disabled = false;
+      return afterBusy();
     });
   }
 
@@ -992,11 +1001,157 @@
     });
   }
 
+  /* ---------- 寫回 Excel：Illustrator 裡改過的綁定文字（Windows 透過 Excel） ---------- */
+  // Illustrator 存檔後（勾「存 .ai 時寫回 Excel」）或按「現在寫回」：綁定的文字（表格外）內容跟上次從 Excel 更新
+  // （或綁定）時不一樣的，寫回 Excel 對應的儲存格（Table.writeBackPlan 決定寫哪些，scripts/excel-write.ps1 寫）。
+  // 存檔時：Excel 那邊也改過、不知道是哪邊改的，不寫、說明一下；「現在寫回」= 這些也用 Illustrator 的。
+  // 公式不動；開著的 Excel 裡還沒存檔的修改不會被蓋掉。寫完後同一格的其他文字也換成新的內容，記下這次的內容
+  var back = { pending: null, writing: false, timer: null };
+
+  // 更新、匯入、寫回做完之後：還有在等的寫回就接著做
+  function afterBusy() {
+    if (!back.pending) return null;
+    var p = back.pending;
+    back.pending = null;
+    return writeBack(p.force, p.doc);
+  }
+
+  // doc：存檔的那份文件（存檔時）；換到別的文件了就不寫
+  function writeBack(force, doc) {
+    if (!IS_WIN) {
+      if (force) showError(new Error('只有 Windows 可以寫回 Excel（要透過 Excel 修改檔案）'));
+      return Promise.resolve();
+    }
+    if (state.busy) { back.pending = { force: force || !!(back.pending && back.pending.force), doc: doc }; return Promise.resolve(); }
+    state.busy = true;
+    ui.btnUpdate.disabled = ui.btnWriteBack.disabled = true;
+    var file = null;
+    return refreshContext().then(function () { return host('es_edited'); }).then(function (r) {
+      if (!r.doc || r.doc !== state.docKey || (doc && r.doc !== doc)) return null;     // 另一份文件
+      file = state.excelPath;                                                         // 這份文件的 Excel
+      if (!file || !fs.existsSync(file)) {
+        if (force) throw new Error(file ? '找不到檔案：' + file : '請先選擇 Excel 檔案');
+        return null;
+      }
+      if (!r.items.length) { if (force) App.setStatus('沒有在 Illustrator 裡改過的綁定文字'); return null; }
+      return readWorkbook(file, true).then(function (wb) {
+        var plan = Table.writeBackPlan(wb, r.items, !!force);
+        if (!plan.write.length) return finishWriteBack(r.items, plan, null, force);
+        if (force) App.setStatus('寫回 Excel 中…');
+        back.writing = true;
+        state.selfSave = Date.now();
+        return excelWrite(file, plan.write).then(function (res) {
+          back.writing = false;
+          state.selfSave = Date.now();          // Excel 剛存檔：不要因此又從 Excel 更新
+          return finishWriteBack(r.items, plan, res, force);
+        });
+      });
+    }).catch(function (err) {
+      back.writing = false;
+      showError(friendly(err));
+    }).then(function () {
+      state.busy = false;
+      ui.btnUpdate.disabled = ui.btnWriteBack.disabled = false;
+      return afterBusy();
+    });
+  }
+
+  function refList(list) {
+    var refs = list.map(function (x) { return typeof x === 'string' ? x : x.ref; });
+    return refs.slice(0, 6).join('、') + (refs.length > 6 ? ' 等 ' + refs.length + ' 格' : '');
+  }
+
+  function shownList(list) {
+    return list.slice(0, 4).map(function (x) { return x.ref + '（Excel：' + (x.excel === '' ? '空的' : x.excel.replace(/\n/g, ' ')) + '）'; })
+      .join('、') + (list.length > 4 ? ' 等 ' + list.length + ' 格' : '');
+  }
+
+  function writeError(m) {
+    m = String(m || '');
+    if (/0x80010001|0x800AC472|rejected|拒絕/i.test(m)) return 'Excel 正在編輯儲存格或開著對話框，請按 Enter 或 Esc 離開後，再按「現在寫回」';
+    return m;
+  }
+
+  // 寫完：同一格的文字換成新的內容並記下來（es_apply），結果寫在結果欄和狀態列；存檔時沒有要說的就不出聲
+  function finishWriteBack(items, plan, res, force) {
+    var textOf = {}, apply = {}, lines = [['time', new Date().toLocaleTimeString() + (force ? '' : '（存 .ai 時）')]];
+    items.forEach(function (it) { if (!it.multi) textOf[it.ref] = it.text; });
+    plan.same.concat(plan.keep).forEach(function (ref) { apply[ref] = textOf[ref]; });
+    var written = [], formula = plan.formula.slice(), live = [];
+    if (res && res.fatal) lines.push(['error', '無法透過 Excel 寫回：' + writeError(res.fatal)]);
+    (res && res.results || []).forEach(function (x) {
+      if (x.status === 'written') { written.push(x.ref); apply[x.ref] = textOf[x.ref]; }   // Illustrator 原本的內容（換行不變）
+      else if (x.status === 'formula') formula.push(x.ref);
+      else if (x.status === 'changed') live.push({ ref: x.ref, excel: String(x.text || '') });
+      else lines.push(['error', x.ref + '：寫不進去（' + writeError(x.message) + '）']);
+    });
+    if (written.length) lines.push(['ok', '已寫回 Excel：' + refList(written)]);
+    if (res && res.save === 'unsaved') lines.push(['warn', 'Excel 開著這個檔案、還有其他沒存檔的修改：已經寫進去了，請在 Excel 存檔']);
+    else if (res && res.save === 'readonly') lines.push(['error', 'Excel 檔案是唯讀，或在別的地方開著，沒有寫回']);
+    else if (res && /^error:/.test(res.save || '')) lines.push(['error', '寫好了但 Excel 沒有存檔（' + writeError(res.save.slice(6)) + '）']);
+    if (plan.conflict.length) lines.push(['warn', 'Excel 那邊也改過，沒有寫回：' + shownList(plan.conflict) + '。要用 Illustrator 的，按「現在寫回」']);
+    if (plan.unknown.length) lines.push(['warn', '不知道是 Illustrator 還是 Excel 改的，沒有寫回：' + shownList(plan.unknown) +
+      '。要用 Illustrator 的按「現在寫回」，要用 Excel 的按「從 Excel 更新」']);
+    if (live.length) lines.push(['warn', 'Excel 裡這幾格還有沒存檔的修改，沒有寫回：' + shownList(live)]);
+    if (formula.length) lines.push(['warn', '是公式，沒有寫回：' + refList(formula)]);
+    if (plan.multi.length) lines.push(['warn', '同一格的好幾個文字改得不一樣，沒有寫回：' + refList(plan.multi)]);
+    if (plan.missing.length) lines.push(['warn', '找不到工作表或儲存格：' + refList(plan.missing)]);
+
+    var step = Object.keys(apply).length ? host('es_apply', [JSON.stringify(apply)]) : Promise.resolve(null);
+    return step.then(function () {
+      var notes = lines.filter(function (l) { return l[0] !== 'time'; });
+      if (!notes.length) { if (force) App.setStatus('Excel 已經是最新的'); return refreshContext(); }
+      if (notes.length > 1 || notes.some(function (l) { return l[0] !== 'ok'; })) showResult(lines);
+      else ui.result.hidden = true;
+      var bad = notes.filter(function (l) { return l[0] === 'error'; })[0];
+      var main = notes.filter(function (l) { return l[0] === 'ok'; })[0] || notes[0];
+      App.setStatus(bad ? bad[1] : main[1], !!bad);
+      return refreshContext();
+    });
+  }
+
+  // 寫回（scripts/excel-write.ps1）。回傳 { live, save, results } 或 { fatal }
+  function excelWrite(file, items) {
+    return new Promise(function (resolve) {
+      var jobFile = path.join(os.tmpdir(), 'excelsync-write-' + Date.now() + '.json');
+      fs.writeFileSync(jobFile, JSON.stringify({ path: path.resolve(file), items: items }), 'utf8');
+      var out = '', done = false, child = null, timer = null;
+      function finish(r) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        try { fs.unlinkSync(jobFile); } catch (e) {}
+        resolve(r);
+      }
+      timer = setTimeout(function () {
+        try { child.kill(); } catch (e) {}
+        restoreExcel();
+        finish({ fatal: 'Excel 太久沒有回應' });
+      }, 90000);
+      try {
+        child = childProcess.spawn('powershell.exe',
+          ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+           '-File', path.join(EXT, 'scripts', 'excel-write.ps1'), jobFile],
+          { windowsHide: true });
+      } catch (e) { finish({ fatal: e.message }); return; }
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', function (chunk) { out += chunk; });
+      child.on('error', function (err) { finish({ fatal: err.message }); });
+      child.on('exit', function () {
+        var msg = null;
+        out.replace(/^\uFEFF/, '').split(/\r?\n/).forEach(function (line) {
+          try { var m = JSON.parse(line.trim()); if (m && m.ev) msg = m; } catch (e) {}
+        });
+        finish(msg && msg.ev === 'done' ? msg : { fatal: (msg && msg.message) || '無法啟動 Excel' });
+      });
+    });
+  }
+
   /* ---------- 自動更新：監看檔案修改時間 ---------- */
 
   function onFileChanged(curr, prev) {
     if (curr.mtimeMs === prev.mtimeMs || curr.mtimeMs === 0) return;
-    if (Date.now() - state.selfSave < 8000) return;     // 外掛自己存的
+    if (back.writing || Date.now() - state.selfSave < 8000) return;     // 外掛自己存的（寫回、排序）
     clearTimeout(state.debounce);
     state.debounce = setTimeout(function () { update(true); }, 800);
   }
@@ -1041,6 +1196,19 @@
   ui.btnUnbind.addEventListener('click', unbind);
   ui.btnUpdate.addEventListener('click', function () { update(false); });
   ui.chkAuto.addEventListener('change', syncWatcher);
+  ui.btnWriteBack.addEventListener('click', function () { writeBack(true); });
+  ui.chkWriteBack.addEventListener('change', function () {
+    try { localStorage.setItem('cmftool:writeBack', ui.chkWriteBack.checked ? '1' : '0'); } catch (e) {}
+  });
+  // Illustrator 存檔之後（「存 .ai 時寫回 Excel」）：馬上記下是哪份文件，只寫回那一份
+  cs.addEventListener('documentAfterSave', function () {
+    if (!IS_WIN || !ui.chkWriteBack.checked) return;
+    host('es_context').then(function (c) {
+      if (!c.doc) return;
+      clearTimeout(back.timer);
+      back.timer = setTimeout(function () { writeBack(false, c.doc); }, 300);
+    }).catch(function () {});
+  });
   ui.cellRef.addEventListener('keydown', function (e) { if (e.key === 'Enter') bind(); });
   ui.cmfTable.addEventListener('change', onCmfTable);
   [ui.cmfNum, ui.cmfName, ui.cmfHead, ui.cmfRest].forEach(function (el) { el.addEventListener('change', onCmfField); });
@@ -1065,6 +1233,8 @@
 
   try { ui.chkAuto.checked = localStorage.getItem('excelsync:auto') === '1'; } catch (e) {}
   try { ui.cmfAuto.checked = localStorage.getItem('cmftool:cmfAuto') !== '0'; } catch (e) {}
+  try { ui.chkWriteBack.checked = localStorage.getItem('cmftool:writeBack') !== '0'; } catch (e) {}
+  if (!IS_WIN) ui.writeBackRow.hidden = true;     // 寫回 Excel 需要透過 Windows 的 Excel
   try { ui.cmfWrite.checked = localStorage.getItem('cmftool:cmfWrite') !== '0'; } catch (e) {}
   if (!IS_WIN) ui.cmfWrite.parentNode.hidden = ui.cmfFileRow.hidden = true;  // 修改 Excel 檔需要透過 Windows 的 Excel
   ui.cmfFile.disabled = !ui.cmfWrite.checked;

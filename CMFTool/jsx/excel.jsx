@@ -3,6 +3,8 @@
  * 綁定方式：文字物件的「名稱」設為  xl:儲存格位址
  *   例：xl:B3、xl:工作表1!B3、xl:'價格 表'!C12
  * 名稱會顯示在圖層面板，可以直接在那裡檢查或手動修改。
+ * 綁定的文字的備註（note）記著上次從 Excel 更新（或綁定）時的內容：xlbase:內容
+ *   Illustrator 存檔時，內容跟它不一樣的就是在 Illustrator 裡改過的，寫回 Excel（見 es_edited）
  * 表格是一個群組，名稱為 xltable:範圍，備註（note）存 JSON：
  *   { mode: "excel" | "build", w, h, grid, cmf: { num, name, head, rest } }
  *   cmf：這個表格是 CMF 清單，依標註編號排序（見 js/table.js 的 cmfPlan）
@@ -11,6 +13,7 @@
 
 var XL_PREFIX = "xl:";
 var XL_TABLE = "xltable:";
+var XL_BASE = "xlbase:";
 
 /* ---------- 小工具（ExtendScript 沒有 JSON） ---------- */
 
@@ -55,6 +58,22 @@ function _refOf(item) {
     var n = item.name;
     if (n && n.indexOf(XL_PREFIX) === 0) return n.substring(XL_PREFIX.length);
     return null;
+}
+
+/* 上次從 Excel 更新（或綁定）時的內容；沒有記錄 = null */
+function _baseOf(tf) {
+    var n = "";
+    try { n = String(tf.note || ""); } catch (e) {}
+    return n.indexOf(XL_BASE) === 0 ? n.substring(XL_BASE.length) : null;
+}
+
+/* 記下內容。備註被拿去寫別的東西時不動它（就當作沒有記錄）；一樣時不改，文件才不會無故變成「已修改」 */
+function _setBase(tf, v) {
+    try {
+        var n = String(tf.note || "");
+        if (n === XL_BASE + v || (n !== "" && n.indexOf(XL_BASE) !== 0)) return;
+        tf.note = XL_BASE + v;
+    } catch (e) {}
 }
 
 function _docKey(doc) {
@@ -114,7 +133,10 @@ function es_bind(ref) {
     if (app.documents.length === 0) return '{"error":"沒有開啟的文件"}';
     var frames = _selectedTextFrames(app.activeDocument);
     if (frames.length === 0) return '{"error":"請先選取文字物件"}';
-    for (var i = 0; i < frames.length; i++) frames[i].name = XL_PREFIX + ref;
+    for (var i = 0; i < frames.length; i++) {
+        frames[i].name = XL_PREFIX + ref;
+        _setBase(frames[i], frames[i].contents);   // 綁定之後在 Illustrator 裡改的才寫回 Excel
+    }
     return '{"count":' + frames.length + "}";
 }
 
@@ -123,7 +145,11 @@ function es_unbind() {
     var frames = _selectedTextFrames(app.activeDocument);
     var n = 0;
     for (var i = 0; i < frames.length; i++) {
-        if (_refOf(frames[i]) !== null) { frames[i].name = ""; n++; }
+        if (_refOf(frames[i]) !== null) {
+            frames[i].name = "";
+            if (_baseOf(frames[i]) !== null) { try { frames[i].note = ""; } catch (e) {} }
+            n++;
+        }
     }
     return '{"count":' + n + "}";
 }
@@ -149,12 +175,16 @@ function es_refs() {
     return '{"doc":' + _q(_docKey(doc)) + ',"refs":' + _arr(refs) + ',"tables":' + _json(tables) + "}";
 }
 
-/* 把值寫進文字物件。values = { "B3": "1,280", ... } */
-function es_apply(valuesJson) {
+/* 把值寫進文字物件。values = { "B3": "1,280", ... }
+ * keepJson（從 Excel 更新、會寫回 Excel 時）= { "B3": 1, ... } 可以寫回的儲存格（不是公式）：
+ *   這些格的文字在 Illustrator 裡改過、Excel 那格又沒變，就不換掉，等存檔時寫回 Excel（kept 列出這些儲存格）；
+ *   Excel 那格也改了就用 Excel 的 */
+function es_apply(valuesJson, keepJson) {
     if (app.documents.length === 0) return '{"error":"沒有開啟的文件"}';
     var values = eval("(" + valuesJson + ")");
+    var keep = keepJson ? eval("(" + keepJson + ")") : {};
     var doc = app.activeDocument;
-    var changed = 0, same = 0, failed = [], failedSeen = {};
+    var changed = 0, same = 0, failed = [], failedSeen = {}, kept = [], keptSeen = {};
 
     for (var i = 0; i < doc.textFrames.length; i++) {
         var tf = doc.textFrames[i];
@@ -163,9 +193,14 @@ function es_apply(valuesJson) {
 
         // Illustrator 的換行是 \r
         var v = String(values[ref]).replace(/\r\n|\n/g, "\r");
-        if (tf.contents === v) { same++; continue; }
+        if (tf.contents === v) { same++; _setBase(tf, v); continue; }
+        if (keep.hasOwnProperty(ref) && _baseOf(tf) === v) {
+            if (!keptSeen[ref]) { keptSeen[ref] = true; kept.push(ref); }
+            continue;
+        }
         try {
             tf.contents = v;
+            _setBase(tf, v);
             changed++;
         } catch (e) {
             // 通常是物件或圖層被鎖定／隱藏
@@ -173,7 +208,33 @@ function es_apply(valuesJson) {
         }
     }
     if (changed > 0) app.redraw();
-    return '{"changed":' + changed + ',"same":' + same + ',"failed":' + _arr(failed) + "}";
+    return '{"changed":' + changed + ',"same":' + same + ',"failed":' + _arr(failed) + ',"kept":' + _arr(kept) + "}";
+}
+
+/* 寫回 Excel 用：在 Illustrator 裡改過的綁定文字（表格外）
+ * items：[{ ref, text 現在的內容, base 上次從 Excel 更新或綁定時的內容（null = 沒有記錄）}]
+ * 同一格有好幾個文字：只有一種改法就用它；改得不一樣 = { ref, multi: true } */
+function es_edited() {
+    if (app.documents.length === 0) return '{"doc":null,"items":[]}';
+    var doc = app.activeDocument, byRef = {}, order = [], i, k;
+    for (i = 0; i < doc.textFrames.length; i++) {
+        var tf = doc.textFrames[i], ref = _refOf(tf);
+        if (ref === null || _inTable(tf)) continue;
+        if (!byRef.hasOwnProperty(ref)) { byRef[ref] = []; order.push(ref); }
+        byRef[ref].push({ text: tf.contents, base: _baseOf(tf) });
+    }
+    var items = [];
+    for (i = 0; i < order.length; i++) {
+        var list = byRef[order[i]], edited = [], seen = {};
+        for (k = 0; k < list.length; k++) {
+            var f = list[k];
+            if (f.base !== null && f.text === f.base) continue;   // 沒改過
+            if (!seen.hasOwnProperty(f.text)) { seen[f.text] = true; edited.push(f); }
+        }
+        if (edited.length > 1) items.push({ ref: order[i], multi: true });
+        else if (edited.length === 1) items.push({ ref: order[i], text: edited[0].text, base: edited[0].base });
+    }
+    return '{"doc":' + _q(_docKey(doc)) + ',"items":' + _json(items) + "}";
 }
 
 /* 選取所有綁定到某個儲存格的物件，方便找東西 */

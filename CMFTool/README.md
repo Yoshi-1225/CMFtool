@@ -210,8 +210,31 @@ Excel 規格表通常第一欄是序號、第二欄是物件名稱。
 - **匯入表格**：輸入 `A1:D10`，或留空使用 Excel 中選取的範圍。
   - Windows：請 Excel 直接複製，外觀和手動複製貼上完全一樣（會用到剪貼簿）。
   - Mac，或 Excel 無法使用時：外掛讀取樣式自己畫（不支援條件式格式設定、文字旋轉）。
-- Excel 改完存檔後按「從 Excel 更新」，或勾「存檔時自動更新」。表格會保留位置和縮放。
+- Excel 改完存檔後按「從 Excel 更新」，或勾「Excel 存檔時自動更新」。表格會保留位置和縮放。
 - 表格由 Excel 控制：在 Illustrator 裡改表格樣式，下次更新會被蓋掉。
+
+### 寫回 Excel：在 Illustrator 裡改字，存檔時寫回
+
+綁定的文字在 Illustrator 裡改了內容，**存 .ai 時**會寫回 Excel 對應的儲存格（勾「存 .ai 時寫回 Excel」，預設開啟）。
+只有 Windows 可以用：透過 Excel 修改檔案，格式、公式和其他儲存格都不會動。
+
+- 只寫在 Illustrator 裡改過的：每個綁定文字記著上次從 Excel 更新（或綁定）時的內容（存在物件的備註），存檔時跟它比。
+- **不會蓋掉 Excel 的資料**：
+  - Excel 那邊也改過這一格（跟上次更新時不一樣）：不寫，結果欄列出 Excel 現在的內容。要用 Illustrator 的，按「現在寫回」。
+  - 有公式的儲存格一律不寫。
+  - Excel 開著這個檔案、這一格有還沒存檔的修改：不寫。
+  - 舊版綁定的文字還沒有記錄：跟 Excel 一樣就記下來；不一樣時不寫（不知道是哪邊改的），
+    按「現在寫回」用 Illustrator 的，按「從 Excel 更新」用 Excel 的。
+- **數字**照原本的格式讀回數字（`1,350`、`12%`、`NT$1,350`、`(1,280)`），儲存格還是數字、格式不變；
+  日期等交給 Excel 判斷（跟在 Excel 裡打字一樣）。其他的照文字寫進去：`001` 不會變成 `1`，`=` 開頭不會變成公式。
+- Excel 開著這個檔案時，直接寫進開著的檔案；還有其他沒存檔的修改時寫好但不存檔，留給你在 Excel 存檔。
+- 同一格綁了好幾個文字：改了其中一個，其他的也會換成新的內容；改得不一樣時不寫。
+- 合併儲存格寫在左上角那一格。匯入的表格裡的字不會寫回（表格由 Excel 控制）。
+- 寫回之後不會又觸發「Excel 存檔時自動更新」。
+- 還沒存 .ai 之前「從 Excel 更新」（或 Excel 存檔自動更新）：Illustrator 裡改過的字會留著，存檔時再寫回；
+  Excel 那一格也改了、或是公式，就換成 Excel 的。要放棄 Illustrator 裡的修改，先取消勾選「存 .ai 時寫回 Excel」再更新。
+- **現在寫回**：不用存檔，馬上寫回；Excel 也改過、不知道是哪邊改的，也用 Illustrator 的
+  （公式、Excel 裡還沒存檔的修改還是不動）。
 
 ## 縮放：依物件尺寸縮放整份文件
 
@@ -292,6 +315,7 @@ js/table.js              讀 Excel 的版面和樣式；CMF 清單的排序（cm
 jsx/host.jsx             Illustrator 端：標註、尺寸和縮放（CMF.*）
 jsx/excel.jsx            Illustrator 端：文字綁定和表格（es_*）
 scripts/excel-copy.ps1   Windows：透過 PowerShell 請 Excel 複製（含 CMF 清單排序）
+scripts/excel-write.ps1  Windows：透過 PowerShell 請 Excel 把 Illustrator 裡改過的文字寫回
 js/CSInterface.js        Adobe 官方 CEP 函式庫
 lib/xlsx.full.min.js     SheetJS 0.18.5
 ```
