@@ -24,7 +24,7 @@
   /* ---------- 浮出：面板往右變寬 ---------- */
   // ok：null = 還沒試過，true = 面板變得了寬，false = 變不了（停靠）；on：浮出中的卡片
   // k：resizeContent 的數值 × k = 面板實際的大小（Mac 的 Illustrator 2022、2023 會乘上介面縮放）
-  var fly = { ok: null, on: null, w0: 0, added: 0, k: 1, ours: 0 };
+  var fly = { ok: null, on: null, w0: 0, added: 0, k: 1, ours: 0, told: false };   // told：說過面板變不了寬了
   var root = document.documentElement;
 
   function canFly() { return !!(cep && cep.resizeContent) && fly.ok !== false && !fly.on && window.innerWidth < WIDE; }
@@ -34,10 +34,10 @@
     try { cep.resizeContent(Math.round(w / fly.k), Math.round(h / fly.k)); } catch (e) {}
   }
 
-  // 等面板的大小改好（停了 80 ms 沒再變，最多等 450 ms）
+  // 等面板的大小改好（停了 80 ms 沒再變，最多等 700 ms）
   function settle(cb) {
     var t = null, done = false;
-    var max = setTimeout(fin, 450);
+    var max = setTimeout(fin, 700);
     function fin() { if (done) return; done = true; clearTimeout(t); clearTimeout(max); window.removeEventListener('resize', on); cb(); }
     function on() { clearTimeout(t); t = setTimeout(fin, 80); }
     window.addEventListener('resize', on);
@@ -86,6 +86,10 @@
           fly.ok = false;
           if (Math.abs(added) > 2 || Math.abs(window.innerHeight - h0) > 2) hostResize(w0, h0);
           hold(0);
+          if (!fly.told) {   // 說一次就好
+            fly.told = true;
+            App.setStatus('面板沒辦法自動變寬（停靠在旁邊時不行），設定放在圖的下面；面板拉寬到 480 px 以上會放在圖的右邊');
+          }
         }
         finish();
         done(ok);
@@ -108,7 +112,7 @@
 
   // 使用者自己改了面板大小：不再浮出（卡片照一般的位置放），之後可以再試
   window.addEventListener('resize', function () {
-    if (Date.now() - fly.ours < 700) return;
+    if (Date.now() - fly.ours < 1200) return;
     fly.ok = null;
     if (!fly.on) return;
     var c = fly.on;
@@ -263,7 +267,7 @@
     var details = o.svg.closest('details');
     if (details) details.addEventListener('toggle', function () { if (!details.open) close(false); });
     App.on('tab', function () { close(false); });
-    window.addEventListener('resize', function () { if (Date.now() - fly.ours >= 700) place(); });
+    window.addEventListener('resize', function () { if (Date.now() - fly.ours >= 1200) place(); });
 
     inst = {
       place: place,
