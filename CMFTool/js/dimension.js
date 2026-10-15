@@ -617,21 +617,6 @@
     $(id).addEventListener('change', function () { if ($(id).checked) setFigMode($(id).value); });
   });
 
-  // 卡片裡的字級、文字顏色、線寬、線條顏色：跟最上面常用設定的是同一個值
-  var MIRROR = [['dimFontSizeM', 'dimFontSize'], ['dimTextColorM', 'dimTextColor'], ['dimLineWidthM', 'dimLineWidth'], ['dimLineColorM', 'dimLineColor']];
-  MIRROR.forEach(function (m) {
-    var copy = $(m[0]), main = $(m[1]);
-    ['input', 'change'].forEach(function (type) {
-      copy.addEventListener(type, function () {
-        main.value = copy.value;
-        main.dispatchEvent(new Event(type));
-      });
-    });
-  });
-  function syncMirrors() {
-    MIRROR.forEach(function (m) { var copy = $(m[0]), v = $(m[1]).value; if (copy.value !== v) copy.value = v; });
-  }
-
   /* ---------- 事件 ---------- */
   function changed() {
     $('dimRatio').classList.toggle('invalid', !(ratioOf($('dimRatio').value) > 0));
@@ -644,7 +629,6 @@
     opts[2].text = '4-' + sym + '3';
     save();
     renderInfo();
-    syncMirrors();
     renderFigure();
   }
 

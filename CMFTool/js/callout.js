@@ -301,7 +301,7 @@
   // ---------- 取色 ----------
   // 每個顏色欄位旁加一個滴管按鈕：按下後點畫布上的物件，取它的顏色
   var DROPPER = '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.7 2.3a2 2 0 0 0-2.8 0L9.2 4 8.5 3.3 7.1 4.7l.7.7-5.1 5.1-.5 2.4-.9.9 1.4 1.4.9-.9 2.4-.5 5.1-5.1.7.7 1.4-1.4-.7-.7 1.7-1.7a2 2 0 0 0 0-2.8zM5.1 12.3l-1.3.3.3-1.3 5.1-5.1 1 1z"/></svg>';
-  var STROKE_FIRST = { lineColor: true, badgeStrokeColor: true, dimLineColor: true, dimLineColorM: true };
+  var STROKE_FIRST = { lineColor: true, badgeStrokeColor: true, dimLineColor: true };
   var picking = null, pickTimer = null, pickBusy = false, pickStart = 0;
 
   Array.prototype.forEach.call(document.querySelectorAll('input[type=color]'), function (input) {

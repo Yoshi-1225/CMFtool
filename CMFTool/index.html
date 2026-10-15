@@ -187,40 +187,6 @@
 <!-- ==================== 尺寸 ==================== -->
 <section class="page" id="page-dim" role="tabpanel" hidden>
 
-  <!-- 常用設定（參考 Specees）：比例、單位、加單位、小數；字級、文字顏色、線寬、線條顏色 -->
-  <div class="quick" role="group" aria-label="常用設定">
-    <div class="quick-row r1">
-      <label class="qi" for="dimRatio" title="圖面比例">1:x</label>
-      <input type="text" id="dimRatio" value="1:1" spellcheck="false" autocomplete="off" data-ime="off"
-             title="圖面比例：圖畫成實物的一半大 = 1:2（或只寫 2），標出來的數字會乘 2">
-      <select id="dimUnit" title="單位">
-        <option value="mm">mm</option>
-        <option value="cm">cm</option>
-        <option value="in">in</option>
-        <option value="pt">pt</option>
-        <option value="px">px</option>
-        <option value="doc">文件單位</option>
-      </select>
-      <input type="checkbox" class="tgl-in" id="dimShowUnit" checked>
-      <label class="qtgl" for="dimShowUnit" title="數字後面加單位（眼睛閉起來 = 不加）" aria-label="加單位"><svg class="on" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10z"/><circle cx="10" cy="10" r="2.4"/></svg><svg class="off" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10z"/><circle cx="10" cy="10" r="2.4"/><path d="M3.5 16.5 16.5 3.5"/></svg></label>
-      <label class="qi" for="dimDecimals" title="小數位數">.00</label>
-      <select id="dimDecimals" title="最多幾位小數，尾數的 0 會去掉">
-        <option value="0">1</option>
-        <option value="1" selected>0.1</option>
-        <option value="2">0.01</option>
-        <option value="3">0.001</option>
-      </select>
-    </div>
-    <div class="quick-row r2">
-      <label class="qi tt" for="dimFontSize" title="字級 (pt)">T<small>t</small></label>
-      <input type="number" id="dimFontSize" min="1" step="0.5" value="8" title="字級 (pt)">
-      <input type="color" id="dimTextColor" value="#000000" title="文字顏色">
-      <label class="qi" for="dimLineWidth" title="線寬 (pt)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 14.5h14" stroke-width="2.6"/><path d="M3 7.5h14" stroke-width="1"/></svg></label>
-      <input type="number" id="dimLineWidth" min="0.1" step="0.25" value="0.5" title="線寬 (pt)">
-      <input type="color" id="dimLineColor" value="#000000" title="線條和箭頭的顏色">
-    </div>
-  </div>
-
   <div class="sect-head">
     <span class="sect-title">選取</span>
     <span class="sect-meta" id="dimSel"></span>
@@ -271,7 +237,7 @@
     <div class="grid3">
       <button class="btn" id="btnDimSync" title="工作區裡的尺寸都改成面板上的樣式（字級、線寬一樣大）、數字格式和直徑半徑的標法，位置不變；工作區外面的不動（要改就選取後按「套用選取」）">同步全部</button>
       <button class="btn" id="btnDimRestyle" title="只改選取的尺寸">套用選取</button>
-      <button class="btn" id="btnDimPickStyle" title="選取一個尺寸後按這裡：樣式、數字和最上面的常用設定改成跟它一樣，之後新增的尺寸就用這個樣式（要改其他尺寸，再按「同步全部」或「套用選取」）">吸取樣式</button>
+      <button class="btn" id="btnDimPickStyle" title="選取一個尺寸後按這裡：樣式和數字的設定改成跟它一樣，之後新增的尺寸就用這個樣式（要改其他尺寸，再按「同步全部」或「套用選取」）">吸取樣式</button>
     </div>
     <label class="check" title="選取尺寸之後修改樣式、數字或標法，選取的尺寸馬上跟著改"><input type="checkbox" id="dimAutoApply">修改時自動套用到選取的尺寸</label>
 
@@ -292,10 +258,10 @@
 
         <div class="pane" data-pane="text">
           <div class="row">
-            <label for="dimFontSizeM">字級</label>
+            <label for="dimFontSize">字級</label>
             <div class="pair">
-              <input type="number" id="dimFontSizeM" min="1" step="0.5" value="8" title="字級 (pt)，跟最上面的是同一個">
-              <input type="color" id="dimTextColorM" value="#000000" title="文字顏色，跟最上面的是同一個">
+              <input type="number" id="dimFontSize" min="1" step="0.5" value="8" title="字級 (pt)">
+              <input type="color" id="dimTextColor" value="#000000" title="文字顏色">
             </div>
           </div>
           <div class="row">
@@ -345,6 +311,33 @@
             </div>
           </div>
           <div class="sub">數字</div>
+          <div class="row">
+            <label for="dimRatio">比例</label>
+            <div class="pair">
+              <input type="text" id="dimRatio" value="1:1" spellcheck="false" autocomplete="off" data-ime="off"
+                     title="圖面比例：圖畫成實物的一半大 = 1:2（或只寫 2），標出來的數字會乘 2">
+              <select id="dimUnit" title="單位">
+                <option value="mm">mm</option>
+                <option value="cm">cm</option>
+                <option value="in">in</option>
+                <option value="pt">pt</option>
+                <option value="px">px</option>
+                <option value="doc">文件單位</option>
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <label for="dimDecimals">小數</label>
+            <div class="pair">
+              <select id="dimDecimals" title="最多幾位小數，尾數的 0 會去掉">
+                <option value="0">1</option>
+                <option value="1" selected>0.1</option>
+                <option value="2">0.01</option>
+                <option value="3">0.001</option>
+              </select>
+              <label class="check" title="數字後面加單位"><input type="checkbox" id="dimShowUnit" checked>加單位</label>
+            </div>
+          </div>
           <div class="row only-circle">
             <label for="dimDiaSym">符號</label>
             <div class="pair">
@@ -371,10 +364,10 @@
 
         <div class="pane" data-pane="line" hidden>
           <div class="row">
-            <label for="dimLineWidthM">線寬</label>
+            <label for="dimLineWidth">線寬</label>
             <div class="pair">
-              <input type="number" id="dimLineWidthM" min="0.1" step="0.25" value="0.5" title="線寬 (pt)，跟最上面的是同一個">
-              <input type="color" id="dimLineColorM" value="#000000" title="線條和箭頭的顏色，跟最上面的是同一個">
+              <input type="number" id="dimLineWidth" min="0.1" step="0.25" value="0.5" title="線寬 (pt)">
+              <input type="color" id="dimLineColor" value="#000000" title="線條和箭頭的顏色">
             </div>
           </div>
           <div class="row only-rect">
