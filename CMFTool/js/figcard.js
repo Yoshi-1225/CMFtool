@@ -23,8 +23,9 @@
 
   /* ---------- 浮出：面板往右變寬 ---------- */
   // ok：null = 還沒試過，true = 面板變得了寬，false = 變不了（停靠）；on：浮出中的卡片
+  // w0、h0：變寬前的大小（關掉時縮回這個大小）；wide：變寬後的寬度；added = wide - w0
   // k：resizeContent 的數值 × k = 面板實際的大小（Mac 的 Illustrator 2022、2023 會乘上介面縮放）
-  var fly = { ok: null, on: null, w0: 0, added: 0, k: 1, ours: 0, told: false };   // told：說過面板變不了寬了
+  var fly = { ok: null, on: null, w0: 0, h0: 0, wide: 0, added: 0, k: 1, ours: 0, told: false };   // told：說過面板變不了寬了
   var root = document.documentElement;
 
   function canFly() { return !!(cep && cep.resizeContent) && fly.ok !== false && !fly.on && window.innerWidth < WIDE; }
@@ -69,9 +70,10 @@
       hold(w0);
       hostResize(want, h0);
       settle(function () {
-        // 高度也變了 = 數值被乘上縮放：換算後再要一次
-        if (h0 > 0 && Math.abs(window.innerHeight - h0) > 2) {
-          fly.k *= window.innerHeight / h0;
+        // 寬、高都被乘上同一個倍率（介面縮放）：換算後再要一次。只有高度差一點不算（面板外框的誤差）
+        var kh = h0 > 0 ? window.innerHeight / h0 : 1, kw = window.innerWidth / want;
+        if (Math.abs(kh - 1) > 0.05 && Math.abs(kw - kh) < 0.05) {
+          fly.k *= kh;
           hostResize(want, h0);
           settle(check);
         } else check();
@@ -81,6 +83,8 @@
         if (ok) {
           fly.ok = true;
           fly.w0 = w0;
+          fly.h0 = h0;
+          fly.wide = window.innerWidth;
           fly.added = added;
         } else {
           fly.ok = false;
@@ -97,32 +101,46 @@
     });
   }
 
-  // 縮回原本的寬度
+  // 縮回變寬前的大小；Illustrator 沒照做就再要一次，還是不行就在狀態列說一聲（寫出現在和原本的寬度）
   function unwiden() {
     enqueue(function (finish) {
-      var added = fly.added;
+      var w0 = fly.w0, h0 = fly.h0;
       fly.added = 0;
-      hostResize(window.innerWidth - added, window.innerHeight);
+      fly.wide = 0;
+      hostResize(w0, h0);
       settle(function () {
+        if (window.innerWidth <= w0 + 6) { done(); return; }
+        setTimeout(function () {
+          hostResize(w0, h0);
+          settle(function () {
+            if (window.innerWidth > w0 + 6) App.setStatus('面板沒有縮回原本的寬度（' + window.innerWidth + ' → ' + w0 + ' px），可以自己拉回去');
+            done();
+          });
+        }, 250);
+      });
+      function done() {
         if (!fly.on) hold(0);
         finish();
-      });
+      }
     });
   }
 
-  // 使用者自己改了面板大小：不再浮出（卡片照一般的位置放），之後可以再試
+  // 使用者自己改了面板的寬度：不再浮出（卡片照一般的位置放、關掉時不改面板大小），之後可以再試。
+  // 寬度還是我們設的（Illustrator 晚一點又送一次 resize，或使用者只改了高度）不算；只改了高度就照新的高度縮回去
   window.addEventListener('resize', function () {
     if (Date.now() - fly.ours < 1200) return;
+    if (fly.on && Math.abs(window.innerWidth - fly.wide) <= 6) { fly.h0 = window.innerHeight; return; }
     fly.ok = null;
     if (!fly.on) return;
     var c = fly.on;
     fly.on = null;
     fly.added = 0;
+    fly.wide = 0;
     hold(0);
     c.place();
   });
   // 重新載入、關掉面板時縮回去
-  window.addEventListener('beforeunload', function () { if (fly.on) hostResize(window.innerWidth - fly.added, window.innerHeight); });
+  window.addEventListener('beforeunload', function () { if (fly.on) hostResize(fly.w0, fly.h0); });
 
   /* ---------- 圖和卡片 ---------- */
   App.figCard = function (o) {
