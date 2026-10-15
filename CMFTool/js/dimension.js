@@ -57,6 +57,8 @@
     o.extGap = num('dimExtGap', 2);
     o.extOver = num('dimExtOver', 2);
     o.leader = num('dimLeader', 12);
+    // 寬高的尺寸線離物件的距離：新增時用，「同步全部」、「套用選取」也把寬高的尺寸改成這個距離（host.jsx 的 rebuildDim）
+    o.offset = num('dimOffset', 12);
     // 依物件大小自動調整：樣式是給多大 (pt) 的物件用的，0 = 不調整（host.jsx 的 autoFactor）
     o.autoBase = o.auto ? num('dimAutoBase', 100, 0.001) * UNIT_PT.mm : 0;
     delete o.auto;
@@ -633,7 +635,7 @@
   }
 
   FIELDS.forEach(function (id) {
-    var isStyle = STYLE.indexOf(id) >= 0;
+    var isStyle = STYLE.indexOf(id) >= 0 || id === 'dimOffset';   // 距離也自動套用到選取的尺寸
     var handler = function () {
       changed();
       if (isStyle) scheduleApply();

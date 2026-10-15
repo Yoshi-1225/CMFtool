@@ -1593,10 +1593,16 @@ $.global.CMF = (function () {
     }
 
     // 用尺寸自己的記錄重建；styleStr 省略 = 原本的樣式。「同步全部」、「套用選取」一律照面板的樣式，
-    // 不再依物件大小調整（自動調整只在新增時作用），所有尺寸的字級、線寬才會一致
-    function rebuildDim(d, g, styleStr) {
+    // 不再依物件大小調整（自動調整只在新增時作用），所有尺寸的字級、線寬才會一致。
+    // withOffset（同步全部、套用選取）：寬高的尺寸線離物件的距離也改成面板的「距離」（樣式裡的 offset）；
+    // 從尺寸自己的記錄重建（例如縮放文件後）時距離不變
+    function rebuildDim(d, g, styleStr, withOffset) {
         var p = dimNote(g), gm = dimGeomNow(g, p);
         if (!gm) return null;
+        if (withOffset && gm.t === "lin") {
+            var off = /"offset"\s*:\s*([0-9.eE+-]+)/.exec(styleStr || "");
+            if (off && Number(off[1]) >= 0) gm.off = Number(off[1]);
+        }
         var locked = g.locked, hidden = g.hidden, saved = openAncestors(g);
         try {
             var ng = buildDim(d, g.layer, gm, styleStr || p.style);
@@ -1926,7 +1932,7 @@ $.global.CMF = (function () {
         var r = { made: [], failed: 0, why: "" };
         for (var i = 0; i < gs.length; i++) {
             var ng = null;
-            try { ng = rebuildDim(d, gs[i], styleStr); } catch (e) { if (!r.why) r.why = e.message; }
+            try { ng = rebuildDim(d, gs[i], styleStr, true); } catch (e) { if (!r.why) r.why = e.message; }
             if (ng) r.made.push(ng); else r.failed++;
         }
         return r;
