@@ -9,6 +9,7 @@
  *   { mode: "excel" | "build", w, h, grid, cmf: { num, name, head, rest } }
  *   cmf：這個表格是 CMF 清單，依標註編號排序（見 js/table.js 的 cmfPlan）
  * 由 CMF Tool 面板在啟動時載入（$.evalFile）。
+ * 注意：連著寫的 ?: 一定要加括號：a ? b : (c ? d : e)。ExtendScript 會把 a ? b : c ? d : e 算成 (a ? b : c) ? d : e
  */
 
 var XL_PREFIX = "xl:";
@@ -383,7 +384,7 @@ function _applyText(range, c, missing) {
     ca.underline = !!c.font.u;
     ca.strikeThrough = !!c.font.st;
     range.paragraphAttributes.justification =
-        c.ha === "right" ? Justification.RIGHT : c.ha === "center" ? Justification.CENTER : Justification.LEFT;
+        c.ha === "right" ? Justification.RIGHT : (c.ha === "center" ? Justification.CENTER : Justification.LEFT);
 }
 
 function _line(group, x1, y1, x2, y2, b) {
@@ -468,11 +469,11 @@ function _buildTable(t, left, top, missing) {
         } else {
             var lineCount = text.split("\r").length, lead = sz * 1.2;
             var ax = c.ha === "right" ? left + c.x + c.w - pad - c.indent
-                   : c.ha === "center" ? left + c.x + c.w / 2
-                   : left + c.x + pad + c.indent;
+                   : (c.ha === "center" ? left + c.x + c.w / 2
+                   : left + c.x + pad + c.indent);
             var ay = c.va === "top" ? cellTop - 1.5 - sz * 0.88
-                   : c.va === "center" ? (cellTop + cellBottom) / 2 - sz * 0.32 + (lineCount - 1) * lead / 2
-                   : cellBottom + sz * 0.22 + 1 + (lineCount - 1) * lead;
+                   : (c.va === "center" ? (cellTop + cellBottom) / 2 - sz * 0.32 + (lineCount - 1) * lead / 2
+                   : cellBottom + sz * 0.22 + 1 + (lineCount - 1) * lead);
             try { tf = group.textFrames.pointText([ax, ay]); }
             catch (e) { tf = doc.textFrames.pointText([ax, ay]); tf.move(group, ElementPlacement.PLACEATEND); }
         }

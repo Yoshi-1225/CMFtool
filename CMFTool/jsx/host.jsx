@@ -2,6 +2,7 @@
  * CMF Callout - Illustrator ExtendScript 核心：標註、尺寸、縮放
  * 對外函式接收 JSON 字串、回傳 JSON 字串：{"ok":true,"msg":"...","next":5,"state":"done"}
  * 注意：ExtendScript 是 ES3，沒有 JSON / let / 箭頭函式 / Array.indexOf
+ *   連著寫的 ?: 一定要加括號：a ? b : (c ? d : e)。ExtendScript 會把 a ? b : c ? d : e 算成 (a ? b : c) ? d : e
  *
  * 每個標註是一個群組，備註（note）存著：CMF_CALLOUT|編號|k=對應的物件名稱|樣式 JSON
  * 「k=」那一段只有對應過 Excel 清單的物件才有，名稱用 encodeURIComponent 編碼。
@@ -1155,7 +1156,7 @@ $.global.CMF = (function () {
         var sx = w > 0.001 ? (box[2] - box[0]) / w : null, sy = h > 0.001 ? (box[1] - box[3]) / h : null;
         if (keepRatio || sx === null || sy === null) {
             // 寬或高是 0 的物件（水平線、垂直線）只看另一邊
-            var k = sx === null ? sy : sy === null ? sx : Math.min(sx, sy);
+            var k = sx === null ? sy : (sy === null ? sx : Math.min(sx, sy));
             sx = sy = k === null ? 1 : k;
         }
         if (Math.abs(sx - 1) > 0.000001 || Math.abs(sy - 1) > 0.000001) {
@@ -1430,7 +1431,7 @@ $.global.CMF = (function () {
         var Q1 = Q[0], Q2 = Q[1], len = vlen(vsub(Q2, Q1));
 
         // 箭頭放在延伸線內側往外指，或外側往內指；自動 = 放不下時放外側
-        var inside = st.arrowPos === "inside" ? true : st.arrowPos === "outside" ? false : len >= L * 2.6, pts;
+        var inside = st.arrowPos === "inside" ? true : (st.arrowPos === "outside" ? false : len >= L * 2.6), pts;
         if (arrowLike(kind)) pts = inside ? [along(Q1, a, tr), along(Q2, a, -tr)] : [along(Q1, a, -L * 2.2), along(Q2, a, L * 2.2)];
         else if (kind === "tick") pts = [along(Q1, a, -L * 0.6), along(Q2, a, L * 0.6)];
         else pts = [Q1, Q2];

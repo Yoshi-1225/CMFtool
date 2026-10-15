@@ -332,6 +332,9 @@ A 換到 B 的位置、變成 B 的大小，B 換到 A 的位置和大小。
 
 Illustrator 開著面板時，用 Chrome 開 `http://localhost:8088`。
 
+改 `jsx/` 的程式時：Illustrator 的 ExtendScript 會把 `a ? b : c ? d : e` 算成 `(a ? b : c) ? d : e`，跟瀏覽器不一樣，
+所以連著寫的 `?:` 一定要加括號：`a ? b : (c ? d : e)`（之前「一律內側」畫成外側、Excel 靠右的格子畫成置中，就是這個原因）。
+
 ## 檔案結構
 
 ```
