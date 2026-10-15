@@ -464,17 +464,23 @@
     return b;
   }
 
-  // 物件先畫大一點，量外框：放不下就縮小物件（shrink 算新的 size），最後移到框的中間（上面留 BAND）
+  // 物件先畫大一點，量外框：放不下就縮小物件（shrink 算新的 size），最後移到框的中間（上面留 BAND）。
+  // 物件縮到最小還是放不下（字、箭頭、距離很大）：整張圖等比縮小（f.zoom，dimFigure 畫的時候套用）
   function fitFigure(make, size, min, shrink, s) {
     var aw = FIG - 20, ah = FIG - BAND - 10, f, b, i;
-    for (i = 0; i < 6; i++) {
+    for (i = 0; ; i++) {
       f = make(size, 0, 0);
       b = bounds(f, s);
       var ox = b[2] - b[0] - aw, oy = b[3] - b[1] - ah;
-      if ((ox <= 0.5 && oy <= 0.5) || size <= min) break;
+      if ((ox <= 0.5 && oy <= 0.5) || size <= min || i === 5) break;
       size = Math.max(min, shrink(size, Math.max(0, ox), Math.max(0, oy)));
     }
-    return make(size, 10 + (aw - (b[2] - b[0])) / 2 - b[0], 10 + (ah - (b[3] - b[1])) / 2 - b[1]);
+    var bw = b[2] - b[0], bh = b[3] - b[1];
+    if (bw > aw + 0.5 || bh > ah + 0.5) {
+      f.zoom = { k: Math.min(aw / bw, ah / bh), c: [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] };
+      return f;
+    }
+    return make(size, 10 + (aw - bw) / 2 - b[0], 10 + (ah - bh) / 2 - b[1]);
   }
 
   // 矩形：size = 寬，高 = 寬 × 0.72
@@ -543,7 +549,6 @@
 
     out.push(sh.r ? '<circle class="prod" cx="' + X(sh.c[0]) + '" cy="' + X(FIG - sh.c[1]) + '" r="' + X(sh.r) + '"/>'
       : '<rect class="prod" x="' + X(sh.x) + '" y="' + X(FIG - sh.y - sh.h) + '" width="' + X(sh.w) + '" height="' + X(sh.h) + '"/>');
-    if (fc.hint()) out.push('<text class="fig-hint" x="232" y="20" text-anchor="end">點一下調整設定，左右拖曳改大小</text>');
 
     if (f.ext.length) {
       var ghost = s.extLine === 'none';
@@ -599,7 +604,12 @@
         '" text-anchor="middle" dominant-baseline="central"' + rot + '>' + esc2(t.tx.label) + '</text>' +
         '<rect class="hit" ' + box(4) + '/>';
     }).join('')));
-    return out.join('');
+    // 提示在左上角的切換和右上角的「重設」中間，不跟著縮放
+    var hint = fc.hint() ? '<text class="fig-hint" x="206" y="20" text-anchor="end">點部位調整，左右拖曳改大小</text>' : '';
+    if (!f.zoom) return hint + out.join('');
+    var z = f.zoom, cx = 10 + (FIG - 20) / 2, cy = FIG - 10 - (FIG - BAND - 10) / 2;
+    return hint + '<g transform="translate(' + X(cx) + ' ' + X(cy) + ') scale(' + z.k.toFixed(4) + ') translate(' + X(-z.c[0]) + ' ' + X(-(FIG - z.c[1])) + ')">' +
+      out.join('') + '</g>';
   }
 
   function renderFigure() {
@@ -668,6 +678,17 @@
   // 基準也跟著縮放：樣式放大了，適合的物件也變大，自動調整的倍率才不會重複放大
   var SIZE_FIELDS = ['dimFontSize', 'dimLineWidth', 'dimEndSize', 'dimTextGap', 'dimBreakGap', 'dimExtGap', 'dimExtOver', 'dimLeader', 'dimOffset',
     'dimAutoBase'];
+
+  // 示範框右上角的「重設」：這些大小改回預設值（index.html 寫的值），顏色、字體、數字格式、標法不動。
+  // 跟改其他樣式一樣：存起來，勾了「修改時自動套用到選取的尺寸」就套用到選取的尺寸
+  function resetSizes() {
+    SIZE_FIELDS.forEach(function (id) { var el = $(id); el.value = el.defaultValue; });
+    changed();
+    scheduleApply();
+    App.setStatus('大小改回預設：字級 ' + $('dimFontSize').value + '、線寬 ' + $('dimLineWidth').value + '、端點 ' + $('dimEndSize').value +
+      '、距離 ' + $('dimOffset').value + ' pt');
+  }
+  $('btnDimReset').addEventListener('click', resetSizes);
   function scaleSize(s) {
     SIZE_FIELDS.forEach(function (id) {
       var el = $(id);
