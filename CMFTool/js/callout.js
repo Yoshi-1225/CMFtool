@@ -89,30 +89,84 @@
     saveTimer = setTimeout(function () { if (cep) callHost("saveSettings", o, null, true); }, 400);
   }
 
-  // ---------- 標註的圖：點部位，下面顯示它的設定 ----------
-  // 樣式區塊上面畫一個標註（照目前的樣式），編號、圓圈、引線、端點都可以點，下面只顯示那個部位的設定。
+  // ---------- 標註的圖：點部位，滑鼠旁邊浮出它的設定 ----------
+  // 樣式區塊上面畫一個標註（照目前的樣式），編號、圓圈、引線、端點都可以點：點的地方下面（放不下時上面）
+  // 浮出那個部位的設定，小三角指著點的位置；上面一排可以換部位。點外面、按 Esc 或 ✕ 關掉。
   // 圖上的大小 = pt × 2；太小、太大的數值畫成看得到、放得下的大小。每個部位有比畫出來還大的點擊範圍，
-  // 沒有圓圈底、端點是「無」時，滑過圖會出現虛線，一樣點得到。第一次在圖上點過之後，角落的提示就不再出現
-  var PARTS = ["text", "badge", "line", "end"];
-  var PART_KEY = "cmftool:part", HINT_KEY = "cmftool:partHint";
-  var part = "text", hint = true;
-  try {
-    if (PARTS.indexOf(localStorage.getItem(PART_KEY)) >= 0) part = localStorage.getItem(PART_KEY);
-    hint = localStorage.getItem(HINT_KEY) !== "1";
-  } catch (e) {}
+  // 沒有圓圈底、端點是「無」時，滑過圖會出現虛線，一樣點得到。鍵盤：Tab 到部位上按 Enter。
+  // 在部位上按住左右拖曳，直接改它的大小（js/numfield.js 的拖曳把手）：編號 = 字級、圓圈 = 內距、引線 = 線寬、
+  // 端點 = 大小（繪圖樣式 = %）。第一次在圖上點過之後，角落的提示就不再出現
+  var PART_NAMES = { text: "文字", badge: "圓圈", line: "引線", end: "端點" };
+  var HINT_KEY = "cmftool:partHint";
+  var part = "text", hint = true, popOpen = false, popByKey = false;
+  try { hint = localStorage.getItem(HINT_KEY) !== "1"; } catch (e) {}
 
+  // 換部位：上面一排的按鈕和下面的設定
   function selectPart(p) {
     part = p;
-    try { localStorage.setItem(PART_KEY, p); } catch (e) {}
     Array.prototype.forEach.call(document.querySelectorAll(".part"), function (b) {
       var on = b.getAttribute("data-part") === p;
       b.classList.toggle("is-active", on);
       b.setAttribute("aria-selected", on ? "true" : "false");
     });
     Array.prototype.forEach.call(document.querySelectorAll(".pane"), function (el) { el.hidden = el.getAttribute("data-pane") !== p; });
+    markSel();
+  }
+
+  // 圖上框起來的是正在調整（浮出視窗開著）的部位
+  function markSel() {
     Array.prototype.forEach.call($("preview").querySelectorAll("[data-part]"), function (g) {
-      g.classList.toggle("sel", g.getAttribute("data-part") === p);
+      g.classList.toggle("sel", popOpen && g.getAttribute("data-part") === part);
     });
+  }
+
+  // x, y：點的位置（視窗座標）
+  function openPop(p, x, y, byKey) {
+    popOpen = true;
+    popByKey = !!byKey;
+    selectPart(p);
+    $("stylePop").hidden = false;
+    placePop(x, y);
+    if (byKey) { var t = document.querySelector(".pop .part.is-active"); if (t) t.focus(); }
+    if (hint) {
+      hint = false;
+      try { localStorage.setItem(HINT_KEY, "1"); } catch (e) {}
+      var h = $("preview").querySelector(".fig-hint");
+      if (h) h.parentNode.removeChild(h);
+    }
+  }
+
+  // refocus：用鍵盤開的，關掉後回到圖上的部位
+  function closePop(refocus) {
+    if (!popOpen) return;
+    var pop = $("stylePop");
+    if (pop.contains(document.activeElement)) document.activeElement.blur();
+    popOpen = false;
+    pop.hidden = true;
+    markSel();
+    if (refocus && popByKey) {
+      var g = $("preview").querySelector('[data-part="' + part + '"]');
+      if (g) g.focus();
+    }
+  }
+
+  // 放在點的地方下面；下面放不下而上面比較寬時放上面（往上長）。左右不超出面板，小三角對準點的位置
+  function placePop(x, y) {
+    var pop = $("stylePop"), wr = pop.parentNode.getBoundingClientRect();
+    var vw = document.documentElement.clientWidth, W = Math.min(252, vw - 12), GAP = 11;
+    pop.style.width = W + "px";
+    var left = Math.max(6, Math.min(x - W / 2, vw - 6 - W));
+    var top = document.querySelector(".tabs").getBoundingClientRect().bottom, bottom = $("status").getBoundingClientRect().top;
+    var below = bottom - y - GAP, above = y - GAP - top, up = below < pop.offsetHeight && above > below;
+    pop.classList.toggle("above", up);
+    pop.style.left = (left - wr.left) + "px";
+    pop.style.top = up ? "auto" : (y - wr.top + GAP) + "px";
+    pop.style.bottom = up ? (wr.bottom - y + GAP) + "px" : "auto";
+    pop.style.setProperty("--caret", Math.max(14, Math.min(W - 14, x - left)) + "px");
+    // 上下都放不下：捲動面板，讓它整個看得到
+    var r = pop.getBoundingClientRect();
+    if (r.bottom > bottom) window.scrollBy(0, r.bottom - bottom + 6);
+    else if (r.top < top) window.scrollBy(0, r.top - top - 6);
   }
 
   // 顏色欄位外面包著滴管按鈕的框（見「取色」）
@@ -138,17 +192,29 @@
 
   function figure(o) {
     var K = 2, out = [];
-    var lw = clamp(o.lineWidth * K, 0.8, 6), es = clamp(o.endSize * K, 3, 14), fs = clamp(o.fontSize * K, 9, 30);
-    var gap = clamp(o.gap * K, 0, 16), pad = clamp(o.badgePadding * K, 0, 14);
+    var lw = clamp(o.lineWidth * K, 0.8, 7), es = clamp(o.endSize * K, 3, 16), fs = clamp(o.fontSize * K, 9, 36);
+    var gap = clamp(o.gap * K, 0, 20), pad = clamp(o.badgePadding * K, 0, 16);
     var bsw = o.badgeStrokeWidth > 0 ? clamp(o.badgeStrokeWidth * K, 0.75, 5) : 0;
-    // 編號端 → (轉折) → 目標點（落在左下角的產品上）
-    var pts = o.lineMode === "straight" ? [[172, 52], [70, 92]] : [[180, 48], [124, 48], [70, 92]];
+    // 正方形的圖：編號端在右上 → (轉折) → 目標點（落在左下角的產品上）；最大的圓圈也放得下
+    var pts = o.lineMode === "straight" ? [[176, 84], [100, 182]] : [[156, 64], [118, 64], [100, 182]];
     var S = pts[0], S1 = pts[1], E = pts[pts.length - 1], E1 = pts[pts.length - 2];
-    var group = function (name, body) { return '<g data-part="' + name + '"' + (part === name ? ' class="sel"' : "") + ">" + body + "</g>"; };
+    // 拖曳改哪個欄位：[欄位 id, 顯示的名稱, 單位]；沒有圓圈底、端點是「無」時不能拖
+    var size = {
+      text: ["fontSize", "字級", "pt"],
+      badge: o.badge ? ["badgePadding", "圓圈內距", "pt"] : null,
+      line: ["lineWidth", "線寬", "pt"],
+      end: o.endStyle === "style" ? ["styleScale", "繪圖樣式", "%"] : o.endStyle === "none" ? null : ["endSize", "端點大小", "pt"]
+    };
+    var group = function (name, body) {
+      var z = size[name];
+      return '<g data-part="' + name + '" tabindex="0" role="button" aria-label="' + PART_NAMES[name] + '的設定"' +
+        (z ? ' data-scrub-for="' + z[0] + '" data-scrub-label="' + z[1] + '" data-scrub-unit="' + z[2] + '"' : "") +
+        (popOpen && part === name ? ' class="sel"' : "") + ">" + body + "</g>";
+    };
     var xy = function (p) { return p[0].toFixed(2) + "," + p[1].toFixed(2); };
 
-    out.push('<path class="prod" d="M0 72 C 38 74, 76 88, 100 120 L0 120 Z"/>');
-    if (hint) out.push('<text class="fig-hint" x="8" y="15">點編號、圓圈、引線、端點來調整</text>');
+    out.push('<path class="prod" d="M0 150 C 60 152, 120 180, 150 240 L0 240 Z"/>');
+    if (hint) out.push('<text class="fig-hint" x="8" y="15">點一下調整設定，左右拖曳改大小</text>');
 
     // 引線（箭頭時線縮到箭頭底部，跟 host.jsx 一樣）
     var ux = E[0] - E1[0], uy = E[1] - E1[1], L = Math.sqrt(ux * ux + uy * uy) || 1;
@@ -211,18 +277,27 @@
 
   $("preview").addEventListener("click", function (e) {
     var g = e.target.closest && e.target.closest("[data-part]");
+    if (g) openPop(g.getAttribute("data-part"), e.clientX, e.clientY, false);
+  });
+  $("preview").addEventListener("keydown", function (e) {
+    var g = (e.key === "Enter" || e.key === " ") && e.target.closest && e.target.closest("[data-part]");
     if (!g) return;
-    selectPart(g.getAttribute("data-part"));
-    if (hint) {
-      hint = false;
-      try { localStorage.setItem(HINT_KEY, "1"); } catch (err) {}
-      var t = $("preview").querySelector(".fig-hint");
-      if (t) t.parentNode.removeChild(t);
-    }
+    e.preventDefault();
+    var r = g.getBoundingClientRect();
+    openPop(g.getAttribute("data-part"), r.left + r.width / 2, r.bottom, true);
   });
   Array.prototype.forEach.call(document.querySelectorAll(".part"), function (b) {
     b.addEventListener("click", function () { selectPart(b.getAttribute("data-part")); });
   });
+  $("btnPopClose").addEventListener("click", function () { closePop(true); });
+  // 點浮出視窗和圖上的部位以外的地方就關掉（下拉選單、取色視窗、在欄位上拖曳都不算）
+  document.addEventListener("pointerdown", function (e) {
+    if (!popOpen || $("stylePop").contains(e.target) || (e.target.closest && e.target.closest("#preview [data-part]"))) return;
+    closePop(false);
+  }, true);
+  document.querySelector('details[data-key="style"]').addEventListener("toggle", function (e) { if (!e.target.open) closePop(false); });
+  App.on("tab", function () { closePop(false); });
+  window.addEventListener("resize", function () { closePop(false); });
   selectPart(part);
 
   // ---------- 字體選單 ----------
@@ -640,6 +715,7 @@
   $("btnFinish").addEventListener("click", finishFree);
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && picking) { stopPick("已取消取色"); return; }
+    if (e.key === "Escape" && popOpen) { closePop(true); return; }
     if (e.key === "Escape" && adding && document.activeElement.tagName !== "INPUT") stopAdd(false);
   });
 

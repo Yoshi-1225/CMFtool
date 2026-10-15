@@ -230,8 +230,15 @@
   //   Shift ×10，Alt ×0.1（沒有 step 屬性的整數欄位不 ×0.1）；拖曳中按 Esc 回到原本的數字
   // 拖曳中只送 input（預覽、面板的設定跟著變），放開才送一次 change（存檔、自動同步），跟打完字按 Enter 一樣。
   // 不要這樣改的欄位加 data-scrub="off"（例如編號表：改了就會重新編號）
+  // 拖曳把手：有 data-scrub-for="欄位 id" 的元素（例如標註的圖上的部位），按住左右拖曳改那個欄位，
+  //   滑鼠旁邊顯示 data-scrub-label 和數值；只點一下照常是 click（不會點進欄位）
   var DRAG_PX = 4, WHEEL_NOTCH = 30;
-  var drag = null;   // { el, id, x0, x, acc, v, start, slop, moved }
+  var drag = null;   // { el, handle, cap, id, x0, x, acc, v, start, slop, moved }
+  var tip = document.createElement('div');
+  tip.className = 'scrub-tip';
+  tip.hidden = true;
+  document.body.appendChild(tip);
+  var eatClick = false;   // 拖過把手之後，放開時的 click 不算（不然會打開設定）
 
   function scrubbable(el) {
     return App.isNum(el) && !el.disabled && el.getAttribute('data-scrub') !== 'off' && (!el.readOnly || isLocked(el));
@@ -241,17 +248,35 @@
 
   function fire(el, type) { el.dispatchEvent(new Event(type, { bubbles: true })); }
 
+  // 按的是還沒點進去的數字欄位，或拖曳把手（它對應的欄位）
+  function sourceOf(t) {
+    if (scrubbable(t) && document.activeElement !== t) return { el: t, handle: null };
+    var h = t.closest && t.closest('[data-scrub-for]'), el = h && document.getElementById(h.getAttribute('data-scrub-for'));
+    return el && App.isNum(el) && !el.disabled ? { el: el, handle: h } : null;
+  }
+
   document.addEventListener('pointerdown', function (e) {
-    var el = e.target;
-    if (drag || e.button !== 0 || e.ctrlKey || e.metaKey || !scrubbable(el) || document.activeElement === el) return;
-    var v = parseFloat(el.value), min = parseFloat(el.getAttribute('min'));
-    drag = { el: el, id: e.pointerId, x0: e.clientX, x: e.clientX, acc: 0, start: el.value, moved: false,
+    var src = !drag && e.button === 0 && !e.ctrlKey && !e.metaKey && sourceOf(e.target);
+    if (!src) return;
+    var el = src.el, v = parseFloat(el.value), min = parseFloat(el.getAttribute('min'));
+    // 把手所在的 SVG 會重畫，滑鼠要抓在不會換掉的 SVG 本身；而且等開始拖了才抓，只點一下時 click 才會落在部位上
+    var cap = src.handle ? src.handle.ownerSVGElement || src.handle : el;
+    drag = { el: el, handle: src.handle, cap: cap, id: e.pointerId, x0: e.clientX, x: e.clientX, acc: 0, start: el.value, moved: false,
       v: isFinite(v) ? v : isFinite(min) ? min : 0, slop: e.pointerType === 'mouse' ? 3 : 6 };   // 繪圖筆點一下會抖，多留一點
-    try { el.setPointerCapture(e.pointerId); } catch (err) {}
+    if (!src.handle) { try { cap.setPointerCapture(e.pointerId); } catch (err) {} }
   }, true);
 
   // 按下時先不點進格子、不選字，放開時沒拖過才點進去
-  document.addEventListener('mousedown', function (e) { if (drag && e.target === drag.el) e.preventDefault(); }, true);
+  document.addEventListener('mousedown', function (e) { if (drag && (drag.handle || e.target === drag.el)) e.preventDefault(); }, true);
+
+  function showTip(d, e) {
+    var unit = d.handle.getAttribute('data-scrub-unit') || '';
+    tip.textContent = (d.handle.getAttribute('data-scrub-label') || '') + ' ' + d.el.value + (unit ? ' ' + unit : '');
+    tip.hidden = false;
+    var w = tip.offsetWidth, h = tip.offsetHeight, vw = document.documentElement.clientWidth;
+    tip.style.left = Math.max(4, Math.min(e.clientX + 14, vw - w - 4)) + 'px';
+    tip.style.top = Math.max(4, e.clientY - h - 10) + 'px';
+  }
 
   document.addEventListener('pointermove', function (e) {
     if (!drag || e.pointerId !== drag.id) return;
@@ -259,6 +284,7 @@
       if (Math.abs(e.clientX - drag.x0) < drag.slop) return;
       drag.moved = true;
       document.documentElement.classList.add('scrubbing');
+      if (drag.handle) { try { drag.cap.setPointerCapture(drag.id); } catch (err) {} }
     }
     drag.acc += e.clientX - drag.x;
     drag.x = e.clientX;
@@ -270,6 +296,7 @@
     drag.v = v;
     drag.el.value = String(v);
     fire(drag.el, 'input');
+    if (drag.handle) showTip(drag, e);
   }, true);
 
   // cancel：按了 Esc，回到原本的數字
@@ -278,16 +305,25 @@
     if (!d) return;
     drag = null;
     document.documentElement.classList.remove('scrubbing');
-    try { d.el.releasePointerCapture(d.id); } catch (err) {}
+    tip.hidden = true;
+    try { d.cap.releasePointerCapture(d.id); } catch (err) {}
+    if (d.handle && d.moved) {
+      eatClick = true;
+      setTimeout(function () { eatClick = false; }, 0);
+    }
     if (cancel) {
       if (d.el.value !== d.start) { d.el.value = d.start; fire(d.el, 'input'); }
     } else if (d.moved) {
       if (d.el.value !== d.start) fire(d.el, 'change');
-    } else {
+    } else if (!d.handle) {
       d.el.focus();
       d.el.select();
     }
   }
+
+  document.addEventListener('click', function (e) {
+    if (eatClick) { eatClick = false; e.stopPropagation(); e.preventDefault(); }
+  }, true);
 
   document.addEventListener('pointerup', function (e) { if (drag && e.pointerId === drag.id) endDrag(false); }, true);
   document.addEventListener('pointercancel', function (e) { if (drag && e.pointerId === drag.id) endDrag(false); }, true);

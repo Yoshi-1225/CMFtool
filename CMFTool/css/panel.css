@@ -9,6 +9,7 @@
   --accent: #2680eb;
   --accent-fg: #ffffff;
   --paper: #e4e4e4;        /* 標註的圖：像白紙，顏色看起來跟工作區上一樣 */
+  --pop: #3c3c3c;          /* 浮出來的設定 */
   --paper-prod: #c4c4c4;
   --hover: rgba(255, 255, 255, .05);
   --warn: #e0a43a;
@@ -22,6 +23,7 @@
   --line-soft: #dadada;
   --paper: #ffffff;
   --paper-prod: #d8d8d8;
+  --pop: #ffffff;
   --hover: rgba(0, 0, 0, .05);
   --warn: #9a6200;
   --error: #c42b1c;
@@ -159,11 +161,13 @@ summary .count { font-weight: 400; color: var(--muted); }
 .sub { margin: 10px 0 2px; color: var(--muted); font-size: 10px; letter-spacing: .04em; }
 
 /* ---------- 標註分頁 ---------- */
-/* 樣式：一個標註的圖，點編號、圓圈、引線、端點（js/callout.js 的 figure） */
+/* 樣式：一個標註的圖，點編號、圓圈、引線、端點，滑鼠旁邊浮出設定（js/callout.js 的 figure、openPop） */
+.cfig-wrap { position: relative; }
 .cfig { margin: 8px 0 6px; background: var(--paper); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .cfig svg { display: block; width: 100%; height: auto; }
 .cfig .prod { fill: var(--paper-prod); }
 .cfig [data-part] { cursor: pointer; }
+.cfig [data-scrub-for] { cursor: ew-resize; }   /* 可以左右拖曳改大小 */
 .cfig .hit { fill: transparent; stroke: none; }
 .cfig polyline.hit { fill: none; stroke: transparent; pointer-events: stroke; }
 .cfig .hl {
@@ -173,15 +177,37 @@ summary .count { font-weight: 400; color: var(--muted); }
 .cfig .hl.glow { stroke-dasharray: none; stroke-opacity: .45; stroke-linecap: round; stroke-linejoin: round; }
 .cfig .fig-hint { fill: #7a7a7a; font-size: 10px; pointer-events: none; }
 .cfig [data-part]:hover .hl { opacity: .6; }
-.cfig [data-part].sel .hl { opacity: 1; }
+.cfig [data-part].sel .hl, .cfig [data-part]:focus .hl { opacity: 1; }
+.cfig [data-part]:focus { outline: none; }
 /* 沒有圓圈底、端點是「無」：滑過圖或選到時才出現虛線 */
 .cfig .ghost { fill: none; stroke: #8a8a8a; stroke-width: 1; stroke-dasharray: 2 2; opacity: 0; transition: opacity .12s; }
 .cfig:hover .ghost, .cfig .sel .ghost { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .cfig .hl, .cfig .ghost { transition: none; } }
 
+.pop {
+  position: absolute; z-index: 8; left: 0; top: 0; width: 252px;
+  padding: 6px 8px 4px;
+  background: var(--pop); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .4);
+  animation: pop-in .12s ease-out;
+}
+/* 小三角：指著點的位置（--caret），放在上面時朝下 */
+.pop::before {
+  content: ""; position: absolute; top: -6px; left: var(--caret, 50%); margin-left: -5px;
+  width: 9px; height: 9px; background: var(--pop);
+  border-left: 1px solid var(--line); border-top: 1px solid var(--line);
+  transform: rotate(45deg);
+}
+.pop.above::before { top: auto; bottom: -6px; transform: rotate(225deg); }
+.pop.above { animation-name: pop-in-up; }
+@keyframes pop-in { from { opacity: 0; transform: translateY(-4px); } }
+@keyframes pop-in-up { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .pop, .pop.above { animation: none; } }
+.pop-head { display: grid; grid-template-columns: 1fr 22px; gap: 4px; align-items: center; margin-bottom: 2px; }
+
 .parts {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px;
-  margin: 0 0 6px; padding: 2px;
+  margin: 0; padding: 2px;
   background: var(--field); border: 1px solid var(--line); border-radius: 5px;
 }
 .part {
@@ -388,6 +414,12 @@ input[data-ime-lock] { cursor: text; }
 /* 還沒點進去的數字欄位可以左右拖曳改數字 */
 input[data-num]:not([data-ime-lock]):not([data-scrub="off"]):not(:disabled) { cursor: ew-resize; }
 html.scrubbing, html.scrubbing * { cursor: ew-resize !important; user-select: none !important; }
+/* 拖曳圖上的部位時，滑鼠旁邊顯示數值 */
+.scrub-tip {
+  position: fixed; z-index: 30; padding: 2px 7px; pointer-events: none; white-space: nowrap;
+  background: var(--accent); color: var(--accent-fg); border-radius: 3px;
+  font-size: 11px; font-variant-numeric: tabular-nums; box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
+}
 .ime-caret { position: fixed; z-index: 20; width: 1px; background: var(--fg); pointer-events: none; }
 .ime-caret.blink { animation: ime-caret 1.06s steps(1) infinite; }
 @keyframes ime-caret { 50% { opacity: 0; } }
