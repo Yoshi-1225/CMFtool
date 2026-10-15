@@ -55,6 +55,11 @@
       el.value = String(v);
       return true;
     },
+    // 擴充功能資料夾（Windows：C:/Users/...，Mac：/Users/...）
+    extPath: function () {
+      var p = decodeURI(cep.getSystemPath('extension'));
+      return /^file:\/\/\/[A-Za-z]:/.test(p) ? p.replace('file:///', '') : p.replace('file://', '');
+    },
     showTab: function (name) {
       Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (t) {
         t.classList.toggle('is-active', t.getAttribute('data-tab') === name);
@@ -76,6 +81,36 @@
     var last = localStorage.getItem('cmftool:tab');
     if (last && $('page-' + last)) App.showTab(last);
   } catch (e) {}
+
+  /* ---------- 重新載入外掛：換了新版的檔案後，不用重開 Illustrator ---------- */
+  // Illustrator 只在載入擴充功能時執行 manifest 指定的 jsx/host.jsx，重新整理面板不會再執行。
+  // 所以面板每次載入都自己再執行一次，重新載入時 Illustrator 端也換成新的（jsx/excel.jsx 本來就由 excel.js 載入）
+  var RELOADED = 'cmftool:reloaded';
+  if (cep) {
+    var hostFile = JSON.stringify(App.extPath() + '/jsx/host.jsx').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+    cep.evalScript('(function(){try{$.evalFile(' + hostFile + ');return "ok";}catch(e){return "error:"+e.message+(e.line?"（第 "+e.line+" 行）":"");}})()', function (r) {
+      var reloaded = false;
+      try { reloaded = Date.now() - Number(localStorage.getItem(RELOADED)) < 15000; localStorage.removeItem(RELOADED); } catch (e) {}
+      if (r !== 'ok') App.setStatus('外掛的 jsx/host.jsx 載入失敗：' + String(r).replace(/^error:/, ''), true);
+      else if (reloaded) App.setStatus('已重新載入外掛');
+    });
+  }
+
+  // Node 載入過的外掛檔案（js/table.js、lib/xlsx）從快取拿掉，重新載入後才會讀到新版
+  function reload() {
+    try {
+      var req = typeof cep_node !== 'undefined' && cep_node.require ? cep_node.require : typeof require === 'function' ? require : null;
+      var root = cep ? App.extPath().replace(/\\/g, '/').toLowerCase() + '/' : null;
+      if (req && req.cache && root) {
+        Object.keys(req.cache).forEach(function (k) {
+          if (k.replace(/\\/g, '/').toLowerCase().indexOf(root) === 0) delete req.cache[k];
+        });
+      }
+    } catch (e) {}
+    try { localStorage.setItem(RELOADED, String(Date.now())); } catch (e) {}
+    location.reload();
+  }
+  $('btnReload').addEventListener('click', reload);
 
   /* ---------- 收合區塊：記住開合狀態 ---------- */
   Array.prototype.forEach.call(document.querySelectorAll('details[data-key]'), function (d) {

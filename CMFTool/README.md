@@ -23,6 +23,17 @@
      ```
 4. 重開 Illustrator，從「視窗 → 擴充功能 → CMF Tool」開啟。
 
+### 更新到新版（不用重開 Illustrator）
+
+1. 用新的 `CMFTool` 資料夾蓋掉 extensions 裡舊的。
+2. 按面板最上面、分頁列最右邊的 ⟳（重新載入外掛）。面板和 Illustrator 端的程式（`jsx/host.jsx`、`jsx/excel.jsx`）
+   都換成新的，設定都保留，狀態列會顯示「已重新載入外掛」。
+
+- 新的 `jsx/host.jsx` 有錯、載入失敗時，狀態列會用紅字寫原因。
+- `CSXS/manifest.xml` 有改的時候（例如面板大小、版本號），還是要重開 Illustrator 才會生效。
+- 重新載入時，進行到一半的「新增標註」、滴管取色會中斷，重新按一次就好。
+- 從還沒有 ⟳ 按鈕的舊版更新時，要重開 Illustrator 一次。
+
 ## CMF 清單：表格依標註編號排序
 
 Excel 規格表通常第一欄是序號、第二欄是物件名稱。
@@ -243,7 +254,7 @@ Illustrator 開著面板時，用 Chrome 開 `http://localhost:8088`。
 CSXS/manifest.xml        擴充功能設定（Illustrator 2018 以後）
 index.html               面板（標註 / 尺寸 / Excel / 縮放四個分頁）
 css/panel.css            樣式（跟隨 Illustrator 的深色／淺色介面）
-js/app.js                分頁、配色、狀態列
+js/app.js                分頁、配色、狀態列、重新載入外掛
 js/numfield.js           數字欄位：中文輸入法開著也能打數字
 js/callout.js            標註分頁
 js/dimension.js          尺寸分頁

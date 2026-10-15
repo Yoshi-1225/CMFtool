@@ -1015,6 +1015,11 @@
     try { localStorage.setItem('excelsync:auto', ui.chkAuto.checked ? '1' : '0'); } catch (e) {}
   }
 
+  // 重新載入面板時停止監看，舊的監看才不會留在 Node 裡
+  window.addEventListener('beforeunload', function () {
+    if (state.watching) { fs.unwatchFile(state.watching, onFileChanged); state.watching = null; }
+  });
+
   /* ---------- 給標註分頁用 ---------- */
 
   App.excel = {
