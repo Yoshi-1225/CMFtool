@@ -308,7 +308,7 @@
   /* ---------- 樣式的示範框 ---------- */
   // 照目前的樣式畫一個尺寸，畫法跟 host.jsx 的 buildLinear、buildRadial 一樣（座標 y 朝上，輸出時翻過來）。
   // 左上角切換：矩形 = 上面標寬度、右邊標高度；圓 = 標直徑（標法、角度、引線照卡片裡的設定）。
-  // 點文字、尺寸線（引線）、端點、延伸線，圖下面的卡片換成那個部位的設定（js/figcard.js）；
+  // 點文字、尺寸線（引線）、端點、延伸線，打開那個部位的設定卡片（js/figcard.js，跟標註的圖一樣）；
   // 在部位上按住左右拖曳改大小：文字 = 字級、線 = 線寬、端點 = 大小、延伸線 = 留空（js/numfield.js 的拖曳把手）。
   // 圖上的大小 = pt × 2，太小、太大的畫成看得到、放得下的大小；物件自動縮小、置中，整個尺寸放得進框裡。
   // 標的數字是示範用的大小（寬 42.5、高 30、直徑 24 mm），照面板的單位、比例、小數、符號和前後綴顯示
@@ -520,6 +520,7 @@
     return '<path d="M' + P(t) + 'L' + P(along(B, perp, hw)) + 'L' + P(along(B, perp, -hw)) + 'Z" fill="' + col + '"/>';
   }
 
+  // 選到的線：沿著線的一條寬的淡色線（.hl.glow；寬度寫在 style 才蓋得過 css 的 .hl 線寬）
   function dimFigure() {
     var s = figStyle(), f = figMode === 'circle' ? circleFigure(s) : rectFigure(s), out = [], sh = f.shape;
     drawnRad = f.mode || null;
@@ -534,18 +535,18 @@
       var z = size[name];
       return '<g data-part="' + name + '" tabindex="0" role="button" aria-label="' + partName(name) + '的設定"' +
         (z ? ' data-scrub-for="' + z[0] + '" data-scrub-label="' + z[1] + '" data-scrub-unit="' + z[2] + '"' : '') +
-        (fc.part() === name ? ' class="sel"' : '') + '>' + body + '</g>';
+        (fc.marked(name) ? ' class="sel"' : '') + '>' + body + '</g>';
     };
     var poly = function (pts) { return pts.map(P).join(' '); };
 
     out.push(sh.r ? '<circle class="prod" cx="' + X(sh.c[0]) + '" cy="' + X(FIG - sh.c[1]) + '" r="' + X(sh.r) + '"/>'
       : '<rect class="prod" x="' + X(sh.x) + '" y="' + X(FIG - sh.y - sh.h) + '" width="' + X(sh.w) + '" height="' + X(sh.h) + '"/>');
-    if (fc.hint()) out.push('<text class="fig-hint" x="232" y="20" text-anchor="end">點部位換設定，左右拖曳改大小</text>');
+    if (fc.hint()) out.push('<text class="fig-hint" x="232" y="20" text-anchor="end">點一下調整設定，左右拖曳改大小</text>');
 
     if (f.ext.length) {
       var ghost = s.extLine === 'none';
       out.push(group('ext',
-        f.ext.map(function (e) { return '<polyline class="hl glow" points="' + poly(e.pts) + '" stroke-width="' + X(e.w + 7) + '"/>'; }).join('') +
+        f.ext.map(function (e) { return '<polyline class="hl glow" points="' + poly(e.pts) + '" style="stroke-width:' + X(e.w + 7) + 'px"/>'; }).join('') +
         f.ext.map(function (e) {
           return ghost ? '<polyline class="ghost" points="' + poly(e.pts) + '"/>'
             : '<polyline points="' + poly(e.pts) + '" fill="none" stroke="' + s.col + '" stroke-width="' + X(e.w) + '"/>';
@@ -554,7 +555,7 @@
     }
 
     out.push(group('line',
-      f.line.map(function (pts) { return '<polyline class="hl glow" points="' + poly(pts) + '" stroke-width="' + X(s.lw + 7) + '"/>'; }).join('') +
+      f.line.map(function (pts) { return '<polyline class="hl glow" points="' + poly(pts) + '" style="stroke-width:' + X(s.lw + 7) + 'px"/>'; }).join('') +
       f.line.map(function (pts) {
         return '<polyline points="' + poly(pts) + '" fill="none" stroke="' + s.col + '" stroke-width="' + X(s.lw) + '" stroke-miterlimit="10"/>';
       }).join('') +

@@ -89,9 +89,9 @@
     saveTimer = setTimeout(function () { if (cep) callHost("saveSettings", o, null, true); }, 400);
   }
 
-  // ---------- 標註的圖：點部位，卡片換成它的設定 ----------
-  // 樣式區塊裡畫一個標註（照目前的樣式），編號、圓圈、引線、端點都可以點：圖下面（面板夠寬時右邊）的卡片
-  // 換成那個部位的設定，卡片不會蓋住圖（js/figcard.js）。
+  // ---------- 標註的圖：點部位，打開它的設定 ----------
+  // 樣式區塊裡畫一個標註（照目前的樣式），編號、圓圈、引線、端點都可以點：打開那個部位的設定卡片，
+  // 浮動的面板往右變寬、卡片浮在右邊，停靠的面板放在圖的下面，不會蓋住圖（js/figcard.js）。
   // 圖上的大小 = pt × 2；太小、太大的數值畫成看得到、放得下的大小。每個部位有比畫出來還大的點擊範圍，
   // 沒有圓圈底、端點是「無」時，滑過圖會出現虛線，一樣點得到。
   // 在部位上按住左右拖曳，直接改它的大小（js/numfield.js 的拖曳把手）：編號 = 字級、圓圈 = 內距、引線 = 線寬、
@@ -141,12 +141,12 @@
       var z = size[name];
       return '<g data-part="' + name + '" tabindex="0" role="button" aria-label="' + PART_NAMES[name] + '的設定"' +
         (z ? ' data-scrub-for="' + z[0] + '" data-scrub-label="' + z[1] + '" data-scrub-unit="' + z[2] + '"' : "") +
-        (fc.part() === name ? ' class="sel"' : "") + ">" + body + "</g>";
+        (fc.marked(name) ? ' class="sel"' : "") + ">" + body + "</g>";
     };
     var xy = function (p) { return p[0].toFixed(2) + "," + p[1].toFixed(2); };
 
     out.push('<path class="prod" d="M0 150 C 60 152, 120 180, 150 240 L0 240 Z"/>');
-    if (fc.hint()) out.push('<text class="fig-hint" x="8" y="15">點部位換設定，左右拖曳改大小</text>');
+    if (fc.hint()) out.push('<text class="fig-hint" x="8" y="15">點一下調整設定，左右拖曳改大小</text>');
 
     // 引線（箭頭時線縮到箭頭底部，跟 host.jsx 一樣）
     var ux = E[0] - E1[0], uy = E[1] - E1[1], L = Math.sqrt(ux * ux + uy * uy) || 1;
@@ -154,7 +154,7 @@
     var tip = o.endStyle === "arrow" ? [E[0] - ux * es * 1.6, E[1] - uy * es * 1.6] : E;
     var full = pts.map(xy).join(" "), drawn = pts.slice(0, -1).concat([tip]).map(xy).join(" ");
     out.push(group("line",
-      '<polyline class="hl glow" points="' + full + '" stroke-width="' + (lw + 7) + '"/>' +
+      '<polyline class="hl glow" points="' + full + '" style="stroke-width:' + (lw + 7) + 'px"/>' +   // style：蓋過 css 的 .hl 線寬
       '<polyline points="' + drawn + '" fill="none" stroke="' + o.lineColor + '" stroke-width="' + lw + '" stroke-linejoin="round"/>' +
       '<polyline class="hit" points="' + full + '" stroke-width="14"/>'));
 
