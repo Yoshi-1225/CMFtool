@@ -65,20 +65,15 @@
     <!-- 一個標註的圖：點編號、圓圈、引線、端點，滑鼠旁邊浮出那個部位的設定（js/callout.js 畫圖、開關） -->
     <div class="cfig-wrap">
       <div class="cfig"><svg id="preview" viewBox="0 0 240 240" role="group" aria-label="標註的樣式：點圖上的編號、圓圈、引線或端點，旁邊會出現它的設定"></svg></div>
-      <div class="pop" id="stylePop" role="dialog" aria-label="標註樣式" hidden>
+      <div class="pop" id="stylePop" role="dialog" aria-labelledby="popTitle" hidden>
         <div class="pop-head">
-          <div class="parts" role="tablist" aria-label="標註的部位">
-            <button class="part" data-part="text" role="tab" title="編號的字級、顏色、字體">文字</button>
-            <button class="part" data-part="badge" role="tab" title="編號外面的圓圈">圓圈</button>
-            <button class="part" data-part="line" role="tab" title="引線的粗細、顏色，和離編號多遠">引線</button>
-            <button class="part" data-part="end" role="tab" title="引線末端的圓點、箭頭">端點</button>
-          </div>
+          <span class="pop-title" id="popTitle">文字</span>
           <button class="icon-btn" id="btnPopClose" title="關閉（Esc）" aria-label="關閉">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
           </button>
         </div>
 
-        <div class="pane" data-pane="text" role="tabpanel">
+        <div class="pane" data-pane="text">
           <div class="row">
             <label for="fontSize">字級</label>
             <div class="pair">
@@ -103,7 +98,7 @@
           <input type="hidden" id="fontName">
         </div>
 
-        <div class="pane" data-pane="badge" role="tabpanel" hidden>
+        <div class="pane" data-pane="badge" hidden>
           <label class="check"><input type="checkbox" id="badge">圓圈底</label>
           <div id="badgeRows">
             <div class="row">
@@ -124,7 +119,7 @@
           </div>
         </div>
 
-        <div class="pane" data-pane="line" role="tabpanel" hidden>
+        <div class="pane" data-pane="line" hidden>
           <div class="row">
             <label for="lineWidth">線寬</label>
             <div class="pair">
@@ -138,7 +133,7 @@
           </div>
         </div>
 
-        <div class="pane" data-pane="end" role="tabpanel" hidden>
+        <div class="pane" data-pane="end" hidden>
           <div class="row">
             <label for="endStyle">端點</label>
             <div class="pair">

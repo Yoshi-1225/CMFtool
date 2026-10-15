@@ -203,20 +203,8 @@ summary .count { font-weight: 400; color: var(--muted); }
 @keyframes pop-in { from { opacity: 0; transform: translateY(-4px); } }
 @keyframes pop-in-up { from { opacity: 0; transform: translateY(4px); } }
 @media (prefers-reduced-motion: reduce) { .pop, .pop.above { animation: none; } }
-.pop-head { display: grid; grid-template-columns: 1fr 22px; gap: 4px; align-items: center; margin-bottom: 2px; }
-
-.parts {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px;
-  margin: 0; padding: 2px;
-  background: var(--field); border: 1px solid var(--line); border-radius: 5px;
-}
-.part {
-  height: 22px; padding: 0;
-  background: none; color: var(--muted); border: 0; border-radius: 3px;
-  font: inherit; cursor: pointer;
-}
-.part:hover { color: var(--fg); background: var(--hover); }
-.part.is-active { background: var(--accent); color: var(--accent-fg); }
+.pop-head { display: flex; align-items: center; justify-content: space-between; margin: -2px -4px 2px 0; }
+.pop-title { color: var(--muted); font-size: 10px; letter-spacing: .04em; }
 .pane > .check:first-child { margin-top: 2px; }
 .addopts { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; margin-top: 6px; }
 .addopts .check { margin: 0; }

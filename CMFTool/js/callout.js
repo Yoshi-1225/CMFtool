@@ -91,7 +91,7 @@
 
   // ---------- 標註的圖：點部位，滑鼠旁邊浮出它的設定 ----------
   // 樣式區塊上面畫一個標註（照目前的樣式），編號、圓圈、引線、端點都可以點：點的地方下面（放不下時上面）
-  // 浮出那個部位的設定，小三角指著點的位置；上面一排可以換部位。點外面、按 Esc 或 ✕ 關掉。
+  // 浮出那個部位的設定，小三角指著點的位置；點別的部位就換過去。點外面、按 Esc 或 ✕ 關掉。
   // 圖上的大小 = pt × 2；太小、太大的數值畫成看得到、放得下的大小。每個部位有比畫出來還大的點擊範圍，
   // 沒有圓圈底、端點是「無」時，滑過圖會出現虛線，一樣點得到。鍵盤：Tab 到部位上按 Enter。
   // 在部位上按住左右拖曳，直接改它的大小（js/numfield.js 的拖曳把手）：編號 = 字級、圓圈 = 內距、引線 = 線寬、
@@ -101,14 +101,10 @@
   var part = "text", hint = true, popOpen = false, popByKey = false;
   try { hint = localStorage.getItem(HINT_KEY) !== "1"; } catch (e) {}
 
-  // 換部位：上面一排的按鈕和下面的設定
+  // 換部位：浮出視窗的標題和裡面的設定
   function selectPart(p) {
     part = p;
-    Array.prototype.forEach.call(document.querySelectorAll(".part"), function (b) {
-      var on = b.getAttribute("data-part") === p;
-      b.classList.toggle("is-active", on);
-      b.setAttribute("aria-selected", on ? "true" : "false");
-    });
+    $("popTitle").textContent = PART_NAMES[p];
     Array.prototype.forEach.call(document.querySelectorAll(".pane"), function (el) { el.hidden = el.getAttribute("data-pane") !== p; });
     markSel();
   }
@@ -127,7 +123,8 @@
     selectPart(p);
     $("stylePop").hidden = false;
     placePop(x, y);
-    if (byKey) { var t = document.querySelector(".pop .part.is-active"); if (t) t.focus(); }
+    // 用鍵盤開的：游標移到第一個欄位
+    if (byKey) { var f = document.querySelector('.pane[data-pane="' + p + '"] input:not([type=hidden]), .pane[data-pane="' + p + '"] select'); if (f) f.focus(); }
     if (hint) {
       hint = false;
       try { localStorage.setItem(HINT_KEY, "1"); } catch (e) {}
@@ -150,14 +147,18 @@
     }
   }
 
-  // 放在點的地方下面；下面放不下而上面比較寬時放上面（往上長）。左右不超出面板，小三角對準點的位置
+  // 放在點的地方上面或下面：選蓋到圖比較少的那一邊（點編號、圓圈放上面，點端點放下面），
+  // 圖才看得到、別的部位也點得到；上面一直到面板頂端都放不下時放下面。放不下就捲動面板。
+  // 左右不超出面板，小三角對準點的位置
   function placePop(x, y) {
-    var pop = $("stylePop"), wr = pop.parentNode.getBoundingClientRect();
+    var pop = $("stylePop"), wr = pop.parentNode.getBoundingClientRect(), fig = $("preview").getBoundingClientRect();
     var vw = document.documentElement.clientWidth, W = Math.min(252, vw - 12), GAP = 11;
     pop.style.width = W + "px";
     var left = Math.max(6, Math.min(x - W / 2, vw - 6 - W));
     var top = document.querySelector(".tabs").getBoundingClientRect().bottom, bottom = $("status").getBoundingClientRect().top;
-    var below = bottom - y - GAP, above = y - GAP - top, up = below < pop.offsetHeight && above > below;
+    var h = pop.offsetHeight;
+    var cover = function (a, b) { return Math.max(0, Math.min(b, fig.bottom) - Math.max(a, fig.top)); };
+    var up = cover(y - GAP - h, y - GAP) < cover(y + GAP, y + GAP + h) && y + window.pageYOffset - GAP - h >= top;
     pop.classList.toggle("above", up);
     pop.style.left = (left - wr.left) + "px";
     pop.style.top = up ? "auto" : (y - wr.top + GAP) + "px";
@@ -285,9 +286,6 @@
     e.preventDefault();
     var r = g.getBoundingClientRect();
     openPop(g.getAttribute("data-part"), r.left + r.width / 2, r.bottom, true);
-  });
-  Array.prototype.forEach.call(document.querySelectorAll(".part"), function (b) {
-    b.addEventListener("click", function () { selectPart(b.getAttribute("data-part")); });
   });
   $("btnPopClose").addEventListener("click", function () { closePop(true); });
   // 點浮出視窗和圖上的部位以外的地方就關掉（下拉選單、取色視窗、在欄位上拖曳都不算）
