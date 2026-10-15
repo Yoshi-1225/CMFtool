@@ -649,15 +649,34 @@ $.global.CMF = (function () {
     }
 
     // ---------- 樣式 ----------
-    // 同步全部：文件中所有標註套用目前樣式
+    // 「同步全部」只改工作區裡的標註、尺寸（跟任何一個工作區有重疊就算）；工作區外面的（例如放在旁邊備用的）不動，
+    // 要改它們就選取後按「套用選取」
+    function onArtboards(d, items) {
+        var coords = useDocCoords(), r = { inside: [], outside: 0 };
+        try {
+            for (var i = 0; i < items.length; i++) {
+                var b = null;
+                try { b = items[i].visibleBounds; } catch (e) {}
+                if (b && artboardOf(d, b) < 0) r.outside++;
+                else r.inside.push(items[i]);
+            }
+        } finally { restoreCoords(coords); }
+        return r;
+    }
+
+    function outsideNote(n) { return n ? "（工作區外面的 " + n + " 個沒有同步）" : ""; }
+
+    // 同步全部：工作區裡的標註套用目前樣式
     function syncAll(styleStr) {
         try {
-            var d = getDoc(), cs = allCallouts(d);
-            if (cs.length === 0) return res(true, "文件中沒有標註");
+            var d = getDoc(), all = allCallouts(d);
+            if (all.length === 0) return res(true, "文件中沒有標註");
+            var on = onArtboards(d, all);
+            if (!on.inside.length) return res(true, "標註都在工作區外面，沒有同步（要改它們，選取後按「套用選取」）");
             var sel = selectedCallouts(d);
-            var r = rebuildMany(d, cs, function () { return styleStr; });
+            var r = rebuildMany(d, on.inside, function () { return styleStr; });
             if (sel.length === 0) d.selection = null;
-            return res(r.made.length > 0, "已同步 " + r.made.length + " 個標註的樣式" + failNote(r));
+            return res(r.made.length > 0, "已同步 " + r.made.length + " 個標註的樣式" + failNote(r) + outsideNote(on.outside));
         } catch (e) { return res(false, e.message); }
     }
 
@@ -1913,13 +1932,15 @@ $.global.CMF = (function () {
         return r;
     }
 
-    // 文件中所有尺寸套用目前樣式（位置不變）
+    // 工作區裡的尺寸套用目前樣式（位置不變）；工作區外面的不動（見 onArtboards）
     function dimSync(styleStr) {
         try {
-            var d = getDoc(), gs = allDims(d);
-            if (gs.length === 0) return res(true, "文件中沒有尺寸");
-            var r = rebuildDims(d, gs, styleStr);
-            return res(r.made.length > 0, "已同步 " + r.made.length + " 個尺寸的樣式" + failNote(r));
+            var d = getDoc(), all = allDims(d);
+            if (all.length === 0) return res(true, "文件中沒有尺寸");
+            var on = onArtboards(d, all);
+            if (!on.inside.length) return res(true, "尺寸都在工作區外面，沒有同步（要改它們，選取後按「套用選取」）");
+            var r = rebuildDims(d, on.inside, styleStr);
+            return res(r.made.length > 0, "已同步 " + r.made.length + " 個尺寸的樣式" + failNote(r) + outsideNote(on.outside));
         } catch (e) { return res(false, e.message); }
     }
 
