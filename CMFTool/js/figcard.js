@@ -49,41 +49,61 @@
     document.body.style.width = w ? w + 'px' : '';
   }
 
+  // 改面板大小一次做一件（例如剛關掉、面板還在縮回去時又點了部位）：job(finish)，做完呼叫 finish
+  var queue = [];
+  function enqueue(job) {
+    queue.push(job);
+    if (queue.length === 1) job(next);
+  }
+  function next() {
+    queue.shift();
+    if (queue.length) queue[0](next);
+  }
+  // 沒有在改大小時才做 cb
+  function whenIdle(cb) { enqueue(function (finish) { finish(); cb(); }); }
+
   // 面板往右加寬：done(true) 變寬了、done(false) 沒變（恢復原狀）
   function widen(done) {
-    var w0 = window.innerWidth, h0 = window.innerHeight, want = w0 + FLY_W + FLY_GAP * 2;
-    hold(w0);
-    hostResize(want, h0);
-    settle(function () {
-      // 高度也變了 = 數值被乘上縮放：換算後再要一次
-      if (h0 > 0 && Math.abs(window.innerHeight - h0) > 2) {
-        fly.k *= window.innerHeight / h0;
-        hostResize(want, h0);
-        settle(check);
-      } else check();
-    });
-    function check() {
-      var added = window.innerWidth - w0;
-      if (added >= 200) {
-        fly.ok = true;
-        fly.w0 = w0;
-        fly.added = added;
-        done(true);
-        return;
+    enqueue(function (finish) {
+      var w0 = window.innerWidth, h0 = window.innerHeight, want = w0 + FLY_W + FLY_GAP * 2;
+      hold(w0);
+      hostResize(want, h0);
+      settle(function () {
+        // 高度也變了 = 數值被乘上縮放：換算後再要一次
+        if (h0 > 0 && Math.abs(window.innerHeight - h0) > 2) {
+          fly.k *= window.innerHeight / h0;
+          hostResize(want, h0);
+          settle(check);
+        } else check();
+      });
+      function check() {
+        var added = window.innerWidth - w0, ok = added >= 200;
+        if (ok) {
+          fly.ok = true;
+          fly.w0 = w0;
+          fly.added = added;
+        } else {
+          fly.ok = false;
+          if (Math.abs(added) > 2 || Math.abs(window.innerHeight - h0) > 2) hostResize(w0, h0);
+          hold(0);
+        }
+        finish();
+        done(ok);
       }
-      fly.ok = false;
-      if (Math.abs(added) > 2 || Math.abs(window.innerHeight - h0) > 2) hostResize(w0, h0);
-      hold(0);
-      done(false);
-    }
+    });
   }
 
   // 縮回原本的寬度
   function unwiden() {
-    var added = fly.added;
-    fly.added = 0;
-    hostResize(window.innerWidth - added, window.innerHeight);
-    settle(function () { if (!fly.on) hold(0); });
+    enqueue(function (finish) {
+      var added = fly.added;
+      fly.added = 0;
+      hostResize(window.innerWidth - added, window.innerHeight);
+      settle(function () {
+        if (!fly.on) hold(0);
+        finish();
+      });
+    });
   }
 
   // 使用者自己改了面板大小：不再浮出（卡片照一般的位置放），之後可以再試
@@ -141,16 +161,16 @@
       if (open) { place(); if (focus) focusFirst(); return; }
       open = true;
       mark();
-      if (canFly()) {
-        var t = ++ticket;
+      var t = ++ticket;
+      whenIdle(function () {   // 面板還在縮回去：等它好了再決定放哪裡
+        if (t !== ticket || !open) return;
+        if (!canFly()) { reveal(focus); return; }
         widen(function (ok) {
           if (t !== ticket || !open) { if (ok) unwiden(); return; }   // 等的時候關掉了
           if (ok) fly.on = inst;
           reveal(focus);
         });
-        return;
-      }
-      reveal(focus);
+      });
     }
 
     function reveal(focus) {
