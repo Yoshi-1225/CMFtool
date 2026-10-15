@@ -381,6 +381,7 @@
       var input = document.createElement("input");
       input.type = "number";
       input.min = "1";
+      input.setAttribute("data-scrub", "off");   // 不能拖曳、滾輪改：改了就會重新編號
       input.value = it.num;
       input.setAttribute("aria-label", "編號 " + it.num);
       input.title = "改號碼後按 Enter；號碼已存在時兩個互換";

@@ -10,6 +10,7 @@
  *     Shift 一次 10 格；只接受數字、小數點、正負號。其他程式用 App.isNum(el) 判斷。
  *   有 inputmode="decimal" 或 data-ime="off" 的文字欄位（可以帶單位，例如 150mm、1:2）。
  * 之後才加入的欄位（例如編號表）也會自動套用。全形數字會換成半形。
+ * 數字欄位也可以用滑鼠改：左右拖曳、點進去後轉滾輪（見最後的「滑鼠」）。
  */
 (function () {
   'use strict';
@@ -157,13 +158,19 @@
     claimKeys(false);
   });
 
-  function step(el, dir, times) {
-    var s = parseFloat(el.getAttribute('step')) || 1, v = parseFloat(el.value);
+  function stepOf(el) { return parseFloat(el.getAttribute('step')) || 1; }
+
+  // 限制在 min、max 之間，去掉浮點數的尾數
+  function clampNum(el, v) {
     var min = parseFloat(el.getAttribute('min')), max = parseFloat(el.getAttribute('max'));
-    v = isFinite(v) ? v + dir * s * times : (isFinite(min) ? min : 0);
     if (isFinite(min) && v < min) v = min;
     if (isFinite(max) && v > max) v = max;
-    el.value = String(Math.round(v * 1e6) / 1e6);
+    return Math.round(v * 1e6) / 1e6;
+  }
+
+  function step(el, dir, times) {
+    var v = parseFloat(el.value), min = parseFloat(el.getAttribute('min'));
+    el.value = String(clampNum(el, isFinite(v) ? v + dir * stepOf(el) * times : (isFinite(min) ? min : 0)));
     el.setSelectionRange(el.value.length, el.value.length);
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -215,4 +222,94 @@
   document.addEventListener('selectionchange', function () { if (isLocked(document.activeElement)) placeCaret(); });
   window.addEventListener('scroll', function () { if (!caret.hidden) placeCaret(); }, true);
   window.addEventListener('resize', function () { if (!caret.hidden) placeCaret(); });
+
+  /* ---------- 滑鼠：左右拖曳、滾輪 ---------- */
+  // 數字欄位（data-num）：
+  //   還沒點進去的格子上按住左右拖曳：每 DRAG_PX 一格（step），往右加、往左減；只點一下沒有拖 = 點進格子、選取整個數字
+  //   點進格子後轉滾輪：一格加減一個 step，往上加；格子沒點進去時滾輪照常捲動面板，捲動時才不會不小心改到
+  //   Shift ×10，Alt ×0.1（沒有 step 屬性的整數欄位不 ×0.1）；拖曳中按 Esc 回到原本的數字
+  // 拖曳中只送 input（預覽、面板的設定跟著變），放開才送一次 change（存檔、自動同步），跟打完字按 Enter 一樣。
+  // 不要這樣改的欄位加 data-scrub="off"（例如編號表：改了就會重新編號）
+  var DRAG_PX = 4, WHEEL_NOTCH = 30;
+  var drag = null;   // { el, id, x0, x, acc, v, start, slop, moved }
+
+  function scrubbable(el) {
+    return App.isNum(el) && !el.disabled && el.getAttribute('data-scrub') !== 'off' && (!el.readOnly || isLocked(el));
+  }
+
+  function factor(el, e) { return e.shiftKey ? 10 : e.altKey && el.hasAttribute('step') ? 0.1 : 1; }
+
+  function fire(el, type) { el.dispatchEvent(new Event(type, { bubbles: true })); }
+
+  document.addEventListener('pointerdown', function (e) {
+    var el = e.target;
+    if (drag || e.button !== 0 || e.ctrlKey || e.metaKey || !scrubbable(el) || document.activeElement === el) return;
+    var v = parseFloat(el.value), min = parseFloat(el.getAttribute('min'));
+    drag = { el: el, id: e.pointerId, x0: e.clientX, x: e.clientX, acc: 0, start: el.value, moved: false,
+      v: isFinite(v) ? v : isFinite(min) ? min : 0, slop: e.pointerType === 'mouse' ? 3 : 6 };   // 繪圖筆點一下會抖，多留一點
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}
+  }, true);
+
+  // 按下時先不點進格子、不選字，放開時沒拖過才點進去
+  document.addEventListener('mousedown', function (e) { if (drag && e.target === drag.el) e.preventDefault(); }, true);
+
+  document.addEventListener('pointermove', function (e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (!drag.moved) {
+      if (Math.abs(e.clientX - drag.x0) < drag.slop) return;
+      drag.moved = true;
+      document.documentElement.classList.add('scrubbing');
+    }
+    drag.acc += e.clientX - drag.x;
+    drag.x = e.clientX;
+    var n = drag.acc > 0 ? Math.floor(drag.acc / DRAG_PX) : Math.ceil(drag.acc / DRAG_PX);
+    if (!n) return;
+    drag.acc -= n * DRAG_PX;
+    var v = clampNum(drag.el, drag.v + n * stepOf(drag.el) * factor(drag.el, e));
+    if (v === drag.v) return;
+    drag.v = v;
+    drag.el.value = String(v);
+    fire(drag.el, 'input');
+  }, true);
+
+  // cancel：按了 Esc，回到原本的數字
+  function endDrag(cancel) {
+    var d = drag;
+    if (!d) return;
+    drag = null;
+    document.documentElement.classList.remove('scrubbing');
+    try { d.el.releasePointerCapture(d.id); } catch (err) {}
+    if (cancel) {
+      if (d.el.value !== d.start) { d.el.value = d.start; fire(d.el, 'input'); }
+    } else if (d.moved) {
+      if (d.el.value !== d.start) fire(d.el, 'change');
+    } else {
+      d.el.focus();
+      d.el.select();
+    }
+  }
+
+  document.addEventListener('pointerup', function (e) { if (drag && e.pointerId === drag.id) endDrag(false); }, true);
+  document.addEventListener('pointercancel', function (e) { if (drag && e.pointerId === drag.id) endDrag(false); }, true);
+  // 拖曳中失去滑鼠（例如切到別的視窗）：照放開處理
+  document.addEventListener('lostpointercapture', function (e) { if (drag && drag.moved && e.pointerId === drag.id) endDrag(false); }, true);
+  document.addEventListener('keydown', function (e) {
+    if (drag && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endDrag(true); }
+  }, true);
+
+  var wheelAcc = 0, wheelEl = null, wheelAt = 0;
+  document.addEventListener('wheel', function (e) {
+    var el = e.target;
+    if (!scrubbable(el) || document.activeElement !== el) return;
+    e.preventDefault();
+    var d = e.deltaY || e.deltaX;   // Shift + 滾輪在 Chromium 是左右捲動
+    if (e.deltaMode === 1) d *= 33; else if (e.deltaMode === 2) d *= 300;
+    if (el !== wheelEl || e.timeStamp - wheelAt > 250) wheelAcc = 0;
+    wheelEl = el;
+    wheelAt = e.timeStamp;
+    wheelAcc += d;
+    if (Math.abs(wheelAcc) < WHEEL_NOTCH) return;   // 觸控板一點一點捲：累積到一格
+    step(el, wheelAcc < 0 ? 1 : -1, factor(el, e));
+    wheelAcc = 0;
+  }, { capture: true, passive: false });
 })();
