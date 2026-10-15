@@ -518,6 +518,37 @@
     syncTimer = setTimeout(function () { callHost("syncAll", readSettings()); }, 700);
   }
 
+  // ---------- 吸取樣式 ----------
+  // 選一個標註按「吸取樣式」：面板的樣式改成這個標註記錄的樣式，之後新增的標註、按「同步全部」就跟它一樣。
+  // 只改面板（快捷鍵腳本用的設定檔也一起存），不會觸發「修改樣式時自動同步全部」。
+  // 記錄裡沒有的項目（舊版的標註）或不認得的值，用 host.jsx 遇到時的做法
+  var PICK_DEFAULT = { textColor: "#000000", fontName: "", badge: false, badgeStrokeWidth: 0, lineColor: "#000000",
+    endStyle: "none", styleScale: 100 };
+
+  // r = CMF.pickStyle()：{ callout, num, callouts }
+  function applyPicked(r) {
+    var st = r.callout;
+    STYLE_FIELDS.forEach(function (k) {
+      if (!App.setField($(k), st[k]) && PICK_DEFAULT[k] !== undefined) App.setField($(k), PICK_DEFAULT[k]);
+    });
+    syncFontSelects();
+    renderPreview();
+    saveSettings();
+    var msg = "已吸取標註 " + r.num + " 的樣式";
+    if (r.callouts > 1) msg += "（選了 " + r.callouts + " 個標註，吸取的是這一個）";
+    if (st.fontName && Object.keys(fontIndex).length && !fontIndex[st.fontName]) msg += "；字體清單裡沒有「" + st.fontName + "」";
+    setStatus(msg);
+  }
+
+  function pickStyle() {
+    if (picking) stopPick();
+    callHost("pickStyle", null, function (r) {
+      if (r.ok && r.callout) applyPicked(r);
+      else if (r.ok && r.dim) { App.showTab("dim"); App.emit("pickedDim", r); }   // 選的是尺寸：改尺寸分頁的樣式
+      else setStatus(r.msg || "請先選取要吸取樣式的標註或尺寸", true);
+    }, true);
+  }
+
   // ---------- 事件 ----------
   // 打字時（input）只更新預覽和面板的設定；按 Enter、離開欄位或改選項時（change）才呼叫 Illustrator
   // 存設定檔、自動同步（打字中途呼叫 Illustrator 會搶走鍵盤焦點，見 App.typing）
@@ -552,6 +583,8 @@
   $("btnSync").addEventListener("click", function () { callHost("syncAll", readSettings()); });
   $("btnRestyle").addEventListener("click", function () { callHost("restyle", readSettings()); });
   $("btnRelayout").addEventListener("click", function () { callHost("relayout"); });
+  $("btnPickStyle").addEventListener("click", pickStyle);
+  App.on("pickedCallout", applyPicked);   // 在尺寸分頁按「吸取樣式」、選的是標註
   $("btnSelectAll").addEventListener("click", function () { callHost("selectAll"); });
   $("btnToggle").addEventListener("click", function () { callHost("toggleLayer"); });
   $("btnSetNumber").addEventListener("click", function () {

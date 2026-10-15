@@ -53,9 +53,10 @@
 
   <details data-key="style">
     <summary>樣式</summary>
-    <div class="grid3">
+    <div class="grid2">
       <button class="btn" id="btnSync" title="文件中所有標註套用目前的樣式">同步全部</button>
       <button class="btn" id="btnRestyle" title="只改選取的標註">套用選取</button>
+      <button class="btn" id="btnPickStyle" title="選取一個標註後按這裡：下面的樣式改成跟它一樣，之後新增的標註就用這個樣式（要改其他標註，再按「同步全部」或「套用選取」）">吸取樣式</button>
       <button class="btn" id="btnRelayout" title="用直接選取工具移動線條錨點後，讓編號重新對齊">重新排版</button>
     </div>
     <label class="check"><input type="checkbox" id="autoSync">修改樣式時自動同步全部</label>
@@ -310,9 +311,10 @@
 
   <details data-key="dimstyle">
     <summary>樣式</summary>
-    <div class="grid2">
+    <div class="grid3">
       <button class="btn" id="btnDimSync" title="文件中所有尺寸都改成面板上的樣式（字級、線寬一樣大）、數字格式和直徑半徑的標法，位置不變">同步全部</button>
       <button class="btn" id="btnDimRestyle" title="只改選取的尺寸">套用選取</button>
+      <button class="btn" id="btnDimPickStyle" title="選取一個尺寸後按這裡：樣式、數字、直徑・半徑和最上面的常用設定改成跟它一樣，之後新增的尺寸就用這個樣式（要改其他尺寸，再按「同步全部」或「套用選取」）">吸取樣式</button>
     </div>
     <label class="check" title="選取尺寸之後修改樣式、數字或標法，選取的尺寸馬上跟著改"><input type="checkbox" id="dimAutoApply">修改時自動套用到選取的尺寸</label>
 

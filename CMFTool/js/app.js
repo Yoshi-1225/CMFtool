@@ -29,6 +29,32 @@
       s.textContent = msg || '就緒';
       s.classList.toggle('error', !!isError);
     },
+    // 吸取樣式：把標註、尺寸記錄的值放進面板的欄位（不觸發欄位的事件）。
+    // 值不能用（記錄裡沒有、選單裡沒有這個選項、不是數字或顏色）時不改、回傳 false
+    setField: function (el, v) {
+      if (!el || v === undefined || v === null) return false;
+      if (el.type === 'checkbox') { el.checked = !!v; return true; }
+      if (el.tagName === 'SELECT') {
+        v = String(v);
+        for (var i = 0; i < el.options.length; i++) if (el.options[i].value === v) { el.value = v; return true; }
+        return false;
+      }
+      if (el.type === 'color') {
+        var m = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(String(v));
+        if (!m) return false;
+        var h = m[1].toLowerCase();
+        el.value = '#' + (h.length === 3 ? h.replace(/./g, '$&$&') : h);
+        return true;
+      }
+      if (App.isNum && App.isNum(el)) {
+        var n = Number(v);
+        if (typeof v === 'boolean' || v === '' || !isFinite(n)) return false;
+        el.value = String(Math.round(n * 1000) / 1000);
+        return true;
+      }
+      el.value = String(v);
+      return true;
+    },
     showTab: function (name) {
       Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (t) {
         t.classList.toggle('is-active', t.getAttribute('data-tab') === name);

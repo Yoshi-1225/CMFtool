@@ -172,6 +172,11 @@
       html += '<option value="' + esc(name) + '">' + esc(name) + '</option>';
     });
     $('dimFontFamily').innerHTML = html;
+    syncFontSelects();
+  }
+
+  // 依目前的 PostScript 名稱，把字體、字重兩個選單切到對應的位置
+  function syncFontSelects() {
     var hit = fontIndex[$('dimFontName').value];
     $('dimFontFamily').value = hit ? hit[0] : '';
     fillStyles(hit ? hit[1] : null);
@@ -258,6 +263,46 @@
     }, 600);
   }
 
+  /* ---------- 吸取樣式 ---------- */
+  // 選一個尺寸按「吸取樣式」：面板的樣式改成這個尺寸記錄的樣式（「套用選取」寫進去的那一份），
+  // 之後新增的尺寸、按「同步全部」就跟它一樣。只改面板，不會觸發「修改時自動套用到選取的尺寸」。
+  // 記錄裡沒有的項目（舊版的尺寸）或不認得的值，用 host.jsx 遇到時的做法，才會跟這個尺寸重新產生時一樣
+  var PICK_DEFAULT = { textColor: '#000000', fontName: '', textAlign: 'aligned', textPos: 'above', textBg: 'none',
+    textBgColor: '#ffffff', lineColor: '#000000', endStyle: 'arrow', arrowPos: 'auto', extLine: 'same', unit: 'doc',
+    showUnit: false, ratio: '1:1', diaSym: 'slash', count: 'none', prefix: '', suffix: '', radMode: 'auto', shelf: 'over',
+    centerMark: true };
+
+  // r = CMF.pickStyle()：{ dim, dimGeom, dimName, dims }
+  function applyPicked(r) {
+    var st = r.dim, gm = r.dimGeom || {}, lin = gm.t === 'lin';
+    STYLE.forEach(function (id) {
+      if (id === 'dimAuto' || id === 'dimAutoBase') return;   // 自動調整是新增時的做法，不算樣式；基準在下面
+      var key = id.charAt(3).toLowerCase() + id.slice(4), v = st[key];
+      if (key === 'breakGap' && v === undefined) v = st.textGap;   // 舊的樣式沒有「斷開留空」，用「文字離線」
+      // 舊版的直徑、半徑沒有「引線」，長度記在幾何的 off（同心圓的內圈多拉了一段，不算）
+      if (key === 'leader' && v === undefined && !lin && gm.x === undefined && !gm.out) v = gm.off;
+      if (key === 'ratio' && !(ratioOf(String(v)) > 0)) v = undefined;   // 格式不對時 host.jsx 當成 1:1
+      if (!App.setField($(id), v) && PICK_DEFAULT[key] !== undefined) App.setField($(id), PICK_DEFAULT[key]);
+    });
+    // 寬高的「距離」；依物件大小自動調整時，基準改成這個尺寸量的物件大小：一樣大的物件標出來就跟它一樣
+    if (lin) App.setField($('dimOffset'), gm.off);
+    if ($('dimAuto').checked && gm.z > 0) App.setField($('dimAutoBase'), gm.z / UNIT_PT.mm);
+    syncFontSelects();
+    changed();
+    var msg = '已吸取' + (r.dimName ? '「' + r.dimName + '」' : '尺寸') + '的樣式';
+    if (r.dims > 1) msg += '（選了 ' + r.dims + ' 個尺寸，吸取的是這一個）';
+    if (st.fontName && Object.keys(fontIndex).length && !fontIndex[st.fontName]) msg += '；字體清單裡沒有「' + st.fontName + '」';
+    App.setStatus(msg);
+  }
+
+  function pickStyle() {
+    call('pickStyle', null, function (r) {
+      if (r.ok && r.dim) applyPicked(r);
+      else if (r.ok && r.callout) { App.showTab('callout'); App.emit('pickedCallout', r); }   // 選的是標註：改標註分頁的樣式
+      else App.setStatus(r.msg || '請先選取要吸取樣式的尺寸或標註', true);
+    });
+  }
+
   /* ---------- 事件 ---------- */
   function changed() {
     $('dimRatio').classList.toggle('invalid', !(ratioOf($('dimRatio').value) > 0));
@@ -293,6 +338,8 @@
   $('btnDimAdd').addEventListener('click', addAll);
   $('btnDimSync').addEventListener('click', function () { restyle('dimSync'); });
   $('btnDimRestyle').addEventListener('click', function () { restyle('dimRestyle'); });
+  $('btnDimPickStyle').addEventListener('click', pickStyle);
+  App.on('pickedDim', applyPicked);   // 在標註分頁按「吸取樣式」、選的是尺寸
   $('btnDimSelectAll').addEventListener('click', function () { call('dimSelectAll', null, function (r) { App.setStatus(r.msg, !r.ok); }); });
   $('btnDimToggle').addEventListener('click', function () { call('dimToggle', null, function (r) { App.setStatus(r.msg, !r.ok); }); });
   $('btnDimRefresh').addEventListener('click', refresh);

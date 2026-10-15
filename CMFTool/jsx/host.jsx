@@ -952,6 +952,20 @@ $.global.CMF = (function () {
 
     function jsonNum(v) { return isFinite(v) ? String(v) : "0"; }
 
+    // 平的物件 → JSON：只寫字串、數字和布林，其他（undefined、NaN、陣列）略過
+    function flatJson(o) {
+        if (!o || typeof o !== "object") throw new Error("不是樣式");
+        var parts = [];
+        for (var k in o) {
+            if (!o.hasOwnProperty(k)) continue;
+            var v = o[k], t = typeof v;
+            if (t === "string") parts.push('"' + esc(k) + '":"' + esc(v) + '"');
+            else if (t === "number" && isFinite(v)) parts.push('"' + esc(k) + '":' + String(v));
+            else if (t === "boolean") parts.push('"' + esc(k) + '":' + (v ? "true" : "false"));
+        }
+        return "{" + parts.join(",") + "}";
+    }
+
     function roundTo(v, n) { var f = Math.pow(10, n); return Math.round(v * f) / f; }
 
     // 面板顯示用：選取物件的寬高 (pt)、文件單位、所在的工作區
@@ -1190,14 +1204,17 @@ $.global.CMF = (function () {
         return null;
     }
 
-    function selectedDims(d) {
+    // 選取的物件屬於哪些尺寸（或標註）群組：選到群組裡的物件、用文字工具點在數字裡也算
+    function selectedOwners(d, test) {
         var out = [], items = selectedItems(d);
         for (var i = 0; i < items.length; i++) {
-            var g = ownerOf(items[i], isDim);
+            var g = ownerOf(items[i], test);
             if (g && !contains(out, g)) out.push(g);
         }
         return out;
     }
+
+    function selectedDims(d) { return selectedOwners(d, isDim); }
 
     // 要量的物件：選取中扣掉尺寸和標註
     function measuredItems(d) {
@@ -1547,14 +1564,20 @@ $.global.CMF = (function () {
         return o;
     }
 
-    // 用尺寸自己的記錄重建；styleStr 省略 = 原本的樣式。「同步全部」、「套用選取」一律照面板的樣式，
-    // 不再依物件大小調整（自動調整只在新增時作用），所有尺寸的字級、線寬才會一致
-    function rebuildDim(d, g, styleStr) {
-        var p = dimNote(g), gm = parse(p.geom), line = findChild(g, "DIM_Line");
+    // 尺寸現在的幾何：記錄的點加上建立之後被移動、等比縮放、旋轉的量。找不到 DIM_Line 或沒有 ref = null
+    function dimGeomNow(g, p) {
+        var gm = parse(p.geom), line = findChild(g, "DIM_Line");
         if (!line || !gm.ref) return null;
         var pts = line.pathPoints;
         var T = similarity(gm.ref[0], gm.ref[1], pts[0].anchor, pts[pts.length - 1].anchor);
-        if (T) gm = simGeom(gm, T);
+        return T ? simGeom(gm, T) : gm;
+    }
+
+    // 用尺寸自己的記錄重建；styleStr 省略 = 原本的樣式。「同步全部」、「套用選取」一律照面板的樣式，
+    // 不再依物件大小調整（自動調整只在新增時作用），所有尺寸的字級、線寬才會一致
+    function rebuildDim(d, g, styleStr) {
+        var p = dimNote(g), gm = dimGeomNow(g, p);
+        if (!gm) return null;
         var locked = g.locked, hidden = g.hidden, saved = openAncestors(g);
         try {
             var ng = buildDim(d, g.layer, gm, styleStr || p.style);
@@ -1928,6 +1951,33 @@ $.global.CMF = (function () {
         } catch (e) { return res(false, e.message); }
     }
 
+    // ---------- 吸取樣式 ----------
+    // 選一個尺寸或標註，回傳它記錄的樣式（就是「套用選取」寫進去的那一份），面板把設定改成一樣。
+    //   dim：尺寸的樣式；dimGeom：{ t, off 寬高的距離, x, out, z 量的物件較長的一邊（實際的 pt）}，
+    //     跟重建時一樣算進尺寸被移動、縮放的量；dimName、dims 選了幾個尺寸（用第一個）
+    //   callout：標註的樣式；num、callouts 選了幾個標註（用第一個）
+    // 兩種都選了就都回傳，面板用自己分頁的那一種
+    function pickStyle() {
+        try {
+            var d = getDoc(), dims = selectedOwners(d, isDim), cs = selectedOwners(d, isCallout), out = '{"ok":true';
+            if (!dims.length && !cs.length) return res(false, "請先選取要吸取樣式的尺寸或標註");
+            if (dims.length) {
+                var g = dims[0], p = dimNote(g), gm, st;
+                try { gm = dimGeomNow(g, p) || parse(p.geom); st = flatJson(parse(p.style)); }
+                catch (eD) { return res(false, "「" + (g.name || "尺寸") + "」的樣式記錄讀不到（" + eD.message + "）"); }
+                out += ',"dim":' + st + ',"dimGeom":' + flatJson({ t: gm.t, off: Number(gm.off), x: gm.x, out: gm.out, z: gm.z * docScaleFactor(d) }) +
+                    ',"dimName":"' + esc(g.name) + '","dims":' + dims.length;
+            }
+            if (cs.length) {
+                var q = noteParts(cs[0]), cst;
+                try { cst = flatJson(parse(q.style)); }
+                catch (eC) { return res(false, "標註 " + q.num + " 的樣式記錄讀不到（" + eC.message + "）"); }
+                out += ',"callout":' + cst + ',"num":' + jsonNum(q.num) + ',"callouts":' + cs.length;
+            }
+            return out + "}";
+        } catch (e) { return res(false, e.message); }
+    }
+
     // ---------- 設定檔（給快捷鍵腳本使用） ----------
     // 面板第一次開啟（還沒有自己的設定）時，沿用快捷鍵腳本用的設定檔
     function loadSettings() {
@@ -1985,6 +2035,7 @@ $.global.CMF = (function () {
         dimRestyle: dimRestyle,
         dimSelectAll: dimSelectAll,
         dimToggle: dimToggle,
+        pickStyle: pickStyle,
         loadSettings: loadSettings,
         saveSettings: saveSettings
     };
