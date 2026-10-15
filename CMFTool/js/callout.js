@@ -89,12 +89,39 @@
     saveTimer = setTimeout(function () { if (cep) callHost("saveSettings", o, null, true); }, 400);
   }
 
-  // ---------- 預覽 ----------
-  function isDark(hex) {
-    var h = hex.replace("#", "");
-    var r = parseInt(h.substr(0, 2), 16), g = parseInt(h.substr(2, 2), 16), b = parseInt(h.substr(4, 2), 16);
-    return (0.299 * r + 0.587 * g + 0.114 * b) < 60;
+  // ---------- 標註的圖：點部位，下面顯示它的設定 ----------
+  // 樣式區塊上面畫一個標註（照目前的樣式），編號、圓圈、引線、端點都可以點，下面只顯示那個部位的設定。
+  // 圖上的大小 = pt × 2；太小、太大的數值畫成看得到、放得下的大小。每個部位有比畫出來還大的點擊範圍，
+  // 沒有圓圈底、端點是「無」時，滑過圖會出現虛線，一樣點得到。第一次在圖上點過之後，角落的提示就不再出現
+  var PARTS = ["text", "badge", "line", "end"];
+  var PART_KEY = "cmftool:part", HINT_KEY = "cmftool:partHint";
+  var part = "text", hint = true;
+  try {
+    if (PARTS.indexOf(localStorage.getItem(PART_KEY)) >= 0) part = localStorage.getItem(PART_KEY);
+    hint = localStorage.getItem(HINT_KEY) !== "1";
+  } catch (e) {}
+
+  function selectPart(p) {
+    part = p;
+    try { localStorage.setItem(PART_KEY, p); } catch (e) {}
+    Array.prototype.forEach.call(document.querySelectorAll(".part"), function (b) {
+      var on = b.getAttribute("data-part") === p;
+      b.classList.toggle("is-active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".pane"), function (el) { el.hidden = el.getAttribute("data-pane") !== p; });
+    Array.prototype.forEach.call($("preview").querySelectorAll("[data-part]"), function (g) {
+      g.classList.toggle("sel", g.getAttribute("data-part") === p);
+    });
   }
+
+  // 顏色欄位外面包著滴管按鈕的框（見「取色」）
+  function boxOf(id) {
+    var el = $(id);
+    return el.parentNode && el.parentNode.classList.contains("colorbox") ? el.parentNode : el;
+  }
+
+  function clamp(v, lo, hi) { return isFinite(v) ? Math.max(lo, Math.min(hi, v)) : lo; }
 
   function renderPreview() {
     var o = readSettings();
@@ -102,58 +129,101 @@
     $("styleRow").classList.toggle("hidden", o.endStyle !== "style");
     $("startNumber").disabled = o.startMode === "auto";
     $("badgeStrokeColor").disabled = !(o.badgeStrokeWidth > 0);
+    // 編號的顏色：有圓圈底時是圓圈裡的數字顏色
+    boxOf("textColor").classList.toggle("hidden", !!o.badge);
+    boxOf("badgeTextColor").classList.toggle("hidden", !o.badge);
     updateFinishButton();
+    $("preview").innerHTML = figure(o);
+  }
 
-    var scale = 1.6;
-    // 編號端 → (轉折) → 目標點
-    var pts = o.lineMode === "straight"
-      ? [[70, 30], [196, 52]]
-      : [[62, 24], [128, 24], [196, 52]];
+  function figure(o) {
+    var K = 2, out = [];
+    var lw = clamp(o.lineWidth * K, 0.8, 6), es = clamp(o.endSize * K, 3, 14), fs = clamp(o.fontSize * K, 9, 30);
+    var gap = clamp(o.gap * K, 0, 16), pad = clamp(o.badgePadding * K, 0, 14);
+    var bsw = o.badgeStrokeWidth > 0 ? clamp(o.badgeStrokeWidth * K, 0.75, 5) : 0;
+    // 編號端 → (轉折) → 目標點（落在左下角的產品上）
+    var pts = o.lineMode === "straight" ? [[172, 52], [70, 92]] : [[180, 48], [124, 48], [70, 92]];
     var S = pts[0], S1 = pts[1], E = pts[pts.length - 1], E1 = pts[pts.length - 2];
-    var lw = Math.max(0.6, o.lineWidth * scale), es = o.endSize * scale;
-    var parts = ['<path d="M178 84 C 186 50, 210 26, 260 20 L260 84 Z" fill="var(--product)"/>'];
+    var group = function (name, body) { return '<g data-part="' + name + '"' + (part === name ? ' class="sel"' : "") + ">" + body + "</g>"; };
+    var xy = function (p) { return p[0].toFixed(2) + "," + p[1].toFixed(2); };
 
-    var ux = E[0] - E1[0], uy = E[1] - E1[1], L = Math.sqrt(ux * ux + uy * uy);
+    out.push('<path class="prod" d="M0 72 C 38 74, 76 88, 100 120 L0 120 Z"/>');
+    if (hint) out.push('<text class="fig-hint" x="8" y="15">點編號、圓圈、引線、端點來調整</text>');
+
+    // 引線（箭頭時線縮到箭頭底部，跟 host.jsx 一樣）
+    var ux = E[0] - E1[0], uy = E[1] - E1[1], L = Math.sqrt(ux * ux + uy * uy) || 1;
     ux /= L; uy /= L;
-    var lineEnd = E;
-    if (o.endStyle === "arrow") {
-      var len = es * 1.6, hw = es * 0.5, bx = E[0] - ux * len, by = E[1] - uy * len;
-      lineEnd = [bx, by];
-      parts.push('<path d="M' + E[0] + ' ' + E[1] + ' L' + (bx - uy * hw) + ' ' + (by + ux * hw) +
-        ' L' + (bx + uy * hw) + ' ' + (by - ux * hw) + 'Z" fill="' + o.lineColor + '"/>');
-    }
-    var poly = pts.slice(0, -1).concat([lineEnd]).map(function (p) { return p.join(","); }).join(" ");
-    parts.push('<polyline points="' + poly + '" fill="none" stroke-linejoin="round" stroke="' + o.lineColor +
-      '" stroke-width="' + lw + '"/>');
-    if (o.endStyle === "dot") {
-      parts.push('<circle cx="' + E[0] + '" cy="' + E[1] + '" r="' + es / 2 + '" fill="' + o.lineColor + '"/>');
-    }
+    var tip = o.endStyle === "arrow" ? [E[0] - ux * es * 1.6, E[1] - uy * es * 1.6] : E;
+    var full = pts.map(xy).join(" "), drawn = pts.slice(0, -1).concat([tip]).map(xy).join(" ");
+    out.push(group("line",
+      '<polyline class="hl glow" points="' + full + '" stroke-width="' + (lw + 7) + '"/>' +
+      '<polyline points="' + drawn + '" fill="none" stroke="' + o.lineColor + '" stroke-width="' + lw + '" stroke-linejoin="round"/>' +
+      '<polyline class="hit" points="' + full + '" stroke-width="14"/>'));
 
-    // 編號沿第一段的反方向推出去
-    var dx = S[0] - S1[0], dy = S[1] - S1[1], dl = Math.sqrt(dx * dx + dy * dy);
+    // 端點
+    var mark, len = es * 1.6, B = [E[0] - ux * len, E[1] - uy * len];
+    if (o.endStyle === "arrow") {
+      var hw = es * 0.5;
+      mark = '<path d="M' + xy(E) + "L" + xy([B[0] - uy * hw, B[1] + ux * hw]) + "L" + xy([B[0] + uy * hw, B[1] - ux * hw]) + 'Z" fill="' + o.lineColor + '"/>';
+    } else if (o.endStyle === "dot") {
+      mark = '<circle cx="' + E[0] + '" cy="' + E[1] + '" r="' + es / 2 + '" fill="' + o.lineColor + '"/>';
+    } else if (o.endStyle === "style") {
+      // 繪圖樣式：實際的樣子看不到，用開放箭頭代表
+      var ow = es * 0.6;
+      mark = '<polyline points="' + xy([B[0] - uy * ow, B[1] + ux * ow]) + " " + xy(E) + " " + xy([B[0] + uy * ow, B[1] - ux * ow]) +
+        '" fill="none" stroke="' + o.lineColor + '" stroke-width="' + lw + '" stroke-linejoin="round" stroke-linecap="round"/>';
+    } else {
+      mark = '<circle class="ghost" cx="' + E[0] + '" cy="' + E[1] + '" r="4"/>';
+    }
+    var er = Math.max(es * 1.2, 7) + 3;
+    out.push(group("end", '<circle class="hl" cx="' + E[0] + '" cy="' + E[1] + '" r="' + er + '"/>' + mark +
+      '<circle class="hit" cx="' + E[0] + '" cy="' + E[1] + '" r="' + Math.max(er, 12) + '"/>'));
+
+    // 編號：沿線的第一段往外推（跟 host.jsx 的 buildCallout 一樣）
+    var dx = S[0] - S1[0], dy = S[1] - S1[1], dl = Math.sqrt(dx * dx + dy * dy) || 1;
     dx /= dl; dy /= dl;
-    var fs = Math.max(6, o.fontSize * scale), gap = o.gap * scale;
+    var tw = fs * 0.3, th = fs * 0.36, R = Math.max(tw, th) + pad, C;
+    if (o.badge) {
+      C = [S[0] + dx * (gap + R + bsw / 2), S[1] + dy * (gap + R + bsw / 2)];
+    } else {
+      var ext = Math.min(Math.abs(dx) > 0.001 ? tw / Math.abs(dx) : 1e9, Math.abs(dy) > 0.001 ? th / Math.abs(dy) : 1e9);
+      C = [S[0] + dx * (gap + ext), S[1] + dy * (gap + ext)];
+    }
+    var cx = C[0].toFixed(2), cy = C[1].toFixed(2);
+    var rr = o.badge ? R + bsw / 2 : Math.max(tw, th) + 5;   // 圓圈（沒有圓圈底時是虛線圈）的外緣
+    out.push(group("badge", '<circle class="hl" cx="' + cx + '" cy="' + cy + '" r="' + (rr + 3) + '"/>' +
+      (o.badge
+        ? '<circle cx="' + cx + '" cy="' + cy + '" r="' + R + '" fill="' + o.badgeColor + '"' +
+          (bsw ? ' stroke="' + o.badgeStrokeColor + '" stroke-width="' + bsw + '"' : "") + "/>"
+        : '<circle class="ghost" cx="' + cx + '" cy="' + cy + '" r="' + rr + '"/>') +
+      '<circle class="hit" cx="' + cx + '" cy="' + cy + '" r="' + (rr + 6) + '"/>'));
+
     var pf = previewFont(o);
     var font = pf.family + '" font-weight="' + pf.weight + '" font-style="' + (pf.italic ? "italic" : "normal");
-    if (o.badge) {
-      var R = fs * 0.42 + o.badgePadding * scale;
-      var bsw = (o.badgeStrokeWidth || 0) * scale;
-      var cx = S[0] + dx * (gap + R + bsw / 2), cy = S[1] + dy * (gap + R + bsw / 2);
-      parts.push('<circle cx="' + cx + '" cy="' + cy + '" r="' + R + '" fill="' + o.badgeColor + '"' +
-        (bsw > 0 ? ' stroke="' + o.badgeStrokeColor + '" stroke-width="' + bsw + '"' : '') + '/>');
-      parts.push('<text x="' + cx + '" y="' + cy + '" fill="' + o.badgeTextColor + '" font-size="' + fs +
-        '" font-family="' + font + '" text-anchor="middle" dominant-baseline="central">3</text>');
-    } else {
-      var w = fs * 0.3, h = fs * 0.36;
-      var ext = Math.min(Math.abs(dx) > 0.001 ? w / Math.abs(dx) : 1e9, Math.abs(dy) > 0.001 ? h / Math.abs(dy) : 1e9);
-      var tx = S[0] + dx * (gap + ext), ty = S[1] + dy * (gap + ext);
-      var light = document.documentElement.classList.contains("light");
-      var tc = light || !isDark(o.textColor) ? o.textColor : "#e6e6e6";
-      parts.push('<text x="' + tx + '" y="' + ty + '" fill="' + tc + '" font-size="' + fs +
-        '" font-family="' + font + '" text-anchor="middle" dominant-baseline="central">3</text>');
-    }
-    $("preview").innerHTML = parts.join("");
+    var box = 'x="' + (C[0] - tw - 2).toFixed(2) + '" y="' + (C[1] - th - 2).toFixed(2) + '" width="' + (tw * 2 + 4).toFixed(2) +
+      '" height="' + (th * 2 + 4).toFixed(2) + '"';
+    out.push(group("text", '<rect class="hl" ' + box + ' rx="2"/>' +
+      '<text x="' + cx + '" y="' + cy + '" fill="' + (o.badge ? o.badgeTextColor : o.textColor) + '" font-size="' + fs +
+      '" font-family="' + font + '" text-anchor="middle" dominant-baseline="central">3</text>' +
+      '<rect class="hit" ' + box + "/>"));
+    return out.join("");
   }
+
+  $("preview").addEventListener("click", function (e) {
+    var g = e.target.closest && e.target.closest("[data-part]");
+    if (!g) return;
+    selectPart(g.getAttribute("data-part"));
+    if (hint) {
+      hint = false;
+      try { localStorage.setItem(HINT_KEY, "1"); } catch (err) {}
+      var t = $("preview").querySelector(".fig-hint");
+      if (t) t.parentNode.removeChild(t);
+    }
+  });
+  Array.prototype.forEach.call(document.querySelectorAll(".part"), function (b) {
+    b.addEventListener("click", function () { selectPart(b.getAttribute("data-part")); });
+  });
+  selectPart(part);
 
   // ---------- 字體選單 ----------
   // fonts：{ 家族: [[字重, PostScript 名稱], ...] }，快取在 localStorage，避免每次開面板都掃描

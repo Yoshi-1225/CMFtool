@@ -8,7 +8,8 @@
   --line-soft: #3a3a3a;
   --accent: #2680eb;
   --accent-fg: #ffffff;
-  --product: #5a5a5a;
+  --paper: #e4e4e4;        /* 標註的圖：像白紙，顏色看起來跟工作區上一樣 */
+  --paper-prod: #c4c4c4;
   --hover: rgba(255, 255, 255, .05);
   --warn: #e0a43a;
   --error: #e5675f;
@@ -19,7 +20,8 @@
   --field: #fafafa;
   --line: #c4c4c4;
   --line-soft: #dadada;
-  --product: #b9b9b9;
+  --paper: #ffffff;
+  --paper-prod: #d8d8d8;
   --hover: rgba(0, 0, 0, .05);
   --warn: #9a6200;
   --error: #c42b1c;
@@ -157,11 +159,39 @@ summary .count { font-weight: 400; color: var(--muted); }
 .sub { margin: 10px 0 2px; color: var(--muted); font-size: 10px; letter-spacing: .04em; }
 
 /* ---------- 標註分頁 ---------- */
-.preview {
-  height: 84px; margin-bottom: 8px;
-  background: var(--field); border: 1px solid var(--line); border-radius: 4px;
+/* 樣式：一個標註的圖，點編號、圓圈、引線、端點（js/callout.js 的 figure） */
+.cfig { margin: 8px 0 6px; background: var(--paper); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.cfig svg { display: block; width: 100%; height: auto; }
+.cfig .prod { fill: var(--paper-prod); }
+.cfig [data-part] { cursor: pointer; }
+.cfig .hit { fill: transparent; stroke: none; }
+.cfig polyline.hit { fill: none; stroke: transparent; pointer-events: stroke; }
+.cfig .hl {
+  fill: none; stroke: var(--accent); stroke-width: 1.2; stroke-dasharray: 3 2;
+  opacity: 0; pointer-events: none; transition: opacity .12s;
 }
-.preview svg { width: 100%; height: 100%; display: block; }
+.cfig .hl.glow { stroke-dasharray: none; stroke-opacity: .45; stroke-linecap: round; stroke-linejoin: round; }
+.cfig .fig-hint { fill: #7a7a7a; font-size: 10px; pointer-events: none; }
+.cfig [data-part]:hover .hl { opacity: .6; }
+.cfig [data-part].sel .hl { opacity: 1; }
+/* 沒有圓圈底、端點是「無」：滑過圖或選到時才出現虛線 */
+.cfig .ghost { fill: none; stroke: #8a8a8a; stroke-width: 1; stroke-dasharray: 2 2; opacity: 0; transition: opacity .12s; }
+.cfig:hover .ghost, .cfig .sel .ghost { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .cfig .hl, .cfig .ghost { transition: none; } }
+
+.parts {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px;
+  margin: 0 0 6px; padding: 2px;
+  background: var(--field); border: 1px solid var(--line); border-radius: 5px;
+}
+.part {
+  height: 22px; padding: 0;
+  background: none; color: var(--muted); border: 0; border-radius: 3px;
+  font: inherit; cursor: pointer;
+}
+.part:hover { color: var(--fg); background: var(--hover); }
+.part.is-active { background: var(--accent); color: var(--accent-fg); }
+.pane > .check:first-child { margin-top: 2px; }
 .addopts { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; margin-top: 6px; }
 .addopts .check { margin: 0; }
 #btnFinish { width: 100%; margin-top: 6px; }
