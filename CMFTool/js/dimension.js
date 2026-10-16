@@ -318,7 +318,9 @@
   var SAMPLE = { w: 42.5, h: 30, d: 24 };
   var FIG_KEY = 'cmftool:dimFig';
   var PART_NAMES = { text: '文字', line: '尺寸線', end: '端點', ext: '延伸線' };
+  var ZOOM_C = [10 + (FIG - 20) / 2, FIG - 10 - (FIG - BAND - 10) / 2];   // 整張圖縮小時（f.zoom）的中心
   var figMode = 'rect', drawnRad = null;     // drawnRad：圓實際畫的標法（自動 → inside 或 leader）
+  var drawn = null;                          // 畫出來的圖（矩形四邊的圓點照它放）
   function partName(p) { return p === 'line' && figMode === 'circle' && drawnRad !== 'inside' ? '引線' : PART_NAMES[p]; }
   var fc = App.figCard({ svg: $('dimPreview'), card: $('dimPop'), title: $('dimPopTitle'), names: partName, first: 'text',
     key: 'cmftool:dimPart', hintKey: 'cmftool:dimPartHint' });
@@ -483,15 +485,22 @@
     return make(size, 10 + (aw - bw) / 2 - b[0], 10 + (ah - bh) / 2 - b[1]);
   }
 
-  // 矩形：size = 寬，高 = 寬 × 0.72
+  // 矩形：size = 寬，高 = 寬 × 0.72。寬高畫在四邊的圓點選的那幾邊；都沒選時畫上、右，淡淡的（f.faint，還是點得到）
   function rectFigure(s) {
-    return fitFigure(function (W, dx, dy) {
-      var f = newFig(), H = W * 0.72, x1 = dx + W, y1 = dy + H;
+    var on = { top: $('dimPosTop').checked, bottom: $('dimPosBottom').checked, left: $('dimPosLeft').checked, right: $('dimPosRight').checked };
+    var faint = !on.top && !on.bottom && !on.left && !on.right;
+    if (faint) on = { top: true, right: true };
+    var fig = fitFigure(function (W, dx, dy) {
+      var f = newFig(), H = W * 0.72, x1 = dx + W, y1 = dy + H, w = sampleLabel(SAMPLE.w), h = sampleLabel(SAMPLE.h);
       f.shape = { x: dx, y: dy, w: W, h: H };
-      linDim(f, { p1: [dx, y1], p2: [x1, y1], a: [1, 0], n: [0, 1] }, s, sampleLabel(SAMPLE.w));
-      linDim(f, { p1: [x1, dy], p2: [x1, y1], a: [0, 1], n: [1, 0] }, s, sampleLabel(SAMPLE.h));
+      if (on.top) linDim(f, { p1: [dx, y1], p2: [x1, y1], a: [1, 0], n: [0, 1] }, s, w);
+      if (on.bottom) linDim(f, { p1: [dx, dy], p2: [x1, dy], a: [1, 0], n: [0, -1] }, s, w);
+      if (on.left) linDim(f, { p1: [dx, dy], p2: [dx, y1], a: [0, 1], n: [-1, 0] }, s, h);
+      if (on.right) linDim(f, { p1: [x1, dy], p2: [x1, y1], a: [0, 1], n: [1, 0] }, s, h);
       return f;
     }, 220, 50, function (W, ox, oy) { return W - Math.max(ox, oy / 0.72) - 0.5; }, s);
+    fig.faint = faint;
+    return fig;
   }
 
   // 圓：size = 半徑
@@ -531,6 +540,7 @@
   // 選到的線：沿著線的一條寬的淡色線（.hl.glow；寬度寫在 style 才蓋得過 css 的 .hl 線寬）
   function dimFigure() {
     var s = figStyle(), f = figMode === 'circle' ? circleFigure(s) : rectFigure(s), out = [], sh = f.shape;
+    drawn = f;
     drawnRad = f.mode || null;
     // 拖曳改哪個欄位：[欄位 id, 顯示的名稱, 單位]；端點「無」、不畫延伸線時不能拖
     var size = {
@@ -606,14 +616,31 @@
     }).join('')));
     // 提示在左上角的切換和右上角的「重設」中間，不跟著縮放
     var hint = fc.hint() ? '<text class="fig-hint" x="206" y="20" text-anchor="end">點部位調整，左右拖曳改大小</text>' : '';
+    if (f.faint) out = [out[0], '<g opacity=".35">' + out.slice(1).join('') + '</g>'];
     if (!f.zoom) return hint + out.join('');
-    var z = f.zoom, cx = 10 + (FIG - 20) / 2, cy = FIG - 10 - (FIG - BAND - 10) / 2;
-    return hint + '<g transform="translate(' + X(cx) + ' ' + X(cy) + ') scale(' + z.k.toFixed(4) + ') translate(' + X(-z.c[0]) + ' ' + X(-(FIG - z.c[1])) + ')">' +
+    var z = f.zoom;
+    return hint + '<g transform="translate(' + X(ZOOM_C[0]) + ' ' + X(ZOOM_C[1]) + ') scale(' + z.k.toFixed(4) + ') translate(' + X(-z.c[0]) + ' ' + X(-(FIG - z.c[1])) + ')">' +
       out.join('') + '</g>';
+  }
+
+  // 矩形四邊的圓點（選寬高標在哪一邊）放在畫出來的矩形每一邊的中間；標圓時不顯示
+  function placeDots() {
+    var pad = $('dimPad'), sh = drawn && drawn.shape, z = drawn && drawn.zoom;
+    pad.hidden = figMode === 'circle' || !sh;
+    if (pad.hidden) return;
+    var mx = sh.x + sh.w / 2, my = sh.y + sh.h / 2;
+    [['dimPosTop', mx, sh.y + sh.h], ['dimPosBottom', mx, sh.y], ['dimPosLeft', sh.x, my], ['dimPosRight', sh.x + sh.w, my]].forEach(function (d) {
+      var x = d[1], y = FIG - d[2];   // 圖的座標（y 往上）→ 示範框的座標，有縮放時一樣縮放
+      if (z) { x = ZOOM_C[0] + z.k * (x - z.c[0]); y = ZOOM_C[1] + z.k * (y - (FIG - z.c[1])); }
+      var dot = pad.querySelector('label[for="' + d[0] + '"]');
+      dot.style.left = (x / FIG * 100) + '%';
+      dot.style.top = (y / FIG * 100) + '%';
+    });
   }
 
   function renderFigure() {
     $('dimPreview').innerHTML = dimFigure();
+    placeDots();
     fc.update();
   }
 
