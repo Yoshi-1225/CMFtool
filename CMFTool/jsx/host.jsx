@@ -7,10 +7,13 @@
  * 每個標註是一個群組，備註（note）存著：CMF_CALLOUT|編號|k=對應的物件名稱|樣式 JSON
  * 「k=」那一段只有對應過 Excel 清單的物件才有，名稱用 encodeURIComponent 編碼。
  * 尺寸也是群組，備註存著：CMF_DIM|幾何 JSON|樣式 JSON（見「尺寸標註」）
+ * 色號標註（色塊 + 一行文字）也是標註的群組，備註存著：CMF_SWATCH|#色碼|t=文字|s=色票名稱|樣式 JSON
+ * （文字、色票名稱用 encodeURIComponent 編碼）。它沒有編號，不在編號表裡，不會被重新編號，也不會影響 Excel 的排序。
  */
 $.global.CMF = (function () {
     var LAYER_NAME = "CMF Callouts";
     var TAG = "CMF_CALLOUT";
+    var TAG_SW = "CMF_SWATCH";
     var SETTINGS_DIR = Folder.userData + "/CMFCallout";
     var SETTINGS_FILE = SETTINGS_DIR + "/settings.json";
 
@@ -88,6 +91,32 @@ $.global.CMF = (function () {
         return it && it.typename === "GroupItem" && it.note && String(it.note).indexOf(TAG + "|") === 0;
     }
 
+    function isSwatch(it) {
+        return it && it.typename === "GroupItem" && it.note && String(it.note).indexOf(TAG_SW + "|") === 0;
+    }
+
+    // 標註或色號標註（樣式、同步、重新排版共用）
+    function isLabel(it) { return isCallout(it) || isSwatch(it); }
+
+    // 色號標註：{ hex, text, spot 色票名稱（沒有 = 空字串）, style }
+    function swParts(g) {
+        var p = String(g.note).split("|"), out = { hex: p[1] || "#000000", text: "", spot: "" }, i = 2;
+        for (; i < p.length && /^[ts]=/.test(p[i]); i++) {
+            var v = "";
+            try { v = decodeURIComponent(p[i].substring(2)); } catch (e) { v = ""; }
+            if (p[i].charAt(0) === "t") out.text = v; else out.spot = v;
+        }
+        out.style = p.slice(i).join("|");
+        return out;
+    }
+
+    function swNote(sw, styleStr) {
+        return TAG_SW + "|" + sw.hex + "|t=" + encodeURIComponent(sw.text || "") + "|s=" + encodeURIComponent(sw.spot || "") + "|" + styleStr;
+    }
+
+    // 沒寫文字時標色票名稱，再沒有就標色碼
+    function swLabel(sw) { return sw.text || sw.spot || String(sw.hex).toUpperCase(); }
+
     function noteParts(g) {
         var p = String(g.note).split("|"), rest = p.slice(2), key = "";
         if (rest.length > 1 && rest[0].indexOf("k=") === 0) {
@@ -123,6 +152,12 @@ $.global.CMF = (function () {
     function calloutsWithNumber(d, n) {
         var cs = allCallouts(d), out = [];
         for (var i = 0; i < cs.length; i++) if (noteParts(cs[i]).num === n) out.push(cs[i]);
+        return out;
+    }
+
+    function allLabels(d) {
+        var out = [], gs = d.groupItems;
+        for (var i = 0; i < gs.length; i++) if (isLabel(gs[i])) out.push(gs[i]);
         return out;
     }
 
@@ -207,7 +242,8 @@ $.global.CMF = (function () {
     // line：開放路徑，第一個錨點 = 編號端，最後一個錨點 = 指向產品端
     // （使用者畫的方向相反，呼叫前會先 reversePath）
     // key：對應的物件名稱（可省略）
-    function buildCallout(d, line, num, styleStr, container, key) {
+    // sw：{ hex, text, spot } = 色號標註：編號的位置改成色塊 + 一行文字（num、key 不用）
+    function buildCallout(d, line, num, styleStr, container, key, sw) {
         var o = parse(styleStr);
         var pts = line.pathPoints, n = pts.length;
         var S = pts[0].anchor, S1 = pts[1].anchor;
@@ -215,8 +251,8 @@ $.global.CMF = (function () {
         var lineColor = hexToColor(o.lineColor, d);
 
         var g = container.groupItems.add();
-        g.name = groupName(num, key);
-        g.note = makeNote(num, key, styleStr);
+        g.name = sw ? "色號 " + swLabel(sw) : groupName(num, key);
+        g.note = sw ? swNote(sw, styleStr) : makeNote(num, key, styleStr);
 
         line.move(g, ElementPlacement.PLACEATEND);
         line.name = "CMF_Line";
@@ -260,6 +296,8 @@ $.global.CMF = (function () {
                 finally { for (var pi = 0; pi < prefs.length; pi++) { try { app.preferences.setBooleanPreference(prefs[pi][0], prefs[pi][1]); } catch (eP) {} } }
             }
         }
+
+        if (sw) { swatchLabel(d, g, o, S, S1, sw); return g; }
 
         // 編號文字
         var t = g.textFrames.add();
@@ -310,9 +348,50 @@ $.global.CMF = (function () {
         return g;
     }
 
-    // 拆掉舊標註，用同一條線重建；沒指定 key 時保留原本對應的物件
-    function rebuild(d, g, num, styleStr, key) {
-        if (key === undefined) key = noteParts(g).key;
+    // 色號標註的標籤：[色塊][文字] 一行，色塊在左、文字在右，跟編號一樣沿著線的第一段往外推，
+    // 靠線的那一邊離線頭「間距」。色塊的大小 chipSize (pt)，邊框 chipBorder (pt，0 = 無) 和 chipBorderColor；
+    // 有色票名稱、文件裡也有這個色票時，色塊直接用色票（特別色印刷時才會對）
+    function swatchLabel(d, g, o, S, S1, sw) {
+        var t = g.textFrames.add();
+        t.name = "CMF_Label";
+        t.contents = swLabel(sw);
+        var ca = t.textRange.characterAttributes;
+        ca.size = Number(o.fontSize);
+        if (o.fontName) {
+            try { ca.textFont = app.textFonts.getByName(o.fontName); } catch (e) { /* 找不到字體就用預設 */ }
+        }
+        ca.fillColor = hexToColor(o.textColor, d);
+        var b = glyphBounds(t), tw = b[2] - b[0], th = b[1] - b[3];
+
+        var cs = Number(o.chipSize) > 0 ? Number(o.chipSize) : Number(o.fontSize);
+        var bw = Number(o.chipBorder) > 0 ? Number(o.chipBorder) : 0;
+        var outer = cs + bw, cg = Math.max(cs * 0.4, Number(o.fontSize) * 0.3); // 色塊跟文字之間
+        var hw = (outer + cg + tw) / 2, hh = Math.max(outer, th) / 2;
+        var dir = norm(S[0] - S1[0], S[1] - S1[1], -1, 0);
+        var ex = Math.abs(dir[0]) > 0.0001 ? hw / Math.abs(dir[0]) : 1e9;
+        var ey = Math.abs(dir[1]) > 0.0001 ? hh / Math.abs(dir[1]) : 1e9;
+        var ext = Math.min(ex, ey), gap = Number(o.gap);
+        var C = [S[0] + dir[0] * (gap + ext), S[1] + dir[1] * (gap + ext)], left = C[0] - hw;
+
+        var chip = g.pathItems.rectangle(C[1] + cs / 2, left + bw / 2, cs, cs);
+        chip.name = "CMF_Chip";
+        chip.filled = true;
+        var col = null;
+        if (sw.spot) { try { col = d.swatches.getByName(sw.spot).color; } catch (eS) { col = null; } }
+        chip.fillColor = col || hexToColor(sw.hex, d);
+        if (bw > 0) {
+            chip.stroked = true;
+            chip.strokeWidth = bw;
+            chip.strokeColor = hexToColor(o.chipBorderColor || "#808080", d);
+            chip.strokeDashes = [];
+        } else {
+            chip.stroked = false;
+        }
+        t.translate(left + outer + cg + tw / 2 - (b[0] + b[2]) / 2, C[1] - (b[1] + b[3]) / 2);
+    }
+
+    // 拆掉標註，把線拿出來（箭頭的線頭還原到尖端），回傳 [線, 原本的圖層或群組]；沒有線 = null
+    function takeLine(g) {
         var line = findChild(g, "CMF_Line");
         if (!line) return null;
         var end = findChild(g, "CMF_End");
@@ -321,23 +400,47 @@ $.global.CMF = (function () {
             var last = line.pathPoints[line.pathPoints.length - 1];
             last.anchor = tip; last.leftDirection = tip; last.rightDirection = tip;
         }
+        var container = g.parent; // 留在原本的圖層或群組裡
+        line.move(g, ElementPlacement.PLACEBEFORE);
+        g.remove();
+        return [line, container];
+    }
+
+    // 拆掉舊標註，用同一條線重建；沒指定 key 時保留原本對應的物件
+    function rebuild(d, g, num, styleStr, key) {
+        if (key === undefined) key = noteParts(g).key;
+        if (!findChild(g, "CMF_Line")) return null;
         var locked = g.locked, hidden = g.hidden, saved = openAncestors(g);
         try {
-            var container = g.parent; // 留在原本的圖層或群組裡
-            line.move(g, ElementPlacement.PLACEBEFORE);
-            g.remove();
-            var ng = buildCallout(d, line, num, styleStr, container, key);
+            var lc = takeLine(g), ng = buildCallout(d, lc[0], num, styleStr, lc[1], key);
             keepState(ng, locked, hidden);
             return ng;
         } finally { restoreTemp(saved); }
     }
 
-    // 一個一個重建，有一個失敗也繼續做下一個；styleOf(note) 回傳要用的樣式
+    // 色號標註用同一條線、同一個顏色和文字重建；文字在 Illustrator 裡直接改過時，用改過的文字
+    function rebuildSwatch(d, g, styleStr) {
+        if (!findChild(g, "CMF_Line")) return null;
+        var sw = swParts(g), lb = findChild(g, "CMF_Label"), locked = g.locked, hidden = g.hidden, saved = openAncestors(g);
+        if (lb && lb.typename === "TextFrame") {
+            var now = String(lb.contents).replace(/[\r\n\t\u0003]+/g, " ").replace(/^\s+|\s+$/g, "");
+            if (now && now !== swLabel(sw)) sw.text = now;
+        }
+        try {
+            var lc = takeLine(g), ng = buildCallout(d, lc[0], 0, styleStr, lc[1], "", sw);
+            keepState(ng, locked, hidden);
+            return ng;
+        } finally { restoreTemp(saved); }
+    }
+
+    // 一個一個重建（標註和色號標註），有一個失敗也繼續做下一個；styleOf(note) 回傳要用的樣式（note.style = 原本的樣式）
     function rebuildMany(d, cs, styleOf) {
         var r = { made: [], failed: 0, why: "" };
         for (var i = 0; i < cs.length; i++) {
             try {
-                var p = noteParts(cs[i]), ng = rebuild(d, cs[i], p.num, styleOf(p));
+                var ng;
+                if (isSwatch(cs[i])) ng = rebuildSwatch(d, cs[i], styleOf(swParts(cs[i])));
+                else { var p = noteParts(cs[i]); ng = rebuild(d, cs[i], p.num, styleOf(p)); }
                 if (ng) r.made.push(ng); else r.failed++;
             } catch (e) { r.failed++; if (!r.why) r.why = e.message; }
         }
@@ -381,21 +484,34 @@ $.global.CMF = (function () {
         if (sel && sel.length) for (i = 0; i < sel.length; i++) if (matchFP(sel[i])) return sel[i];
         try {
             var items = pendingFP.layer.pathItems, n = Math.min(items.length, 60);
-            for (i = 0; i < n; i++) if (matchFP(items[i]) && !isCallout(items[i].parent)) return items[i];
+            for (i = 0; i < n; i++) if (matchFP(items[i]) && !isLabel(items[i].parent)) return items[i];
         } catch (e) {}
         return null;
     }
 
+    // 面板的設定 kind = "swatch" 時新增色號標註（swColor、swText、swSpot），否則新增編號的標註
+    function swOf(o) {
+        if (o.kind !== "swatch") return null;
+        var hex = /^#[0-9a-fA-F]{6}$/.test(String(o.swColor)) ? String(o.swColor) : "#808080";
+        return { hex: hex, text: String(o.swText || "").replace(/[\r\n\t]+/g, " ").replace(/^\s+|\s+$/g, ""), spot: String(o.swSpot || "") };
+    }
+
+    // 回傳 { msg, next }：next = 下一個編號（色號標註沒有）
     function finalize(d, path, styleStr) {
-        var o = parse(styleStr);
+        var o = parse(styleStr), sw = swOf(o);
         reversePath(path); // 鋼筆第一點是目標點，buildCallout 需要第一點是編號端
+        if (sw) {
+            buildCallout(d, path, 0, styleStr, getLayer(d, true), "", sw);
+            d.selection = null;
+            return { msg: "已新增色號 " + swLabel(sw), next: null };
+        }
         var num = nextNumber(d, o);
         buildCallout(d, path, num, styleStr, getLayer(d, true));
         d.selection = null; // 取消選取，鋼筆下一次點擊會開始新路徑
-        return num;
+        return { msg: "已新增標註 " + num, next: num + 1 };
     }
 
-    function doneRes(num) { return res(true, "已新增標註 " + num, num + 1, "done"); }
+    function doneRes(r) { return res(true, r.msg, r.next, "done"); }
 
     function beginAdd() {
         try {
@@ -425,7 +541,7 @@ $.global.CMF = (function () {
 
             if (!sel || sel.length !== 1) return res(true, "", null, "idle");
             var it = sel[0];
-            if (it.typename !== "PathItem" || it.closed || isCallout(it.parent)) return res(true, "", null, "idle");
+            if (it.typename !== "PathItem" || it.closed || isLabel(it.parent)) return res(true, "", null, "idle");
             var cnt = it.pathPoints.length;
 
             if (mode === "free") {
@@ -448,7 +564,7 @@ $.global.CMF = (function () {
             var d = getDoc(), p = findPending(d), sel = d.selection;
             pendingFP = null;
             // 輪詢還沒抓到指紋時，直接用目前選取的線
-            if (!p && sel && sel.length === 1 && sel[0].typename === "PathItem" && !sel[0].closed && !isCallout(sel[0].parent)) p = sel[0];
+            if (!p && sel && sel.length === 1 && sel[0].typename === "PathItem" && !sel[0].closed && !isLabel(sel[0].parent)) p = sel[0];
             if (!p) return res(false, "沒有正在畫的線", null, "idle");
             if (p.pathPoints.length < 2) return res(false, "至少要點 2 個點", null, "drawing");
             return doneRes(finalize(d, p, styleStr));
@@ -462,9 +578,9 @@ $.global.CMF = (function () {
             if (app.documents.length > 0) {
                 var d = app.activeDocument, p = findPending(d);
                 if (p && p.pathPoints.length >= 2 && styleStr) {
-                    var num = finalize(d, p, styleStr);
-                    msg = "已新增標註 " + num + "，結束新增";
-                    next = num + 1;
+                    var fr = finalize(d, p, styleStr);
+                    msg = fr.msg + "，結束新增";
+                    next = fr.next;
                 } else {
                     var sel = d.selection;
                     // 只點了第一下就結束時，刪掉留下的單一錨點
@@ -484,7 +600,7 @@ $.global.CMF = (function () {
             if (!sel || sel.length === 0) return res(false, "請先選取要轉換的線段");
             for (i = 0; i < sel.length; i++) {
                 var it = sel[i];
-                if (it.typename === "PathItem" && !it.closed && it.pathPoints.length >= 2 && !isCallout(it.parent)) lines.push(it);
+                if (it.typename === "PathItem" && !it.closed && it.pathPoints.length >= 2 && !isLabel(it.parent)) lines.push(it);
             }
             if (lines.length === 0) return res(false, "選取中沒有可用的開放路徑（請用鋼筆或線段工具畫線）");
 
@@ -493,8 +609,13 @@ $.global.CMF = (function () {
             for (i = 0; i < lines.length; i++) reversePath(lines[i]);
             lines = sortByMode(lines, function (l) { return l.pathPoints[0].anchor; }, o.sortMode);
 
+            var layer = getLayer(d, true), made = [], sw = swOf(o);
+            if (sw) {
+                for (i = 0; i < lines.length; i++) made.push(buildCallout(d, lines[i], 0, styleStr, layer, "", sw));
+                d.selection = made;
+                return res(true, "已建立 " + made.length + " 個色號標註「" + swLabel(sw) + "」");
+            }
             var start = nextNumber(d, o);
-            var layer = getLayer(d, true), made = [];
             for (i = 0; i < lines.length; i++) {
                 made.push(buildCallout(d, lines[i], o.sameNumber ? start : start + i, styleStr, layer));
             }
@@ -670,11 +791,11 @@ $.global.CMF = (function () {
     // 同步全部：工作區裡的標註套用目前樣式
     function syncAll(styleStr) {
         try {
-            var d = getDoc(), all = allCallouts(d);
+            var d = getDoc(), all = allLabels(d);
             if (all.length === 0) return res(true, "文件中沒有標註");
             var on = onArtboards(d, all);
             if (!on.inside.length) return res(true, "標註都在工作區外面，沒有同步（要改它們，選取後按「套用選取」）");
-            var sel = selectedCallouts(d);
+            var sel = selectedOwners(d, isLabel);
             var r = rebuildMany(d, on.inside, function () { return styleStr; });
             if (sel.length === 0) d.selection = null;
             return res(r.made.length > 0, "已同步 " + r.made.length + " 個標註的樣式" + failNote(r) + outsideNote(on.outside));
@@ -684,7 +805,7 @@ $.global.CMF = (function () {
     // 套用到選取的標註
     function restyle(styleStr) {
         try {
-            var d = getDoc(), cs = selectedCallouts(d);
+            var d = getDoc(), cs = selectedOwners(d, isLabel);
             if (cs.length === 0) return res(false, "請先選取標註");
             var r = rebuildMany(d, cs, function () { return styleStr; });
             d.selection = r.made;
@@ -695,7 +816,7 @@ $.global.CMF = (function () {
     // 移動過線條錨點後，用原本樣式重新排版
     function relayout() {
         try {
-            var d = getDoc(), cs = selectedCallouts(d);
+            var d = getDoc(), cs = selectedOwners(d, isLabel);
             if (cs.length === 0) return res(false, "請先選取要重新排版的標註");
             var r = rebuildMany(d, cs, function (p) { return p.style; });
             d.selection = r.made;
@@ -705,7 +826,7 @@ $.global.CMF = (function () {
 
     function selectAll() {
         try {
-            var d = getDoc(), cs = allCallouts(d);
+            var d = getDoc(), cs = allLabels(d);
             if (cs.length === 0) return res(false, "文件中沒有標註");
             d.selection = cs;
             return res(true, "已選取 " + cs.length + " 個標註");
@@ -748,23 +869,34 @@ $.global.CMF = (function () {
         return null; // 無色、圖樣
     }
 
-    // prefer："fill" 或 "stroke"，找不到時改用另一個
-    function itemColor(it, prefer) {
+    // 物件的顏色（Illustrator 的 Color）；prefer："fill" 或 "stroke"，找不到時改用另一個。無色、圖樣 = null
+    function itemColorObj(it, prefer) {
         var t = it.typename, i, c;
         if (t === "TextFrame" || t === "TextRange") {
             var tr = t === "TextFrame" ? it.textRange : it;
-            try { return colorToHex(tr.characterAttributes.fillColor); } catch (e) { return null; }
+            try { c = tr.characterAttributes.fillColor; return colorToHex(c) ? c : null; } catch (e) { return null; }
         }
         if (t === "PathItem") {
-            var f = it.filled ? colorToHex(it.fillColor) : null;
-            var s = it.stroked ? colorToHex(it.strokeColor) : null;
+            var f = it.filled && colorToHex(it.fillColor) ? it.fillColor : null;
+            var s = it.stroked && colorToHex(it.strokeColor) ? it.strokeColor : null;
             return prefer === "stroke" ? (s || f) : (f || s);
         }
-        if (t === "CompoundPathItem" && it.pathItems.length) return itemColor(it.pathItems[0], prefer);
+        if (t === "CompoundPathItem" && it.pathItems.length) return itemColorObj(it.pathItems[0], prefer);
         if (t === "GroupItem") {
-            for (i = 0; i < it.pageItems.length; i++) { c = itemColor(it.pageItems[i], prefer); if (c) return c; }
+            for (i = 0; i < it.pageItems.length; i++) { c = itemColorObj(it.pageItems[i], prefer); if (c) return c; }
         }
         return null;
+    }
+
+    function itemColor(it, prefer) { return colorToHex(itemColorObj(it, prefer)); }
+
+    // 特別色、全域色票的名稱（例如 PANTONE 186 C）；網點不是 100% 時加上 %。一般的顏色 = 空字串
+    function spotName(c) {
+        if (!c || c.typename !== "SpotColor") return "";
+        var n = "";
+        try { n = c.spot.name; } catch (e) { return ""; }
+        if (!n || n === "[Registration]" || n === "[拼版標記]") return "";
+        return n + (c.tint < 99.5 ? " " + Math.round(c.tint) + "%" : "");
     }
 
     function beginPick() {
@@ -784,10 +916,11 @@ $.global.CMF = (function () {
             var isText = sel.typename === "TextRange"; // 用文字工具選取文字時，selection 是 TextRange 而不是陣列
             if (!isText && sel.length === 0) return res(true, "", null, "idle");
             var it = isText ? sel : sel[0];
-            var hex = itemColor(it, o.prefer);
+            var c = itemColorObj(it, o.prefer), hex = colorToHex(c), spot = spotName(c);
             d.selection = null;
             if (!hex) return res(false, "這個物件沒有可取用的顏色（無色或圖樣）", null, "done");
-            return '{"ok":true,"msg":"已取色 ' + hex + '","hex":"' + hex + '","state":"done"}';
+            return '{"ok":true,"msg":"已取色 ' + esc(spot ? spot + "（" + hex + "）" : hex) + '","hex":"' + hex + '","spot":"' + esc(spot) +
+                '","state":"done"}';
         } catch (e) { return res(false, e.message, null, "done"); }
     }
 
@@ -960,14 +1093,14 @@ $.global.CMF = (function () {
 
     // 標註備註裡跟尺寸有關的樣式也跟著縮放，之後重新編號、重新排版才會維持縮放後的大小
     function scaleNote(g, s) {
-        var p = noteParts(g);
-        var re = /"(fontSize|badgePadding|badgeStrokeWidth|lineWidth|endSize|styleScale|gap)"\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)/g;
+        var sw = isSwatch(g), p = sw ? swParts(g) : noteParts(g);
+        var re = /"(fontSize|badgePadding|badgeStrokeWidth|lineWidth|endSize|styleScale|gap|chipSize|chipBorder)"\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)/g;
         var style = p.style.replace(re, function (m, k, v) {
             return '"' + k + '":' + roundTo(Number(v) * s, 3);
         });
         // 舊的標註沒有 styleScale（= 100%）：補上，之後重新產生時繪圖樣式的線寬才會維持縮放後的大小
         if (!/"styleScale"\s*:/.test(style)) style = style.replace(/\}\s*$/, ',"styleScale":' + roundTo(100 * s, 3) + "}");
-        if (style !== p.style) g.note = makeNote(p.num, p.key, style);
+        if (style !== p.style) g.note = sw ? swNote(p, style) : makeNote(p.num, p.key, style);
     }
 
     function jsonNum(v) { return isFinite(v) ? String(v) : "0"; }
@@ -1079,7 +1212,7 @@ $.global.CMF = (function () {
                 units = keep;
             }
             // 先判斷標註、尺寸在不在範圍內（縮放後位置就變了）
-            var callouts = allCallouts(d), scaledCallouts = [];
+            var callouts = allLabels(d), scaledCallouts = [];
             for (i = 0; i < callouts.length; i++) if (inScope(topItem(callouts[i]))) scaledCallouts.push(callouts[i]);
             var dims = allDims(d), scaledDims = [];
             for (i = 0; i < dims.length; i++) if (inScope(topItem(dims[i]))) scaledDims.push(dims[i]);
@@ -1241,7 +1374,7 @@ $.global.CMF = (function () {
     function measuredItems(d) {
         var out = [], items = selectedItems(d);
         for (var i = 0; i < items.length; i++) {
-            if (!ownerOf(items[i], isDim) && !ownerOf(items[i], isCallout)) out.push(items[i]);
+            if (!ownerOf(items[i], isDim) && !ownerOf(items[i], isLabel)) out.push(items[i]);
         }
         return out;
     }
@@ -1949,7 +2082,7 @@ $.global.CMF = (function () {
             var d = app.activeDocument, sel = d.selection;
             if (!sel || sel.length !== 1) return res(true, "", null, "idle");
             var it = sel[0];
-            if (it.typename !== "PathItem" || it.closed || ownerOf(it, isDim) || ownerOf(it, isCallout)) return res(true, "", null, "idle");
+            if (it.typename !== "PathItem" || it.closed || ownerOf(it, isDim) || ownerOf(it, isLabel)) return res(true, "", null, "idle");
             var pts = it.pathPoints;
             if (pts.length < 2) return res(true, "", null, "drawing");
             var gm = freeGeom(pts[0].anchor, pts[pts.length - 1].anchor);
@@ -1968,7 +2101,7 @@ $.global.CMF = (function () {
             if (app.documents.length > 0) {
                 var sel = app.activeDocument.selection;
                 if (sel && sel.length === 1 && sel[0].typename === "PathItem" && sel[0].pathPoints.length < 2 &&
-                    !ownerOf(sel[0], isDim) && !ownerOf(sel[0], isCallout)) sel[0].remove();
+                    !ownerOf(sel[0], isDim) && !ownerOf(sel[0], isLabel)) sel[0].remove();
             }
             if (!keepTool) selectToolSafe("Adobe Select Tool");
             return res(true, "已結束兩點距離", null, "idle");
@@ -2048,7 +2181,7 @@ $.global.CMF = (function () {
     // 兩種都選了就都回傳，面板用自己分頁的那一種
     function pickStyle() {
         try {
-            var d = getDoc(), dims = selectedOwners(d, isDim), cs = selectedOwners(d, isCallout), out = '{"ok":true';
+            var d = getDoc(), dims = selectedOwners(d, isDim), cs = selectedOwners(d, isLabel), out = '{"ok":true';
             if (!dims.length && !cs.length) return res(false, "請先選取要吸取樣式的尺寸或標註");
             if (dims.length) {
                 var g = dims[0], p = dimNote(g), gm, st;
@@ -2058,10 +2191,13 @@ $.global.CMF = (function () {
                     ',"dimName":"' + esc(g.name) + '","dims":' + dims.length;
             }
             if (cs.length) {
-                var q = noteParts(cs[0]), cst;
+                // 色號標註沒有編號，回傳 name（色號 PANTONE 186 C）
+                var isSw = isSwatch(cs[0]), q = isSw ? swParts(cs[0]) : noteParts(cs[0]), cst;
+                var label = isSw ? "「" + cs[0].name + "」" : "標註 " + q.num;
                 try { cst = flatJson(parse(q.style)); }
-                catch (eC) { return res(false, "標註 " + q.num + " 的樣式記錄讀不到（" + eC.message + "）"); }
-                out += ',"callout":' + cst + ',"num":' + jsonNum(q.num) + ',"callouts":' + cs.length;
+                catch (eC) { return res(false, label + "的樣式記錄讀不到（" + eC.message + "）"); }
+                out += ',"callout":' + cst + ',"label":"' + esc(label) + '","callouts":' + cs.length;
+                if (!isSw) out += ',"num":' + jsonNum(q.num);
             }
             return out + "}";
         } catch (e) { return res(false, e.message); }

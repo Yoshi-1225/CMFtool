@@ -173,6 +173,19 @@ input::placeholder { color: var(--muted); }
 @keyframes tip-in { from { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .tip { animation: none; } }
 
+/* 標註分頁：新增哪一種（編號、色號），選到的浮起來 */
+.seg { display: flex; gap: 2px; padding: 2px; margin: 2px 0 8px; background: var(--field); border-radius: 10px; }
+.sg {
+  flex: 1; height: 26px; line-height: 26px; text-align: center; border-radius: var(--r-ctl);
+  color: var(--muted); cursor: pointer; transition: background-color .15s, color .15s;
+}
+.sg:hover { color: var(--fg); }
+.tgl-in:checked + .sg { color: var(--fg); font-weight: 600; background: var(--raise); box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
+.tgl-in:focus-visible + .sg { box-shadow: 0 0 0 2px var(--ring); }
+.light .seg { background: rgba(0, 0, 0, .06); }
+/* 色號：色塊顏色（含滴管）+ 文字 */
+.swrow { display: grid; grid-template-columns: 76px 1fr; gap: 6px; align-items: center; margin: 0 0 8px; }
+
 /* 主要按鈕 */
 .add {
   width: 100%; height: 34px;

@@ -22,6 +22,20 @@
 
 <!-- ==================== 標註 ==================== -->
 <section class="page" id="page-callout" role="tabpanel">
+  <!-- 新增哪一種：編號（圓圈或數字）或色號（色塊 + 一行文字）。兩種共用下面的線條模式和「樣式」 -->
+  <div class="seg" role="radiogroup" aria-label="新增哪一種標註">
+    <input type="radio" class="tgl-in" name="kindSel" id="kindNumber" value="number" checked>
+    <label class="sg" for="kindNumber" title="編號標註：圓圈或數字，對應 CMF 清單">編號</label>
+    <input type="radio" class="tgl-in" name="kindSel" id="kindSwatch" value="swatch">
+    <label class="sg" for="kindSwatch" title="色號標註：色塊 + 一行文字（例如 PANTONE 186 C），不編號">色號</label>
+  </div>
+  <input type="hidden" id="kind" value="number">
+  <div class="swrow" id="swRow" hidden>
+    <input type="color" id="swColor" value="#2b7bd6" title="色塊的顏色：按滴管點畫布上的物件取色（特別色、全域色票會一起帶入名稱）">
+    <input type="text" id="swText" placeholder="色號，例如 PANTONE 186 C" spellcheck="false" autocomplete="off"
+           title="色塊旁邊的文字（一行）；空白 = 色票名稱或色碼">
+    <input type="hidden" id="swSpot">
+  </div>
   <button class="add" id="btnAdd">新增標註</button>
   <div class="addopts">
     <select id="lineMode" aria-label="線條模式" title="直線：點 2 下　折線：點 3 下　自由折線：按「完成這條線」結束">
@@ -109,6 +123,20 @@
                 <input type="number" id="badgeStrokeWidth" min="0" step="0.25" value="0" title="邊框粗細 (pt)，0 = 無邊框">
                 <input type="color" id="badgeStrokeColor" value="#000000" title="邊框顏色">
               </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane" data-pane="chip" hidden>
+          <div class="row">
+            <label for="chipSize">大小</label>
+            <input type="number" id="chipSize" min="1" step="0.5" value="10" title="色塊的邊長 (pt)">
+          </div>
+          <div class="row">
+            <label for="chipBorder">邊框</label>
+            <div class="pair">
+              <input type="number" id="chipBorder" min="0" step="0.25" value="0.25" title="色塊的邊框粗細 (pt)，0 = 無邊框（淺色的色塊加邊框才看得清楚）">
+              <input type="color" id="chipBorderColor" value="#808080" title="色塊的邊框顏色">
             </div>
           </div>
         </div>

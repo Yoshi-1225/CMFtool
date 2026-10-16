@@ -4,13 +4,18 @@
   var cep = window.__adobe_cep__;
   var KEY = "cmfCalloutSettings";
   var STYLE_FIELDS = ["fontSize", "textColor", "fontName", "badge", "badgeColor", "badgeTextColor", "badgePadding",
-    "badgeStrokeWidth", "badgeStrokeColor", "lineWidth", "lineColor", "endStyle", "endSize", "styleName", "styleScale", "gap"];
-  var FIELDS = ["lineMode", "continuous", "startMode", "startNumber", "sortMode", "sameNumber", "autoSync"].concat(STYLE_FIELDS);
+    "badgeStrokeWidth", "badgeStrokeColor", "lineWidth", "lineColor", "endStyle", "endSize", "styleName", "styleScale", "gap",
+    "chipSize", "chipBorder", "chipBorderColor"];
+  // kind：新增 number 編號、swatch 色號（色塊 swColor + 文字 swText；swSpot = 滴管取到的色票名稱）
+  var FIELDS = ["lineMode", "continuous", "startMode", "startNumber", "sortMode", "sameNumber", "autoSync",
+    "kind", "swColor", "swText", "swSpot"].concat(STYLE_FIELDS);
   var MODE_TIPS = {
-    straight: "點目標點 → 點編號位置",
-    elbow: "點目標點 → 點轉折點 → 點編號位置",
+    straight: "點目標點 → 點{label}位置",
+    elbow: "點目標點 → 點轉折點 → 點{label}位置",
     free: "左鍵持續加點，按「完成這條線」或快捷鍵完成"
   };
+  function isSwatch() { return $("kind").value === "swatch"; }
+  function modeTip() { return MODE_TIPS[$("lineMode").value].replace("{label}", isSwatch() ? "色號" : "編號"); }
   var $ = function (id) { return document.getElementById(id); };
 
   // ---------- 與 ExtendScript 溝通 ----------
@@ -96,7 +101,7 @@
   // 沒有圓圈底、端點是「無」時，滑過圖會出現虛線，一樣點得到。
   // 在部位上按住左右拖曳，直接改它的大小（js/numfield.js 的拖曳把手）：編號 = 字級、圓圈 = 內距、引線 = 線寬、
   // 端點 = 大小（繪圖樣式 = %）。第一次在圖上點過之後，角落的提示就不再出現
-  var PART_NAMES = { text: "文字", badge: "圓圈", line: "引線", end: "端點" };
+  var PART_NAMES = { text: "文字", badge: "圓圈", chip: "色塊", line: "引線", end: "端點" };
   var fc = App.figCard({ svg: $("preview"), card: $("stylePop"), title: $("popTitle"), names: PART_NAMES, first: "text",
     key: "cmftool:calloutPart", hintKey: "cmftool:partHint" });
 
@@ -109,14 +114,19 @@
   function clamp(v, lo, hi) { return isFinite(v) ? Math.max(lo, Math.min(hi, v)) : lo; }
 
   function renderPreview() {
-    var o = readSettings();
+    var o = readSettings(), sw = o.kind === "swatch";
     $("badgeRows").classList.toggle("hidden", !o.badge);
     $("styleRow").classList.toggle("hidden", o.endStyle !== "style");
     $("startNumber").disabled = o.startMode === "auto";
     $("badgeStrokeColor").disabled = !(o.badgeStrokeWidth > 0);
-    // 編號的顏色：有圓圈底時是圓圈裡的數字顏色
-    boxOf("textColor").classList.toggle("hidden", !!o.badge);
-    boxOf("badgeTextColor").classList.toggle("hidden", !o.badge);
+    $("chipBorderColor").disabled = !(o.chipBorder > 0);
+    // 編號的顏色：有圓圈底時是圓圈裡的數字顏色；色號的文字一律用文字顏色
+    boxOf("textColor").classList.toggle("hidden", !!o.badge && !sw);
+    boxOf("badgeTextColor").classList.toggle("hidden", !o.badge || sw);
+    $("kindNumber").checked = !sw;
+    $("kindSwatch").checked = sw;
+    $("swRow").hidden = !sw;
+    if (!adding) $("btnAdd").textContent = sw ? "新增色號" : "新增標註";
     updateFinishButton();
     $("preview").innerHTML = figure(o);
     fc.update();
@@ -128,12 +138,16 @@
     var gap = clamp(o.gap * K, 0, 20), pad = clamp(o.badgePadding * K, 0, 16);
     var bsw = o.badgeStrokeWidth > 0 ? clamp(o.badgeStrokeWidth * K, 0.75, 5) : 0;
     // 正方形的圖：編號端在右上 → (轉折) → 目標點（落在左下角的產品上）；最大的圓圈也放得下
-    var pts = o.lineMode === "straight" ? [[176, 84], [100, 182]] : [[156, 64], [118, 64], [100, 182]];
+    // 色號：標籤比較寬，編號端放左邊一點
+    var sw = o.kind === "swatch";
+    var pts = sw ? (o.lineMode === "straight" ? [[118, 76], [100, 182]] : [[96, 58], [64, 58], [100, 182]])
+      : (o.lineMode === "straight" ? [[176, 84], [100, 182]] : [[156, 64], [118, 64], [100, 182]]);
     var S = pts[0], S1 = pts[1], E = pts[pts.length - 1], E1 = pts[pts.length - 2];
     // 拖曳改哪個欄位：[欄位 id, 顯示的名稱, 單位]；沒有圓圈底、端點是「無」時不能拖
     var size = {
       text: ["fontSize", "字級", "pt"],
       badge: o.badge ? ["badgePadding", "圓圈內距", "pt"] : null,
+      chip: ["chipSize", "色塊大小", "pt"],
       line: ["lineWidth", "線寬", "pt"],
       end: o.endStyle === "style" ? ["styleScale", "繪圖樣式", "%"] : o.endStyle === "none" ? null : ["endSize", "端點大小", "pt"]
     };
@@ -180,6 +194,7 @@
     // 編號：沿線的第一段往外推（跟 host.jsx 的 buildCallout 一樣）
     var dx = S[0] - S1[0], dy = S[1] - S1[1], dl = Math.sqrt(dx * dx + dy * dy) || 1;
     dx /= dl; dy /= dl;
+    if (sw) { out.push(swatchFigure(o, S, [dx, dy], fs, gap, group)); return out.join(""); }
     var tw = fs * 0.3, th = fs * 0.36, R = Math.max(tw, th) + pad, C;
     if (o.badge) {
       C = [S[0] + dx * (gap + R + bsw / 2), S[1] + dy * (gap + R + bsw / 2)];
@@ -205,6 +220,43 @@
       '" font-family="' + font + '" text-anchor="middle" dominant-baseline="central">3</text>' +
       '<rect class="hit" ' + box + "/>"));
     return out.join("");
+  }
+
+  // 色號的標籤：[色塊][文字]（host.jsx 的 swatchLabel）。放不進圖裡時字和色塊一起縮小
+  var meter = null;
+  try { meter = document.createElement("canvas").getContext("2d"); } catch (e) {}
+  function textWidth(text, fs, pf) {
+    if (!meter) return text.length * fs * 0.6;
+    meter.font = (pf.italic ? "italic " : "") + pf.weight + " " + fs + "px " + pf.family;
+    return meter.measureText(text).width;
+  }
+
+  function swLabel(o) { return String(o.swText || "").trim() || o.swSpot || String(o.swColor).toUpperCase(); }
+
+  function swatchFigure(o, S, dir, fs, gap, group) {
+    var K = 2, pf = previewFont(o), label = swLabel(o);
+    var cs = clamp(o.chipSize * K, 6, 40), bw = o.chipBorder > 0 ? clamp(o.chipBorder * K, 0.75, 5) : 0;
+    var tw = textWidth(label, fs, pf), outer = cs + bw, cg = Math.max(cs * 0.4, fs * 0.3);
+    // 能用的寬度：直線（文字在線頭上方）左右對稱；折線往右
+    var room = Math.abs(dir[0]) > 0.7 ? 236 - S[0] - gap : 2 * Math.min(S[0], 240 - S[0]) - 8;
+    var k = Math.min(1, room / (outer + cg + tw));
+    fs *= k; cs *= k; bw *= k; tw *= k; outer *= k; cg *= k;
+    var hw = (outer + cg + tw) / 2, hh = Math.max(outer, fs * 0.72) / 2;
+    var ext = Math.min(Math.abs(dir[0]) > 0.001 ? hw / Math.abs(dir[0]) : 1e9, Math.abs(dir[1]) > 0.001 ? hh / Math.abs(dir[1]) : 1e9);
+    var C = [S[0] + dir[0] * (gap + ext), S[1] + dir[1] * (gap + ext)], left = C[0] - hw;
+    var f = function (v) { return v.toFixed(2); };
+    var cx = left + bw / 2, cy = C[1] - cs / 2, tx = left + outer + cg, th = fs * 0.36;
+    var chipBox = 'x="' + f(left - 2) + '" y="' + f(C[1] - outer / 2 - 2) + '" width="' + f(outer + 4) + '" height="' + f(outer + 4) + '"';
+    var textBox = 'x="' + f(tx - 2) + '" y="' + f(C[1] - th - 2) + '" width="' + f(tw + 4) + '" height="' + f(th * 2 + 4) + '"';
+    return group("chip", '<rect class="hl" ' + chipBox + ' rx="2"/>' +
+        '<rect x="' + f(cx) + '" y="' + f(cy) + '" width="' + f(cs) + '" height="' + f(cs) + '" fill="' + o.swColor + '"' +
+        (bw ? ' stroke="' + o.chipBorderColor + '" stroke-width="' + f(bw) + '"' : "") + "/>" +
+        '<rect class="hit" ' + chipBox + "/>") +
+      group("text", '<rect class="hl" ' + textBox + ' rx="2"/>' +
+        '<text x="' + f(tx) + '" y="' + f(C[1]) + '" fill="' + o.textColor + '" font-size="' + f(fs) + '" font-family="' + pf.family +
+        '" font-weight="' + pf.weight + '" font-style="' + (pf.italic ? "italic" : "normal") + '" dominant-baseline="central">' +
+        label.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</text>" +
+        '<rect class="hit" ' + textBox + "/>");
   }
 
   // ---------- 字體選單 ----------
@@ -360,10 +412,23 @@
         input.value = r.hex;
         input.dispatchEvent(new Event("input"));
         input.dispatchEvent(new Event("change"));
+        if (id === "swColor") pickedSwatch(r.spot || "");
       }
       stopPick(r.msg, !r.ok);
     }, true);
   }
+
+  // 色號的滴管：記下色票名稱（色塊用文件裡的色票），文字空白或還是上次自動帶入的名稱時，換成這個名稱
+  var autoText = "";
+  function pickedSwatch(spot) {
+    $("swSpot").value = spot;
+    var t = $("swText");
+    if (spot && (!t.value.trim() || t.value === autoText)) { t.value = spot; autoText = spot; }
+    renderPreview();
+    saveSettings();
+  }
+  // 自己改了色塊的顏色：不是色票了
+  $("swColor").addEventListener("input", function () { $("swSpot").value = ""; });
 
   // ---------- 編號表 ----------
   // 有指定 CMF 清單時，每一列可以選擇對應的物件（名稱來自 Excel）
@@ -516,7 +581,7 @@
       $("btnAdd").textContent = "結束新增";
       $("btnAdd").classList.add("active");
       updateFinishButton();
-      if (!r.msg) setStatus(MODE_TIPS[$("lineMode").value]);
+      if (!r.msg) setStatus(modeTip());
       pollTimer = setInterval(poll, 200);
     });
   }
@@ -525,7 +590,7 @@
     clearInterval(pollTimer);
     pollTimer = null;
     adding = false;
-    $("btnAdd").textContent = "新增標註";
+    $("btnAdd").textContent = isSwatch() ? "新增色號" : "新增標註";
     $("btnAdd").classList.remove("active");
     updateFinishButton();
     run("CMF.endAdd(" + (keepTool ? "true" : "false") + "," + q(readSettings()) + ")", afterAdded);
@@ -589,7 +654,7 @@
     syncFontSelects();
     renderPreview();
     saveSettings();
-    var msg = "已吸取標註 " + r.num + " 的樣式";
+    var msg = "已吸取" + (r.num !== undefined ? "標註 " + r.num + " " : r.label || "標註") + "的樣式";
     if (r.callouts > 1) msg += "（選了 " + r.callouts + " 個標註，吸取的是這一個）";
     if (st.fontName && Object.keys(fontIndex).length && !fontIndex[st.fontName]) msg += "；字體清單裡沒有「" + st.fontName + "」";
     setStatus(msg);
@@ -620,6 +685,16 @@
     });
   });
 
+  // 編號／色號：存在 kind 裡（設定檔、快捷鍵腳本也看得到）。新增中切換，下一條線就用新的種類
+  ["kindNumber", "kindSwatch"].forEach(function (id) {
+    $(id).addEventListener("change", function () {
+      if (!$(id).checked) return;
+      $("kind").value = $(id).value;
+      renderPreview();
+      saveSettings();
+      if (adding) setStatus(modeTip());
+    });
+  });
   $("btnAdd").addEventListener("click", function () { if (adding) stopAdd(false); else startAdd(); });
   $("btnFinish").addEventListener("click", finishFree);
   App.on("pen", function (who) { if (who !== "callout" && adding) stopAdd(true); });
@@ -665,7 +740,7 @@
 
   // 縮放分頁縮放了文件：樣式裡跟尺寸有關的數值用同一個倍率縮放
   // （跟 host.jsx 的 scaleNote 一樣的欄位；只存檔，不觸發自動同步）
-  var SIZE_FIELDS = ["fontSize", "badgePadding", "badgeStrokeWidth", "lineWidth", "endSize", "styleScale", "gap"];
+  var SIZE_FIELDS = ["fontSize", "badgePadding", "badgeStrokeWidth", "lineWidth", "endSize", "styleScale", "gap", "chipSize", "chipBorder"];
   App.on("scaled", function (s) {
     SIZE_FIELDS.forEach(function (k) {
       var el = $(k);
