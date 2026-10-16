@@ -914,6 +914,96 @@ $.global.CMF = (function () {
         } catch (e) { return res(false, e.message); }
     }
 
+    // ---------- 對齊標籤 ----------
+    // 選取兩個以上的標註（編號、色號、文字說明都可以），標籤排整齊；線指著產品的那一端不動，只移動標籤那一端。
+    // o.dir："row" 排成一橫排（標籤的中線對齊）、"col" 排成一直列（標籤在線的右邊 = 左緣對齊，在左邊 = 右緣對齊）；
+    // 省略 = 自動：標籤左右散開排成一橫排，上下散開排成一直列。
+    // 對齊到離產品最遠的那個：標籤大多在線頭的下面（或右邊）就對齊最下面（最右邊）的，反之最上面（最左邊）。
+    // 標籤的位置跟線的方向有關，所以移動、重建之後再量一次，最多修正 3 次
+
+    // 標籤（編號、圓圈、色塊、文字）的外框 [左, 上, 右, 下]
+    function labelBox(g) {
+        var b = null;
+        for (var i = 0; i < g.pageItems.length; i++) {
+            var it = g.pageItems[i];
+            if (it.name !== "CMF_Label" && it.name !== "CMF_Badge" && it.name !== "CMF_Chip") continue;
+            var q = it.geometricBounds;
+            b = b ? [Math.min(b[0], q[0]), Math.max(b[1], q[1]), Math.max(b[2], q[2]), Math.min(b[3], q[3])] : [q[0], q[1], q[2], q[3]];
+        }
+        return b;
+    }
+
+    // 線頭（標籤那一端）移動 delta；線的第二段跟對齊的方向垂直（折線的橫線、直線）時，轉折點一起移，橫線才會維持水平
+    function shiftLabelEnd(g, axis, delta) {
+        var line = findChild(g, "CMF_Line");
+        if (!line) return false;
+        var pts = line.pathPoints, n = pts.length, k = axis === "y" ? 1 : 0;
+        var move = function (p) {
+            var a = [p.anchor[0], p.anchor[1]];
+            a[k] += delta;
+            p.anchor = a; p.leftDirection = a; p.rightDirection = a;
+        };
+        var S = pts[0].anchor, S1 = pts[1].anchor;
+        if (n > 2 && Math.abs(S[k] - S1[k]) < 0.5) move(pts[1]);
+        move(pts[0]);
+        return true;
+    }
+
+    function alignLabels(optStr) {
+        try {
+            var o = optStr ? parse(optStr) : {};
+            var d = getDoc(), gs = selectedOwners(d, isLabel), i, pass;
+            if (gs.length < 2) return res(false, "請選取兩個以上的標註");
+            var boxes = [], tips = [], minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9;
+            for (i = 0; i < gs.length; i++) {
+                var b = labelBox(gs[i]), line = findChild(gs[i], "CMF_Line");
+                if (!b || !line) return res(false, "「" + gs[i].name + "」找不到標籤或引線");
+                var c = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+                boxes.push(b);
+                tips.push(line.pathPoints[line.pathPoints.length - 1].anchor);
+                minx = Math.min(minx, c[0]); maxx = Math.max(maxx, c[0]);
+                miny = Math.min(miny, c[1]); maxy = Math.max(maxy, c[1]);
+            }
+            var row = o.dir === "row" ? true : (o.dir === "col" ? false : maxx - minx >= maxy - miny), below = 0, right = 0;
+            for (i = 0; i < gs.length; i++) {
+                var cc = [(boxes[i][0] + boxes[i][2]) / 2, (boxes[i][1] + boxes[i][3]) / 2];
+                below += cc[1] < tips[i][1] ? 1 : -1;
+                right += cc[0] > tips[i][0] ? 1 : -1;
+            }
+            // 對齊用的值：橫排 = 中線的 y；直列 = 左緣（標籤在右邊）或右緣的 x
+            var useLeft = right >= 0;
+            var valueOf = function (b) { return row ? (b[1] + b[3]) / 2 : (useLeft ? b[0] : b[2]); };
+            var target = null;
+            for (i = 0; i < gs.length; i++) {
+                var v = valueOf(boxes[i]);
+                if (target === null) target = v;
+                else if (row) target = below >= 0 ? Math.min(target, v) : Math.max(target, v);
+                else target = useLeft ? Math.max(target, v) : Math.min(target, v);
+            }
+            var failed = 0, why = "";
+            for (pass = 0; pass < 3; pass++) {
+                var moved = false;
+                for (i = 0; i < gs.length; i++) {
+                    if (!gs[i]) continue;
+                    var bx = labelBox(gs[i]), delta = bx ? target - valueOf(bx) : 0;
+                    if (Math.abs(delta) < 0.05) continue;
+                    var saved = openAncestors(gs[i]);
+                    try { shiftLabelEnd(gs[i], row ? "y" : "x", delta); } finally { restoreTemp(saved); }
+                    var r = rebuildMany(d, [gs[i]], function (p) { return p.style; });
+                    if (r.made.length) gs[i] = r.made[0];
+                    else { gs[i] = null; failed++; if (!why) why = r.why; }
+                    moved = true;
+                }
+                if (!moved) break;
+            }
+            var made = [];
+            for (i = 0; i < gs.length; i++) if (gs[i]) made.push(gs[i]);
+            d.selection = made;
+            return res(made.length > 0, "已把 " + made.length + " 個標註" + (row ? "排成一橫排" : "排成一直列") +
+                failNote({ failed: failed, why: why }));
+        } catch (e) { return res(false, e.message); }
+    }
+
     // 移動過線條錨點後，用原本樣式重新排版
     function relayout() {
         try {
@@ -2364,6 +2454,7 @@ $.global.CMF = (function () {
         syncAll: syncAll,
         restyle: restyle,
         relayout: relayout,
+        alignLabels: alignLabels,
         selectAll: selectAll,
         toggleLayer: toggleLayer,
         listFonts: listFonts,

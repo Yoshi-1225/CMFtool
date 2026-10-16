@@ -801,6 +801,8 @@
   $("btnSync").addEventListener("click", function () { callHost("syncAll", syncStyle()); });
   $("btnRestyle").addEventListener("click", function () { callHost("restyle", syncStyle()); });
   $("btnRelayout").addEventListener("click", function () { callHost("relayout"); });
+  $("btnAlignRow").addEventListener("click", function () { callHost("alignLabels", { dir: "row" }); });
+  $("btnAlignCol").addEventListener("click", function () { callHost("alignLabels", { dir: "col" }); });
   $("btnPickStyle").addEventListener("click", pickStyle);
   App.on("pickedCallout", applyPicked);   // 在尺寸分頁按「吸取樣式」、選的是標註
   $("btnSelectAll").addEventListener("click", function () { callHost("selectAll"); });

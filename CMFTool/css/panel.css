@@ -135,7 +135,7 @@ input::placeholder { color: var(--muted); }
 .mt { margin-top: 6px; }
 
 /* 工具列：圖示按鈕（.ibtn），開關（.tgl-in + label.tbtn，開 = 藍色），說明在滑鼠停上去的泡泡裡 */
-.tools { display: flex; align-items: center; gap: 4px; margin: 10px 0 4px; }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 10px 0 4px; }
 .tools-more { margin-top: 0; }
 .tools-sep { width: 1px; height: 18px; margin: 0 3px; background: var(--line-soft); }
 .tools .sp { flex: 1; }
