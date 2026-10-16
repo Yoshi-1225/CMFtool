@@ -134,6 +134,7 @@
     $("kindNote").checked = note;
     $("swRow").hidden = kind !== "swatch";
     $("noteRow").hidden = !note;
+    $("numSect").hidden = sw;   // 色號、文字說明沒有編號，不顯示編號表
     if (!adding) $("btnAdd").textContent = KIND_ADD[kind];
     updateFinishButton();
     $("preview").innerHTML = figure(o);
