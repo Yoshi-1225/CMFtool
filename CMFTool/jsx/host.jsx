@@ -320,7 +320,7 @@ $.global.CMF = (function () {
             }
         }
 
-        if (sw) { swatchLabel(d, g, o, S, S1, sw); return g; }
+        if (sw) { swatchLabel(d, g, o, S, S1, sw); setRef(g); return g; }
 
         // 編號文字
         var t = g.textFrames.add();
@@ -368,7 +368,66 @@ $.global.CMF = (function () {
             }
             circ.move(t, ElementPlacement.PLACEAFTER);
         }
+        setRef(g);
         return g;
+    }
+
+    // ---------- 標註被放大縮小 ----------
+    // 在 Illustrator 裡直接放大縮小標註（群組）時，記錄的樣式（字級、線寬⋯）也要跟著乘同一個倍率，
+    // 之後「重新排版」、只同步一個部位、對齊、吸取樣式才會用放大後的大小。
+    // 建立時在樣式裡記一個參考大小 _ref（"種類:大小"），重建時量現在的大小，比一比就知道放大了幾倍：
+    //   e 端點（箭頭底邊、圓點直徑）、c 色塊邊長、b 圓圈直徑、t 文字高度。
+    //   都是轉向、移動錨點、改文字也不會變的大小（箭頭用底邊、圓用對角的兩個錨點）
+    function ptDist(a, b) { var x = a[0] - b[0], y = a[1] - b[1]; return Math.sqrt(x * x + y * y); }
+
+    function labelRef(g) {
+        var it = findChild(g, "CMF_End"), pp;
+        if (it && it.typename === "PathItem") {
+            pp = it.pathPoints;
+            if (pp.length === 3) return ["e", ptDist(pp[1].anchor, pp[2].anchor)];
+            if (pp.length === 4) return ["e", ptDist(pp[0].anchor, pp[2].anchor)];
+        }
+        it = findChild(g, "CMF_Chip");
+        if (it && it.typename === "PathItem" && it.pathPoints.length === 4) return ["c", ptDist(it.pathPoints[0].anchor, it.pathPoints[1].anchor)];
+        it = findChild(g, "CMF_Badge");
+        if (it && it.typename === "PathItem" && it.pathPoints.length === 4) return ["b", ptDist(it.pathPoints[0].anchor, it.pathPoints[2].anchor)];
+        it = findChild(g, "CMF_Label");
+        if (it && it.typename === "TextFrame") { var b = it.geometricBounds; return ["t", b[1] - b[3]]; }
+        return null;
+    }
+
+    var REF_RE = /,?\s*"_ref"\s*:\s*"(\w):([0-9.eE+-]+)"/;
+
+    // 量好參考大小，寫進備註的樣式裡（樣式在備註的最後面）
+    function setRef(g) {
+        try {
+            var r = labelRef(g);
+            if (!r || !(r[1] > 0)) return;
+            var n = String(g.note).replace(REF_RE, ""), i = n.lastIndexOf("}");
+            if (i < 0) return;
+            var head = n.substring(0, i).replace(/\s+$/, "");
+            g.note = head + (head.charAt(head.length - 1) === "{" ? "" : ",") + '"_ref":"' + r[0] + ":" + jsonNum(roundTo(r[1], 4)) + '"' + n.substring(i);
+        } catch (e) {}
+    }
+
+    // 樣式裡跟大小有關的數值（和 _ref）乘 s
+    var LABEL_SIZE_RE = /"(fontSize|badgePadding|badgeStrokeWidth|lineWidth|endSize|styleScale|gap|chipSize|chipBorder)"\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)/g;
+    function scaleLabelStyle(style, s) {
+        style = style.replace(LABEL_SIZE_RE, function (m, k, v) { return '"' + k + '":' + roundTo(Number(v) * s, 3); });
+        // 舊的標註沒有 styleScale（= 100%）：補上，之後重新產生時繪圖樣式的線寬才會維持縮放後的大小
+        if (!/"styleScale"\s*:/.test(style)) style = style.replace(/\}\s*$/, ',"styleScale":' + roundTo(100 * s, 3) + "}");
+        return style.replace(REF_RE, function (m, k, v) { return (m.charAt(0) === "," ? "," : "") + '"_ref":"' + k + ":" + jsonNum(roundTo(Number(v) * s, 4)) + '"'; });
+    }
+
+    // 標註自己記錄的樣式，算進它被放大縮小的倍率
+    function ownStyle(g, style) {
+        var m = REF_RE.exec(style);
+        if (!m) return style;
+        var r = labelRef(g);
+        if (!r || r[0] !== m[1]) return style;
+        var k = r[1] / Number(m[2]);
+        if (!(k > 0) || Math.abs(k - 1) < 0.01) return style;
+        return scaleLabelStyle(style, k);
     }
 
     // 色號標註的標籤：[色塊][文字] 一行，色塊在左、文字在右，跟編號一樣沿著線的第一段往外推，
@@ -491,8 +550,9 @@ $.global.CMF = (function () {
         for (var i = 0; i < cs.length; i++) {
             try {
                 var ng;
-                if (isSwatch(cs[i])) ng = rebuildSwatch(d, cs[i], styleOf(swParts(cs[i])));
-                else { var p = noteParts(cs[i]); ng = rebuild(d, cs[i], p.num, styleOf(p)); }
+                // p.style：標註自己的樣式，算進它在 Illustrator 裡被放大縮小的倍率
+                if (isSwatch(cs[i])) { var q = swParts(cs[i]); q.style = ownStyle(cs[i], q.style); ng = rebuildSwatch(d, cs[i], styleOf(q)); }
+                else { var p = noteParts(cs[i]); p.style = ownStyle(cs[i], p.style); ng = rebuild(d, cs[i], p.num, styleOf(p)); }
                 if (ng) r.made.push(ng); else r.failed++;
             } catch (e) { r.failed++; if (!r.why) r.why = e.message; }
         }
@@ -1340,12 +1400,7 @@ $.global.CMF = (function () {
     // 標註備註裡跟尺寸有關的樣式也跟著縮放，之後重新編號、重新排版才會維持縮放後的大小
     function scaleNote(g, s) {
         var sw = isSwatch(g), p = sw ? swParts(g) : noteParts(g);
-        var re = /"(fontSize|badgePadding|badgeStrokeWidth|lineWidth|endSize|styleScale|gap|chipSize|chipBorder)"\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)/g;
-        var style = p.style.replace(re, function (m, k, v) {
-            return '"' + k + '":' + roundTo(Number(v) * s, 3);
-        });
-        // 舊的標註沒有 styleScale（= 100%）：補上，之後重新產生時繪圖樣式的線寬才會維持縮放後的大小
-        if (!/"styleScale"\s*:/.test(style)) style = style.replace(/\}\s*$/, ',"styleScale":' + roundTo(100 * s, 3) + "}");
+        var style = scaleLabelStyle(p.style, s);   // 參考大小 _ref 也一起乘，之後比對才不會再算一次
         if (style !== p.style) g.note = sw ? swNote(p, style) : makeNote(p.num, p.key, style);
     }
 
@@ -1967,7 +2022,14 @@ $.global.CMF = (function () {
             if (gm.x !== undefined) o.x = gm.x * T.s;
         }
         if (gm.z > 0) o.z = gm.z * T.s;
+        o._s = T.s;   // 尺寸被放大縮小的倍率（記錄的樣式要乘這個，見 dimOwnStyle）
         return o;
+    }
+
+    // 尺寸自己記錄的樣式，算進它在 Illustrator 裡被放大縮小的倍率（gm = dimGeomNow 的結果）
+    function dimOwnStyle(style, gm) {
+        var k = gm && gm._s;
+        return k > 0 && Math.abs(k - 1) >= 0.01 ? scaleDimStyle(style, k) : style;
     }
 
     // 尺寸現在的幾何：記錄的點加上建立之後被移動、等比縮放、旋轉的量。找不到 DIM_Line 或沒有 ref = null
@@ -1994,7 +2056,7 @@ $.global.CMF = (function () {
         }
         var locked = g.locked, hidden = g.hidden, saved = openAncestors(g);
         try {
-            var ng = buildDim(d, g.layer, gm, styleStr || p.style);
+            var ng = buildDim(d, g.layer, gm, styleStr || dimOwnStyle(p.style, gm));
             ng.move(g, ElementPlacement.PLACEBEFORE); // 留在原本的位置（圖層、群組、上下順序）
             g.remove();
             keepState(ng, locked, hidden);
@@ -2400,7 +2462,8 @@ $.global.CMF = (function () {
         for (var i = 0; i < gs.length; i++) {
             var ng = null;
             try {
-                var st = only ? mergeStyle(dimNote(gs[i]).style, styleStr, only.keys) : styleStr;
+                var dn = only ? dimNote(gs[i]) : null;
+                var st = only ? mergeStyle(dimOwnStyle(dn.style, dimGeomNow(gs[i], dn)), styleStr, only.keys) : styleStr;
                 ng = rebuildDim(d, gs[i], st, withOffset, withSide);
             } catch (e) { if (!r.why) r.why = e.message; }
             if (ng) r.made.push(ng); else r.failed++;
@@ -2460,7 +2523,7 @@ $.global.CMF = (function () {
             if (!dims.length && !cs.length) return res(false, "請先選取要吸取樣式的尺寸或標註");
             if (dims.length) {
                 var g = dims[0], p = dimNote(g), gm, st;
-                try { gm = dimGeomNow(g, p) || parse(p.geom); st = flatJson(parse(p.style)); }
+                try { gm = dimGeomNow(g, p) || parse(p.geom); st = flatJson(parse(dimOwnStyle(p.style, gm))); }
                 catch (eD) { return res(false, "「" + (g.name || "尺寸") + "」的樣式記錄讀不到（" + eD.message + "）"); }
                 out += ',"dim":' + st + ',"dimGeom":' + flatJson({ t: gm.t, free: gm.free, side: gm.free ? (vdot(gm.n, freeNormal(gm.a, "a")) >= 0 ? "a" : "b") : undefined, off: Number(gm.off), x: gm.x, out: gm.out, z: gm.z * docScaleFactor(d) }) +
                     ',"dimName":"' + esc(g.name) + '","dims":' + dims.length;
@@ -2469,7 +2532,7 @@ $.global.CMF = (function () {
                 // 色號標註沒有編號，回傳 name（色號 PANTONE 186 C）
                 var isSw = isSwatch(cs[0]), q = isSw ? swParts(cs[0]) : noteParts(cs[0]), cst;
                 var label = isSw ? "「" + cs[0].name + "」" : "標註 " + q.num;
-                try { cst = flatJson(parse(q.style)); }
+                try { cst = flatJson(parse(ownStyle(cs[0], q.style))); }
                 catch (eC) { return res(false, label + "的樣式記錄讀不到（" + eC.message + "）"); }
                 out += ',"callout":' + cst + ',"label":"' + esc(label) + '","kind":"' + labelKind(cs[0]) + '","callouts":' + cs.length;
                 if (!isSw) out += ',"num":' + jsonNum(q.num);
