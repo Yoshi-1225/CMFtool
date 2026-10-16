@@ -413,17 +413,20 @@
   }
 
   // 圖上用的樣式（圖上的單位）
+  // 太大時字、線、端點、間距全部用同一個倍率 z 縮小，比例才跟實際標出來的一樣；太小的才各自放大到看得到
   function figStyle() {
-    var st = readStyle(), lw = clamp(st.lineWidth * K, 0.6, 6), gap = clamp(st.textGap * K, 0, 20);
-    var mode = st.radMode;
+    var st = readStyle(), mode = st.radMode;
+    var z = Math.min(1, 40 / (st.fontSize * K), 24 / Math.max(st.endSize * K, 1e-6), 6 / (st.lineWidth * K),
+      20 / Math.max(st.textGap * K, st.breakGap * K, st.extGap * K, st.extOver * K, 1e-6));
+    var k = K * z, lw = Math.max(0.6, st.lineWidth * k), gap = st.textGap * k;
     return {
-      st: st, lw: lw, col: st.lineColor, fs: clamp(st.fontSize * K, 8, 40), L: clamp(st.endSize * K, 3, 24), end: st.endStyle,
-      textGap: gap, besideGap: gap + lw / 2, breakGap: clamp(st.breakGap * K, 0, 20),
-      extGap: clamp(st.extGap * K, 0, 20), extOver: clamp(st.extOver * K, 0, 20), extLine: st.extLine,
+      st: st, lw: lw, col: st.lineColor, fs: Math.max(8, st.fontSize * k), L: Math.max(3, st.endSize * k), end: st.endStyle,
+      textGap: gap, besideGap: gap + lw / 2, breakGap: st.breakGap * k,
+      extGap: st.extGap * k, extOver: st.extOver * k, extLine: st.extLine,
       arrowPos: st.arrowPos, aligned: st.textAlign !== 'horizontal', textPos: st.textPos,
-      leader: clamp(st.leader * K, 0, 60), shelf: st.shelf === 'end' || st.shelf === 'none' ? st.shelf : 'over',
+      leader: clamp(st.leader * k, 0, 60), shelf: st.shelf === 'end' || st.shelf === 'none' ? st.shelf : 'over',
       radMode: mode === 'leader' || mode === 'through' || mode === 'inside' ? mode : 'auto',
-      off: clamp(num('dimOffset', 12) * K, 6, 60), angle: num('dimAngle', 45, -1e9), lenEnds: st.lenEnds,
+      off: clamp(num('dimOffset', 12) * k, 6, 60), angle: num('dimAngle', 45, -1e9), lenEnds: st.lenEnds,
       font: App.previewFont ? App.previewFont(st.fontName) : { family: 'sans-serif', weight: 400, italic: false }
     };
   }

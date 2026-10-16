@@ -176,9 +176,16 @@
 
   function figure(o) {
     var K = 2, out = [];
-    var lw = clamp(o.lineWidth * K, 0.8, 7), es = clamp(o.endSize * K, 3, 16), fs = clamp(o.fontSize * K, 9, 36);
-    var gap = clamp(o.gap * K, 0, 20), pad = clamp(o.badgePadding * K, 0, 16);
-    var bsw = o.badgeStrokeWidth > 0 ? clamp(o.badgeStrokeWidth * K, 0.75, 5) : 0;
+    // 照實際的比例畫（pt × 2）：太大時字、圓圈、色塊、線、端點、間距全部用同一個倍率 z 縮小，
+    // 比例才跟實際標出來的一樣；太小的才各自放大到看得到
+    var num = function (v) { v = Number(v); return isFinite(v) && v > 0 ? v * K : 0; };
+    var fs0 = num(o.fontSize) || 9, es0 = num(o.endSize), lw0 = num(o.lineWidth) || 0.8, gap0 = num(o.gap);
+    var pad0 = num(o.badgePadding), bsw0 = num(o.badgeStrokeWidth), cs0 = num(o.chipSize) || fs0;
+    var R0 = fs0 * 0.36 + pad0 + bsw0 / 2;   // 圓圈的外緣（半徑）
+    var z = Math.min(1, 36 / fs0, o.badge && o.kind !== "swatch" && o.kind !== "note" ? 32 / R0 : 1, es0 ? 40 / (es0 * 1.6) : 1,
+      8 / lw0, gap0 ? 24 / gap0 : 1, o.kind === "swatch" ? 40 / cs0 : 1);
+    var lw = Math.max(0.8, lw0 * z), es = Math.max(3, es0 * z), fs = Math.max(9, fs0 * z), gap = gap0 * z, pad = pad0 * z;
+    var bsw = bsw0 ? Math.max(0.75, bsw0 * z) : 0;
     // 正方形的圖：編號端在右上 → (轉折) → 目標點（落在左下角的產品上）；最大的圓圈也放得下
     // 色號、文字說明：標籤比較寬，編號端放左邊一點
     var sw = o.kind === "swatch" || o.kind === "note";
@@ -236,7 +243,7 @@
     // 編號：沿線的第一段往外推（跟 host.jsx 的 buildCallout 一樣）
     var dx = S[0] - S1[0], dy = S[1] - S1[1], dl = Math.sqrt(dx * dx + dy * dy) || 1;
     dx /= dl; dy /= dl;
-    if (sw) { out.push((o.kind === "note" ? noteFigure : swatchFigure)(o, S, [dx, dy], fs, gap, group)); return out.join(""); }
+    if (sw) { out.push((o.kind === "note" ? noteFigure : swatchFigure)(o, S, [dx, dy], fs, gap, group, z)); return out.join(""); }
     var tw = fs * 0.3, th = fs * 0.36, R = Math.max(tw, th) + pad, C;
     if (o.badge) {
       C = [S[0] + dx * (gap + R + bsw / 2), S[1] + dy * (gap + R + bsw / 2)];
@@ -275,9 +282,10 @@
 
   function swLabel(o) { return String(o.swText || "").trim() || o.swSpot || String(o.swColor).toUpperCase(); }
 
-  function swatchFigure(o, S, dir, fs, gap, group) {
-    var K = 2, pf = previewFont(o), label = swLabel(o);
-    var cs = clamp(o.chipSize * K, 6, 40), bw = o.chipBorder > 0 ? clamp(o.chipBorder * K, 0.75, 5) : 0;
+  // z：圖的倍率（figure 算的，跟字、線一起縮小）
+  function swatchFigure(o, S, dir, fs, gap, group, z) {
+    var K = 2 * z, pf = previewFont(o), label = swLabel(o);
+    var cs = Math.max(6, (Number(o.chipSize) || Number(o.fontSize)) * K), bw = o.chipBorder > 0 ? Math.max(0.75, o.chipBorder * K) : 0;
     var tw = textWidth(label, fs, pf), outer = cs + bw, cg = Math.max(cs * 0.4, fs * 0.3);
     // 能用的寬度：直線（文字在線頭上方）左右對稱；折線往右
     var room = Math.abs(dir[0]) > 0.7 ? 236 - S[0] - gap : 2 * Math.min(S[0], 240 - S[0]) - 8;
