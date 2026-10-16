@@ -636,7 +636,16 @@
   /* ---------- 從 Excel 更新 ---------- */
 
   // only：只更新一個表格，不動綁定的文字。true = CMF 清單（標註編號改變時），或指定表格範圍
+  // 從 Excel 更新之前：勾了「存 .ai 時寫回 Excel」時，先把 Illustrator 裡改過的字寫回（跟存檔時一樣的規則），
+  // 表格會整個從 Excel 重新貼上，沒先寫回的話表格裡改的字就不見了
   function update(auto, only) {
+    if (IS_WIN && ui.chkWriteBack.checked && !state.busy && state.excelPath) {
+      return writeBack(false).then(function () { return doUpdate(auto, only); });
+    }
+    return doUpdate(auto, only);
+  }
+
+  function doUpdate(auto, only) {
     if (state.busy) {
       if (only === true) cmf.pending = true;
       return Promise.resolve();
@@ -762,6 +771,10 @@
               });
               if (replaced && !only) lines.push(['ok', '從 Excel 更新了 ' + replaced + ' 個表格']);
               if (failedLabels.length) lines.push(['error', '表格無法修改（可能被鎖定或隱藏）：' + failedLabels.join('、')]);
+              // 換好的表格：文字對回儲存格（寫回用）。CMF 清單只在 Illustrator 裡排過（Excel 檔沒有照這個順序）的不對，免得寫到別列
+              var tagLabels = [];
+              excelTables.forEach(function (t, i) { if (done[t.label] && (!t.cmf || synced[i]) && tagLabels.indexOf(t.label) < 0) tagLabels.push(t.label); });
+              return tagTables(file, tagLabels);
             });
           }
         }
@@ -970,8 +983,11 @@
         if (label && !res.errors[0]) {
           ui.rangeRef.value = label;
           ui.result.hidden = true;
-          App.setStatus('已匯入 ' + label + (res.live ? '（Excel 目前開啟的內容）' : ''));
-          return refreshContext();
+          return tagTables(state.excelPath, [label]).then(function (tg) {
+            App.setStatus('已匯入 ' + label + (res.live ? '（Excel 目前開啟的內容）' : '') +
+              (tg.total ? '；' + tg.tagged + ' / ' + tg.total + ' 格可以在 Illustrator 裡改字、寫回 Excel' : ''));
+            return refreshContext();
+          });
         }
         // 不改用內建方式畫：外觀會跟 Excel 不一樣
         throw new Error('無法透過 Excel 匯入：' + psMessage(res.errors[0] || res.fatal || '未知的錯誤'));
@@ -983,6 +999,26 @@
       ui.btnImport.disabled = false;
       return afterBusy();
     });
+  }
+
+  // 從 Excel 複製貼上的表格：每個文字對回它的儲存格（jsx/excel.jsx 的 es_tagTable），之後在 Illustrator 裡改字可以寫回。
+  // 位置照 js/table.js 的 buildTable 算（跟內建方式畫的一樣）。回傳 { tagged, total }（全部表格加起來）
+  function tagTables(file, labels) {
+    if (!labels.length) return Promise.resolve({ tagged: 0, total: 0 });
+    return readWorkbook(file, true).then(function (wb) {
+      var sum = { tagged: 0, total: 0 };
+      return labels.reduce(function (p, label) {
+        return p.then(function () {
+          var sel = Table.parseRange(label), t;
+          try { t = Table.buildTable(wb, sel, {}); } catch (e) { return null; }
+          var layout = { w: t.width, h: t.height, cells: t.cells.map(function (c) { return { ref: c.ref, x: c.x, y: c.y, w: c.w, h: c.h, text: c.text }; }) };
+          return host('es_tagTable', [label, JSON.stringify(layout)]).then(function (r) {
+            sum.tagged += r.tagged || 0;
+            sum.total += r.total || 0;
+          });
+        });
+      }, Promise.resolve()).then(function () { return sum; });
+    }).catch(function () { return { tagged: 0, total: 0 }; });
   }
 
   // 內建方式：依 Excel 的樣式自己畫出表格（Mac，或 Excel 無法使用時）

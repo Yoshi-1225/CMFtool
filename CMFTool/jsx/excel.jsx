@@ -191,10 +191,12 @@ function es_apply(valuesJson, keepJson) {
     for (var i = 0; i < doc.textFrames.length; i++) {
         var tf = doc.textFrames[i];
         var ref = _refOf(tf);
-        if (ref === null || !values.hasOwnProperty(ref) || _inTable(tf)) continue;
+        if (ref === null || !values.hasOwnProperty(ref)) continue;
 
         // Illustrator 的換行是 \r
         var v = String(values[ref]).replace(/\r\n|\n/g, "\r");
+        // 表格裡的字不在這裡換（表格整個從 Excel 更新）；跟 Excel 一樣時記下來（寫回之後）
+        if (_inTable(tf)) { if (tf.contents === v) _setBase(tf, v); continue; }
         if (tf.contents === v) { same++; _setBase(tf, v); continue; }
         if (keep.hasOwnProperty(ref) && _baseOf(tf) === v) {
             if (!keptSeen[ref]) { keptSeen[ref] = true; kept.push(ref); }
@@ -213,7 +215,7 @@ function es_apply(valuesJson, keepJson) {
     return '{"changed":' + changed + ',"same":' + same + ',"failed":' + _arr(failed) + ',"kept":' + _arr(kept) + "}";
 }
 
-/* 寫回 Excel 用：在 Illustrator 裡改過的綁定文字（表格外）
+/* 寫回 Excel 用：在 Illustrator 裡改過的綁定文字（包括表格裡對到儲存格的字，見 es_tagTable）
  * items：[{ ref, text 現在的內容, base 上次從 Excel 更新或綁定時的內容（null = 沒有記錄）}]
  * 同一格有好幾個文字：只有一種改法就用它；改得不一樣 = { ref, multi: true } */
 function es_edited() {
@@ -221,7 +223,7 @@ function es_edited() {
     var doc = app.activeDocument, byRef = {}, order = [], i, k;
     for (i = 0; i < doc.textFrames.length; i++) {
         var tf = doc.textFrames[i], ref = _refOf(tf);
-        if (ref === null || _inTable(tf)) continue;
+        if (ref === null) continue;
         if (!byRef.hasOwnProperty(ref)) { byRef[ref] = []; order.push(ref); }
         byRef[ref].push({ text: tf.contents, base: _baseOf(tf) });
     }
@@ -493,6 +495,7 @@ function _buildTable(t, left, top, missing) {
         _applyText(tf.textRange, c, missing);
         if (text === "") tf.contents = "";
         tf.name = XL_PREFIX + c.ref;
+        _setBase(tf, tf.contents);   // 寫回 Excel 用：記下從 Excel 來的內容
     }
     return group;
 }
@@ -599,6 +602,53 @@ function es_selectTable(label) {
  * mode "new"：放在畫面中央；"replace"：取代所有同一個範圍的表格，保留位置和縮放
  * ==================================================================== */
 /* 剪貼簿可能暫時被別的程式佔用（OneDrive、剪貼簿工具，或 Excel 還在準備資料）：等一下再試 */
+/* 從 Excel 複製貼上的表格：每個文字對回它的儲存格，之後在 Illustrator 裡改字可以寫回 Excel
+ * layoutJson = { w, h, cells: [{ ref, x, y, w, h, text }] }（js/table.js 的 buildTable 算的位置，pt，從左上角起算，y 往下）
+ * 表格的外框照 w、h 縮放對齊；文字的中心落在哪一格就是哪一格。
+ * 一格只有一個文字、而且內容跟 Excel 那格一樣才對上（Excel 貼過來時有時一格拆成好幾段，這種不對，免得寫錯）
+ * 回傳 { tagged 對上幾格, total 有字的格數 } */
+function _norm(t) {
+    return String(t).replace(/\r\n|\r|\u0003/g, "\n").replace(/[ \t\u00A0]+/g, " ").replace(/^\s+|\s+$/g, "");
+}
+
+function es_tagTable(label, layoutJson) {
+    if (app.documents.length === 0) return '{"tagged":0,"total":0}';
+    var doc = app.activeDocument, L = eval("(" + layoutJson + ")"), groups = _tableGroups(doc), name = XL_TABLE + label;
+    var tagged = 0, total = 0, i, j, k;
+    for (k = 0; k < L.cells.length; k++) if (_norm(L.cells[k].text) !== "") total++;
+    for (i = 0; i < groups.length; i++) {
+        var g = groups[i];
+        if (g.name !== name || _tableMode(g) !== "excel" || !(L.w > 0) || !(L.h > 0)) continue;
+        var b = g.geometricBounds, sx = (b[2] - b[0]) / L.w, sy = (b[1] - b[3]) / L.h;
+        if (!(sx > 0) || !(sy > 0)) continue;
+        var frames = [];
+        var walk = function (it) {
+            if (it.typename === "TextFrame") frames.push(it);
+            else if (it.typename === "GroupItem") for (var w = 0; w < it.pageItems.length; w++) walk(it.pageItems[w]);
+        };
+        walk(g);
+        var byCell = {};
+        for (j = 0; j < frames.length; j++) {
+            var tb = frames[j].geometricBounds;
+            var x = ((tb[0] + tb[2]) / 2 - b[0]) / sx, y = (b[1] - (tb[1] + tb[3]) / 2) / sy;
+            for (k = 0; k < L.cells.length; k++) {
+                var c = L.cells[k];
+                if (x >= c.x && x < c.x + c.w && y >= c.y && y < c.y + c.h) {
+                    (byCell[k] = byCell[k] || []).push(frames[j]);
+                    break;
+                }
+            }
+        }
+        for (k in byCell) {
+            if (!byCell.hasOwnProperty(k) || byCell[k].length !== 1) continue;
+            var tf = byCell[k][0], cell = L.cells[k];
+            if (_norm(tf.contents) === "" || _norm(tf.contents) !== _norm(cell.text)) continue;
+            try { tf.name = XL_PREFIX + cell.ref; _setBase(tf, tf.contents); tagged++; } catch (e) {}
+        }
+    }
+    return '{"tagged":' + tagged + ',"total":' + total + "}";
+}
+
 function _paste(doc) {
     var last = null;
     for (var t = 0; t < 5; t++) {
