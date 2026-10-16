@@ -162,8 +162,7 @@ summary .count { font-weight: 400; color: var(--muted); }
 .sub { margin: 10px 0 2px; color: var(--muted); font-size: 10px; letter-spacing: .04em; }
 
 /* ---------- 標註分頁 ---------- */
-/* 樣式的圖（標註、尺寸分頁共用）：點圖上的部位打開它的設定卡片。浮動的面板往右變寬、卡片浮在右邊（html.fly、.pop.flying），
-   停靠的面板在圖的下面，面板夠寬時在圖的右邊；卡片不會蓋住圖
+/* 樣式的圖（標註、尺寸分頁共用）：點圖上的部位打開它的設定卡片，卡片在圖的下面、不會蓋住圖
    （js/figcard.js；標註的圖在 js/callout.js 的 figure，尺寸的在 js/dimension.js 的 dimFigure） */
 .fig-wrap { margin: 8px 0 6px; }
 .cfig { position: relative; background: var(--paper); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
@@ -205,32 +204,24 @@ summary .count { font-weight: 400; color: var(--muted); }
 .fig-reset:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .fig-reset svg { width: 15px; height: 15px; }
 
-/* 設定卡片：小三角指著選到的部位（--caret）；在圖的右邊、浮出時（.side）小三角在左邊 */
+/* 設定卡片：小三角指著選到的部位（--caret） */
 .pop {
   position: relative; margin-top: 8px;
   padding: 6px 8px 4px;
   background: var(--pop); border: 1px solid var(--line); border-radius: 6px;
   animation: pop-in .12s ease-out;
 }
-.pop.flying { position: absolute; z-index: 6; margin: 0; box-shadow: 0 8px 22px rgba(0, 0, 0, .4); animation-name: pop-in-side; }
 @keyframes pop-in { from { opacity: 0; } }   /* 不移動：卡片的位置照它量到的位置算 */
-@keyframes pop-in-side { from { opacity: 0; transform: translateX(-6px); } }
-@media (prefers-reduced-motion: reduce) { .pop, .pop.flying { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .pop { animation: none; } }
 .pop::before {
   content: ""; position: absolute; top: -6px; left: var(--caret, 50%); margin-left: -5px;
   width: 9px; height: 9px; background: var(--pop);
   border-left: 1px solid var(--line); border-top: 1px solid var(--line);
   transform: rotate(45deg);
 }
-.pop.side::before { top: var(--caret, 50%); left: -6px; margin: -5px 0 0; transform: rotate(-45deg); }
 .pop-head { display: flex; align-items: center; justify-content: space-between; margin: -2px -4px 2px 0; }
 .pop-title { color: var(--muted); font-size: 10px; letter-spacing: .04em; }
 .pop[data-mode=rect] .only-circle, .pop[data-mode=circle] .only-rect { display: none; }
-@media (min-width: 480px) {
-  html:not(.fly) .fig-wrap { display: flex; align-items: flex-start; gap: 10px; }
-  html:not(.fly) .fig-wrap .cfig { flex: 0 1 300px; min-width: 200px; }
-  html:not(.fly) .fig-wrap .pop { flex: 1 1 220px; min-width: 200px; margin-top: 0; }
-}
 .pane > .check:first-child { margin-top: 2px; }
 .addopts { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; margin-top: 6px; }
 .addopts .check { margin: 0; }
