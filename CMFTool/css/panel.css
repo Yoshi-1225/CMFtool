@@ -113,6 +113,9 @@ input::placeholder { color: var(--muted); }
   transition: background-color .15s, border-color .15s;
 }
 .btn:hover { background: var(--surface-hi); }
+/* 圖示 + 文字的按鈕（對齊） */
+.btn.ibtxt { display: flex; align-items: center; justify-content: center; gap: 5px; }
+.btn.ibtxt svg { flex: none; width: 16px; height: 16px; }
 .btn:disabled { opacity: .5; cursor: default; }
 .btn.strong { border-color: var(--accent); color: var(--accent); }
 .btn.quiet { background: none; border-color: transparent; color: var(--muted); }
