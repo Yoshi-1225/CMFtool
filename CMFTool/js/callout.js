@@ -721,11 +721,13 @@
   var PICK_DEFAULT = { textColor: "#000000", fontName: "", badge: false, badgeStrokeWidth: 0, lineColor: "#000000",
     endStyle: "none", styleScale: 100 };
 
-  // r = CMF.pickStyle()：{ callout, num, label, kind, callouts }。吸取的是別種標註時，面板先切到那一種。
+  // r = CMF.pickStyle()：{ callout, num, label, kind, callouts }。吸取到面板目前那一種的樣式（不切換種類）：
+  // 例如在文字說明吸取編號標註的箭頭。同步不會互相影響，吸取可以跨種類。
   // 圖上選著一個部位時只吸取那個部位的設定
   function applyPicked(r) {
     var st = r.callout, part = fc.current(), keys = part && PART_FIELDS[part];
-    if (r.kind) switchKind(r.kind);
+    // 舊版的文字說明，端點記在 noteEnd
+    if (r.kind === "note" && st.noteEnd) st.endStyle = st.noteEnd;
     STYLE_FIELDS.forEach(function (k) {
       if (keys && keys.indexOf(k) < 0) return;
       if (!App.setField($(k), st[k]) && PICK_DEFAULT[k] !== undefined) App.setField($(k), PICK_DEFAULT[k]);
