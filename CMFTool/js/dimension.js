@@ -302,19 +302,37 @@
     });
   }
 
+  // 每個部位的設定（樣式的名稱）：示範框上選著一個部位時，「同步全部」、「套用選取」、自動套用、「吸取樣式」只處理這些
+  var PART_FIELDS = {
+    text: ['fontSize', 'textColor', 'fontName', 'textAlign', 'textPos', 'textGap', 'breakGap', 'textBg', 'textBgColor',
+      'unit', 'decimals', 'showUnit', 'ratio', 'diaSym', 'count', 'prefix', 'suffix'],
+    line: ['lineWidth', 'lineColor', 'offset', 'radMode', 'leader', 'shelf', 'centerMark', 'lenSide'],
+    end: ['endStyle', 'endSize', 'arrowPos', 'lenEnds'],
+    ext: ['extLine', 'extGap', 'extOver']
+  };
+
+  // 送給 host.jsx 的樣式：選著一個部位時帶上 only（那個部位的欄位），其他設定每個尺寸維持原樣
+  function syncStyle() {
+    var o = readStyle(), part = fc.current();
+    if (part && PART_FIELDS[part]) { o.only = PART_FIELDS[part]; o.onlyName = partName(part); }
+    return o;
+  }
+
   function restyle(fn) {
     if (!(ratioOf($('dimRatio').value) > 0)) { App.setStatus('比例請寫成 1:2 這樣的格式', true); return; }
-    call(fn, readStyle(), function (r) { App.setStatus(r.msg, !r.ok); });
+    call(fn, syncStyle(), function (r) { App.setStatus(r.msg, !r.ok); });
   }
 
   // 「修改時自動套用到選取的尺寸」：停手一下才套用；沒有選取尺寸時不提示
   var applyTimer = null;
-  function scheduleApply() {
+  // full：不管選著的部位，整份樣式（「重設」大小一次改好幾個部位）
+  function scheduleApply(full) {
     if (!$('dimAutoApply').checked || !cep) return;
     clearTimeout(applyTimer);
+    var st = full ? readStyle() : syncStyle();
     applyTimer = setTimeout(function () {
       if (!(ratioOf($('dimRatio').value) > 0)) return;
-      call('dimRestyle', readStyle(), function (r) { if (r.ok) App.setStatus(r.msg); });
+      call('dimRestyle', st, function (r) { if (r.ok) App.setStatus(r.msg); });
     }, 600);
   }
 
@@ -328,11 +346,14 @@
     centerMark: true, lenEnds: 'both', lenSide: 'a' };
 
   // r = CMF.pickStyle()：{ dim, dimGeom, dimName, dims }
+  // 示範框上選著一個部位時，只吸取那個部位的設定
   function applyPicked(r) {
     var st = r.dim, gm = r.dimGeom || {}, lin = gm.t === 'lin' && !gm.free;   // 兩點距離沒有「距離」
+    var part = fc.current(), keys = part && PART_FIELDS[part], want = function (k) { return !keys || keys.indexOf(k) >= 0; };
     STYLE.forEach(function (id) {
       if (id === 'dimAuto' || id === 'dimAutoBase') return;   // 自動調整是新增時的做法，不算樣式；基準在下面
       var key = id.charAt(3).toLowerCase() + id.slice(4), v = st[key];
+      if (!want(key)) return;
       if (key === 'breakGap' && v === undefined) v = st.textGap;   // 舊的樣式沒有「斷開留空」，用「文字離線」
       // 舊版的直徑、半徑沒有「引線」，長度記在幾何的 off（同心圓的內圈多拉了一段，不算）
       if (key === 'leader' && v === undefined && !lin && gm.x === undefined && !gm.out) v = gm.off;
@@ -340,12 +361,12 @@
       if (!App.setField($(id), v) && PICK_DEFAULT[key] !== undefined) App.setField($(id), PICK_DEFAULT[key]);
     });
     // 寬高的「距離」；依物件大小自動調整時，基準改成這個尺寸量的物件大小：一樣大的物件標出來就跟它一樣
-    if (lin) App.setField($('dimOffset'), gm.off);
-    if (gm.free && gm.side) App.setField($('dimLenSide'), gm.side);   // 兩點距離：文字實際在哪一側
-    if ($('dimAuto').checked && gm.z > 0) App.setField($('dimAutoBase'), gm.z / UNIT_PT.mm);
+    if (lin && want('offset')) App.setField($('dimOffset'), gm.off);
+    if (gm.free && gm.side && want('lenSide')) App.setField($('dimLenSide'), gm.side);   // 兩點距離：文字實際在哪一側
+    if ($('dimAuto').checked && gm.z > 0 && !keys) App.setField($('dimAutoBase'), gm.z / UNIT_PT.mm);
     syncFontSelects();
     changed();
-    var msg = '已吸取' + (r.dimName ? '「' + r.dimName + '」' : '尺寸') + '的樣式';
+    var msg = '已吸取' + (r.dimName ? '「' + r.dimName + '」' : '尺寸') + '的' + (keys ? partName(part) : '樣式');
     if (r.dims > 1) msg += '（選了 ' + r.dims + ' 個尺寸，吸取的是這一個）';
     if (st.fontName && Object.keys(fontIndex).length && !fontIndex[st.fontName]) msg += '；字體清單裡沒有「' + st.fontName + '」';
     App.setStatus(msg);
@@ -794,7 +815,7 @@
   function resetSizes() {
     SIZE_FIELDS.forEach(function (id) { var el = $(id); el.value = el.defaultValue; });
     changed();
-    scheduleApply();
+    scheduleApply(true);
     App.setStatus('大小改回預設：字級 ' + $('dimFontSize').value + '、線寬 ' + $('dimLineWidth').value + '、端點 ' + $('dimEndSize').value +
       '、距離 ' + $('dimOffset').value + ' pt');
   }

@@ -860,6 +860,31 @@ $.global.CMF = (function () {
         return out;
     }
 
+    // 面板的「樣式」圖上選著一個部位時，樣式裡帶 only（那個部位的欄位）和 onlyName（部位的名稱）：
+    // 每個標註、尺寸維持自己的樣式，只把這些欄位改成面板的。沒有 only = 整份換成面板的樣式
+    function onlyOf(styleStr) {
+        var o = parse(styleStr);
+        return o.only && o.only.length ? { keys: o.only, name: String(o.onlyName || "") } : null;
+    }
+
+    function mergeStyle(own, panel, keys) {
+        var a = parse(own), b = parse(panel);
+        for (var i = 0; i < keys.length; i++) if (b[keys[i]] !== undefined) a[keys[i]] = b[keys[i]];
+        return flatJson(a);
+    }
+
+    // 回傳 styleOf(note)：rebuildMany 用
+    function styleFor(styleStr) {
+        var only = onlyOf(styleStr);
+        if (!only) return function () { return styleStr; };
+        return function (p) { return mergeStyle(p.style, styleStr, only.keys); };
+    }
+
+    function onlyNote(styleStr) {
+        var only = onlyOf(styleStr);
+        return only && only.name ? "（只改" + only.name + "）" : "";
+    }
+
     function syncAll(styleStr) {
         try {
             var kind = styleKind(styleStr), name = KIND_NAMES[kind];
@@ -868,9 +893,9 @@ $.global.CMF = (function () {
             var on = onArtboards(d, all);
             if (!on.inside.length) return res(true, name + "都在工作區外面，沒有同步（要改它們，選取後按「套用選取」）");
             var sel = selectedOwners(d, isLabel);
-            var r = rebuildMany(d, on.inside, function () { return styleStr; });
+            var r = rebuildMany(d, on.inside, styleFor(styleStr));
             if (sel.length === 0) d.selection = null;
-            return res(r.made.length > 0, "已同步 " + r.made.length + " 個" + name + "的樣式" + failNote(r) + outsideNote(on.outside));
+            return res(r.made.length > 0, "已同步 " + r.made.length + " 個" + name + "的樣式" + onlyNote(styleStr) + failNote(r) + outsideNote(on.outside));
         } catch (e) { return res(false, e.message); }
     }
 
@@ -881,10 +906,10 @@ $.global.CMF = (function () {
             var d = getDoc(), sel = selectedOwners(d, isLabel), cs = ofKind(sel, kind);
             if (sel.length === 0) return res(false, "請先選取標註");
             if (cs.length === 0) return res(false, "選取的不是" + name + "（面板上方切到那一種再套用）");
-            var r = rebuildMany(d, cs, function () { return styleStr; });
+            var r = rebuildMany(d, cs, styleFor(styleStr));
             d.selection = r.made;
             var skip = sel.length - cs.length;
-            return res(r.made.length > 0, "已更新 " + r.made.length + " 個" + name + "的樣式" + failNote(r) +
+            return res(r.made.length > 0, "已更新 " + r.made.length + " 個" + name + "的樣式" + onlyNote(styleStr) + failNote(r) +
                 (skip ? "（其他種類的 " + skip + " 個沒有改）" : ""));
         } catch (e) { return res(false, e.message); }
     }
@@ -2212,11 +2237,18 @@ $.global.CMF = (function () {
         } catch (e) { return res(false, e.message); }
     }
 
+    // 選著一個部位（only）時，每個尺寸維持自己的樣式、只改那個部位的欄位；
+    // 「距離」、兩點距離的那一側也只在那個部位有它們時才改
     function rebuildDims(d, gs, styleStr, withSide) {
-        var r = { made: [], failed: 0, why: "" };
+        var r = { made: [], failed: 0, why: "" }, only = onlyOf(styleStr);
+        var withOffset = !only || contains(only.keys, "offset");
+        withSide = withSide && (!only || contains(only.keys, "lenSide"));
         for (var i = 0; i < gs.length; i++) {
             var ng = null;
-            try { ng = rebuildDim(d, gs[i], styleStr, true, withSide); } catch (e) { if (!r.why) r.why = e.message; }
+            try {
+                var st = only ? mergeStyle(dimNote(gs[i]).style, styleStr, only.keys) : styleStr;
+                ng = rebuildDim(d, gs[i], st, withOffset, withSide);
+            } catch (e) { if (!r.why) r.why = e.message; }
             if (ng) r.made.push(ng); else r.failed++;
         }
         return r;
@@ -2230,7 +2262,7 @@ $.global.CMF = (function () {
             var on = onArtboards(d, all);
             if (!on.inside.length) return res(true, "尺寸都在工作區外面，沒有同步（要改它們，選取後按「套用選取」）");
             var r = rebuildDims(d, on.inside, styleStr);
-            return res(r.made.length > 0, "已同步 " + r.made.length + " 個尺寸的樣式" + failNote(r) + outsideNote(on.outside));
+            return res(r.made.length > 0, "已同步 " + r.made.length + " 個尺寸的樣式" + onlyNote(styleStr) + failNote(r) + outsideNote(on.outside));
         } catch (e) { return res(false, e.message); }
     }
 
@@ -2240,7 +2272,7 @@ $.global.CMF = (function () {
             if (gs.length === 0) return res(false, "請先選取尺寸");
             var r = rebuildDims(d, gs, styleStr, true);
             d.selection = r.made;
-            return res(r.made.length > 0, "已更新 " + r.made.length + " 個尺寸的樣式" + failNote(r));
+            return res(r.made.length > 0, "已更新 " + r.made.length + " 個尺寸的樣式" + onlyNote(styleStr) + failNote(r));
         } catch (e) { return res(false, e.message); }
     }
 

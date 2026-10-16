@@ -133,6 +133,14 @@
   // 在部位上按住左右拖曳，直接改它的大小（js/numfield.js 的拖曳把手）：編號 = 字級、圓圈 = 內距、引線 = 線寬、
   // 端點 = 大小（繪圖樣式 = %）。第一次在圖上點過之後，角落的提示就不再出現
   var PART_NAMES = { text: "文字", badge: "圓圈", chip: "色塊", line: "引線", end: "端點" };
+  // 每個部位的設定：圖上選著一個部位時，「同步全部」、「套用選取」、自動同步、「吸取樣式」只處理這些
+  var PART_FIELDS = {
+    text: ["fontSize", "textColor", "fontName", "badgeTextColor"],
+    badge: ["badge", "badgeColor", "badgePadding", "badgeStrokeWidth", "badgeStrokeColor"],
+    chip: ["chipSize", "chipBorder", "chipBorderColor"],
+    line: ["lineWidth", "lineColor", "gap"],
+    end: ["endStyle", "endSize", "styleName", "styleScale", "noteEnd"]
+  };
   var fc = App.figCard({ svg: $("preview"), card: $("stylePop"), title: $("popTitle"), names: PART_NAMES, first: "text",
     key: "cmftool:calloutPart", hintKey: "cmftool:partHint" });
 
@@ -689,12 +697,21 @@
     }, true);
   }
 
+  // 送給「同步全部」、「套用選取」的樣式：圖上選著一個部位時，帶上 only（那個部位的欄位），其他設定每個標註維持原樣。
+  // full = 不管選著的部位，整份樣式（「重設」大小一次改好幾個部位）
+  function syncStyle(full) {
+    var o = readSettings(), part = full ? null : fc.current();
+    if (part && PART_FIELDS[part]) { o.only = PART_FIELDS[part]; o.onlyName = PART_NAMES[part]; }
+    return o;
+  }
+
   // ---------- 樣式自動同步 ----------
   var syncTimer = null;
-  function scheduleSync() {
+  function scheduleSync(full) {
     if (!$("autoSync").checked || !cep) return;
     clearTimeout(syncTimer);
-    syncTimer = setTimeout(function () { callHost("syncAll", readSettings()); }, 700);
+    var st = syncStyle(full);
+    syncTimer = setTimeout(function () { callHost("syncAll", st); }, 700);
   }
 
   // ---------- 吸取樣式 ----------
@@ -704,17 +721,19 @@
   var PICK_DEFAULT = { textColor: "#000000", fontName: "", badge: false, badgeStrokeWidth: 0, lineColor: "#000000",
     endStyle: "none", styleScale: 100 };
 
-  // r = CMF.pickStyle()：{ callout, num, label, kind, callouts }。吸取的是別種標註時，面板先切到那一種
+  // r = CMF.pickStyle()：{ callout, num, label, kind, callouts }。吸取的是別種標註時，面板先切到那一種。
+  // 圖上選著一個部位時只吸取那個部位的設定
   function applyPicked(r) {
-    var st = r.callout;
+    var st = r.callout, part = fc.current(), keys = part && PART_FIELDS[part];
     if (r.kind) switchKind(r.kind);
     STYLE_FIELDS.forEach(function (k) {
+      if (keys && keys.indexOf(k) < 0) return;
       if (!App.setField($(k), st[k]) && PICK_DEFAULT[k] !== undefined) App.setField($(k), PICK_DEFAULT[k]);
     });
     syncFontSelects();
     renderPreview();
     saveSettings();
-    var msg = "已吸取" + (r.num !== undefined ? "標註 " + r.num + " " : r.label || "標註") + "的樣式";
+    var msg = "已吸取" + (r.num !== undefined ? "標註 " + r.num + " " : r.label || "標註") + "的" + (keys ? PART_NAMES[part] : "樣式");
     if (r.callouts > 1) msg += "（選了 " + r.callouts + " 個標註，吸取的是這一個）";
     if (st.fontName && Object.keys(fontIndex).length && !fontIndex[st.fontName]) msg += "；字體清單裡沒有「" + st.fontName + "」";
     setStatus(msg);
@@ -769,8 +788,8 @@
     var box = $("cmfBox");
     if (box) { box.open = true; box.scrollIntoView(); }
   });
-  $("btnSync").addEventListener("click", function () { callHost("syncAll", readSettings()); });
-  $("btnRestyle").addEventListener("click", function () { callHost("restyle", readSettings()); });
+  $("btnSync").addEventListener("click", function () { callHost("syncAll", syncStyle()); });
+  $("btnRestyle").addEventListener("click", function () { callHost("restyle", syncStyle()); });
   $("btnRelayout").addEventListener("click", function () { callHost("relayout"); });
   $("btnPickStyle").addEventListener("click", pickStyle);
   App.on("pickedCallout", applyPicked);   // 在尺寸分頁按「吸取樣式」、選的是標註
@@ -822,7 +841,7 @@
     SIZE_FIELDS.forEach(function (k) { var el = $(k); el.value = el.defaultValue; });
     renderPreview();
     saveSettings();
-    scheduleSync();
+    scheduleSync(true);
     setStatus("大小改回預設：字級 " + $("fontSize").value + "、線寬 " + $("lineWidth").value + "、端點 " + $("endSize").value +
       "、圓圈內距 " + $("badgePadding").value + " pt");
   });
