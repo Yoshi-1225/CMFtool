@@ -226,7 +226,7 @@ function es_edited() {
         if (ref === null) continue;
         if (_inTable(tf)) inTables++;
         if (!byRef.hasOwnProperty(ref)) { byRef[ref] = []; order.push(ref); }
-        byRef[ref].push({ text: tf.contents, base: _baseOf(tf) });
+        byRef[ref].push({ text: tf.contents, base: _baseOf(tf), table: _inTable(tf) });
     }
     var items = [];
     for (i = 0; i < order.length; i++) {
@@ -237,7 +237,7 @@ function es_edited() {
             if (!seen.hasOwnProperty(f.text)) { seen[f.text] = true; edited.push(f); }
         }
         if (edited.length > 1) items.push({ ref: order[i], multi: true });
-        else if (edited.length === 1) items.push({ ref: order[i], text: edited[0].text, base: edited[0].base });
+        else if (edited.length === 1) items.push({ ref: order[i], text: edited[0].text, base: edited[0].base, table: edited[0].table });
     }
     // tables：文件裡有幾個表格；tableCells：表格裡對到儲存格的字（0 = 表格還沒對過，改了不會寫回）
     return '{"doc":' + _q(_docKey(doc)) + ',"items":' + _json(items) + ',"tables":' + _tableGroups(doc).length +

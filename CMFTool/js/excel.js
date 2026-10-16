@@ -640,7 +640,7 @@
   // 表格會整個從 Excel 重新貼上，沒先寫回的話表格裡改的字就不見了
   function update(auto, only) {
     if (IS_WIN && ui.chkWriteBack.checked && !state.busy && state.excelPath) {
-      return writeBack(false).then(function () { return doUpdate(auto, only); });
+      return writeBack(false, null, true).then(function () { return doUpdate(auto, only); });
     }
     return doUpdate(auto, only);
   }
@@ -1063,7 +1063,9 @@
   }
 
   // doc：存檔的那份文件（存檔時）；換到別的文件了就不寫
-  function writeBack(force, doc) {
+  // 寫進 Excel 的有表格裡的字時，寫完再「從 Excel 更新」一次：表格照 Excel 重新貼上，在 Illustrator 裡改字跑掉的對齊（置中等）回來。
+  // noRefresh：從 Excel 更新之前先寫回的那一次（之後本來就會更新）
+  function writeBack(force, doc, noRefresh) {
     if (!IS_WIN) {
       if (force) showError(new Error('只有 Windows 可以寫回 Excel（要透過 Excel 修改檔案）'));
       return Promise.resolve();
@@ -1071,7 +1073,7 @@
     if (state.busy) { back.pending = { force: force || !!(back.pending && back.pending.force), doc: doc }; return Promise.resolve(); }
     state.busy = true;
     ui.btnUpdate.disabled = ui.btnWriteBack.disabled = true;
-    var file = null;
+    var file = null, refresh = false;
     return refreshContext().then(function () { return host('es_edited'); }).then(function (r) {
       if (!r.doc || r.doc !== state.docKey || (doc && r.doc !== doc)) return null;     // 另一份文件
       file = state.excelPath;                                                         // 這份文件的 Excel
@@ -1093,9 +1095,12 @@
         if (force) App.setStatus('寫回 Excel 中…');
         back.writing = true;
         state.selfSave = Date.now();
+        var tableRef = {};
+        r.items.forEach(function (it) { if (it.table) tableRef[it.ref] = true; });
         return excelWrite(file, plan.write).then(function (res) {
           back.writing = false;
-          state.selfSave = Date.now();          // Excel 剛存檔：不要因此又從 Excel 更新
+          state.selfSave = Date.now();          // Excel 剛存檔：不要因此又從 Excel 更新（表格另外在下面更新）
+          refresh = plan.write.some(function (w) { return tableRef[w.ref]; });
           return finishWriteBack(r.items, plan, res, force);
         });
       });
@@ -1105,6 +1110,7 @@
     }).then(function () {
       state.busy = false;
       ui.btnUpdate.disabled = ui.btnWriteBack.disabled = false;
+      if (refresh && !noRefresh) return doUpdate(false);
       return afterBusy();
     });
   }
