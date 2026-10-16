@@ -176,14 +176,16 @@
 
   function figure(o) {
     var K = 2, out = [];
-    // 照實際的比例畫（pt × 2）：太大時字、圓圈、色塊、線、端點、間距全部用同一個倍率 z 縮小，
-    // 比例才跟實際標出來的一樣；太小的才各自放大到看得到
+    // 照實際的比例畫，但整張圖自動縮放到合適的大小：編號（圓圈）、色號、文字說明縮放到差不多一樣大，
+    // 字、圓圈、色塊、引線、端點、間距都用同一個倍率 z，比例才跟實際標出來的一樣。
+    // 端點、線寬、間距放大後太大時 z 再縮小一點；太小的才各自放大到看得到
     var num = function (v) { v = Number(v); return isFinite(v) && v > 0 ? v * K : 0; };
     var fs0 = num(o.fontSize) || 9, es0 = num(o.endSize), lw0 = num(o.lineWidth) || 0.8, gap0 = num(o.gap);
     var pad0 = num(o.badgePadding), bsw0 = num(o.badgeStrokeWidth), cs0 = num(o.chipSize) || fs0;
     var R0 = fs0 * 0.36 + pad0 + bsw0 / 2;   // 圓圈的外緣（半徑）
-    var z = Math.min(1, 36 / fs0, o.badge && o.kind !== "swatch" && o.kind !== "note" ? 32 / R0 : 1, es0 ? 40 / (es0 * 1.6) : 1,
-      8 / lw0, gap0 ? 24 / gap0 : 1, o.kind === "swatch" ? 40 / cs0 : 1);
+    var badgeFig = o.badge && o.kind !== "swatch" && o.kind !== "note";
+    var z = badgeFig ? 20 / R0 : (o.kind === "swatch" ? 24 / Math.max(fs0, cs0) : 26 / fs0);
+    z = Math.min(z, es0 ? 40 / (es0 * 1.6) : z, 8 / lw0, gap0 ? 24 / gap0 : z);
     var lw = Math.max(0.8, lw0 * z), es = Math.max(3, es0 * z), fs = Math.max(9, fs0 * z), gap = gap0 * z, pad = pad0 * z;
     var bsw = bsw0 ? Math.max(0.75, bsw0 * z) : 0;
     // 正方形的圖：編號端在右上 → (轉折) → 目標點（落在左下角的產品上）；最大的圓圈也放得下
