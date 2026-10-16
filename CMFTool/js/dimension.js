@@ -558,7 +558,7 @@
     var poly = function (pts) { return pts.map(P).join(' '); };
 
     out.push(sh.r ? '<circle class="prod" cx="' + X(sh.c[0]) + '" cy="' + X(FIG - sh.c[1]) + '" r="' + X(sh.r) + '"/>'
-      : '<rect class="prod" x="' + X(sh.x) + '" y="' + X(FIG - sh.y - sh.h) + '" width="' + X(sh.w) + '" height="' + X(sh.h) + '"/>');
+      : '<rect class="prod" x="' + X(sh.x) + '" y="' + X(FIG - sh.y - sh.h) + '" width="' + X(sh.w) + '" height="' + X(sh.h) + '" rx="' + X(Math.min(sh.w, sh.h) * 0.12) + '"/>');
 
     if (f.ext.length) {
       var ghost = s.extLine === 'none';
@@ -697,6 +697,12 @@
   $('btnDimSelectAll').addEventListener('click', function () { call('dimSelectAll', null, function (r) { App.setStatus(r.msg, !r.ok); }); });
   $('btnDimToggle').addEventListener('click', function () { call('dimToggle', null, function (r) { App.setStatus(r.msg, !r.ok); }); });
   $('btnDimRefresh').addEventListener('click', refresh);
+  // 工具列的 ⋯：打開、收起其他的工具
+  $('btnDimMore').addEventListener('click', function () {
+    var more = $('dimMore');
+    more.hidden = !more.hidden;
+    $('btnDimMore').setAttribute('aria-expanded', String(!more.hidden));
+  });
 
   // 在 Illustrator 裡換了選取之後，滑鼠移回面板時更新
   App.on('tab', function (name) { if (name === 'dim') refresh(); });

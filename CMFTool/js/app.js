@@ -124,6 +124,52 @@
     });
   });
 
+  /* ---------- 說明泡泡：滑鼠停在有 title 的東西上 0.45 秒，顯示圓角的說明（取代瀏覽器的小框） ----------
+   * title 搬到 data-tip（之後程式再設 title 也會照新的搬），「名稱：說明」的名稱寫成粗體 */
+  (function () {
+    var tip = document.createElement('div'), cur = null, timer = null;
+    tip.className = 'tip';
+    tip.hidden = true;
+    tip.setAttribute('role', 'tooltip');
+    document.body.appendChild(tip);
+    function textOf(el) {
+      if (el.hasAttribute('title')) { el.setAttribute('data-tip', el.getAttribute('title')); el.removeAttribute('title'); }
+      return el.getAttribute('data-tip') || '';
+    }
+    function hide() { clearTimeout(timer); tip.hidden = true; }
+    function show(el, t) {
+      if (!document.body.contains(el)) return;
+      var i = t.indexOf('\uFF1A');
+      tip.innerHTML = '';
+      if (i > 0 && i <= 14) {
+        var b = document.createElement('b'), sp = document.createElement('span');
+        b.textContent = t.slice(0, i);
+        sp.textContent = t.slice(i + 1);
+        tip.appendChild(b);
+        tip.appendChild(sp);
+      } else tip.textContent = t;
+      tip.hidden = false;
+      var r = el.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight, vw = document.documentElement.clientWidth;
+      var cx = (r.left + r.right) / 2, left = Math.max(6, Math.min(vw - w - 6, cx - w / 2)), below = r.top - h - 8 < 4;
+      tip.classList.toggle('below', below);
+      tip.style.left = left + 'px';
+      tip.style.top = (below ? r.bottom + 8 : r.top - h - 8) + 'px';
+      tip.style.setProperty('--tip-x', Math.max(10, Math.min(w - 10, cx - left)) + 'px');
+    }
+    document.addEventListener('mouseover', function (e) {
+      var el = e.target.closest ? e.target.closest('[title], [data-tip]') : null;
+      if (el === cur) return;
+      hide();
+      cur = el;
+      var t = el ? textOf(el) : '';
+      if (t) timer = setTimeout(function () { show(el, t); }, 450);
+    });
+    document.addEventListener('mousedown', function () { hide(); cur = null; }, true);
+    document.addEventListener('keydown', hide, true);
+    window.addEventListener('scroll', hide, true);
+    window.addEventListener('blur', hide);
+  })();
+
   /* ---------- 配色跟隨 Illustrator 介面亮度 ---------- */
   function applyTheme() {
     if (!cep) return;

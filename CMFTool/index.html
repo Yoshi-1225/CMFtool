@@ -8,12 +8,12 @@
 <body>
 
 <nav class="tabs">
-  <!-- 分頁：圖示，選到的那一個寫出名稱 -->
+  <!-- 分頁：只有圖示（名稱在滑鼠停上去的說明裡） -->
   <div class="tab-track" role="tablist">
-    <button class="tab is-active" data-tab="callout" role="tab" title="標註" aria-label="標註"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="14" cy="6" r="3.6"/><path d="M13.6 4.6l.8-.5v3.8M10.4 6H8L4.6 14.4"/><circle cx="4.4" cy="15" r="1.4" fill="currentColor" stroke="none"/></svg><span class="tab-label">標註</span></button>
-    <button class="tab" data-tab="dim" role="tab" title="尺寸" aria-label="尺寸"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5v10M17 5v10M3.8 10h12.4M6 7.8 3.8 10 6 12.2M14 7.8l2.2 2.2-2.2 2.2"/></svg><span class="tab-label">尺寸</span></button>
-    <button class="tab" data-tab="excel" role="tab" title="Excel" aria-label="Excel"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="14" height="12" rx="2.5"/><path d="M3 8.5h14M3 12.3h14M8 8.5V16"/></svg><span class="tab-label">Excel</span></button>
-    <button class="tab" data-tab="scale" role="tab" title="縮放" aria-label="縮放"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="10.5" width="6.5" height="6.5" rx="1.5"/><path d="M9 11 16.5 3.5M12 3.5h4.5V8"/></svg><span class="tab-label">縮放</span></button>
+    <button class="tab is-active" data-tab="callout" role="tab" title="標註" aria-label="標註"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="14" cy="6" r="3.6"/><path d="M13.6 4.6l.8-.5v3.8M10.4 6H8L4.6 14.4"/><circle cx="4.4" cy="15" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+    <button class="tab" data-tab="dim" role="tab" title="尺寸" aria-label="尺寸"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5v10M17 5v10M3.8 10h12.4M6 7.8 3.8 10 6 12.2M14 7.8l2.2 2.2-2.2 2.2"/></svg></button>
+    <button class="tab" data-tab="excel" role="tab" title="Excel" aria-label="Excel"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="14" height="12" rx="2.5"/><path d="M3 8.5h14M3 12.3h14M8 8.5V16"/></svg></button>
+    <button class="tab" data-tab="scale" role="tab" title="縮放" aria-label="縮放"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="10.5" width="6.5" height="6.5" rx="1.5"/><path d="M9 11 16.5 3.5M12 3.5h4.5V8"/></svg></button>
   </div>
   <button class="icon-btn reload" id="btnReload" title="重新載入外掛：換了新版的 CMFTool 資料夾之後按這裡，不用重開 Illustrator（設定都會保留）" aria-label="重新載入外掛">
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2.6 7A5.5 5.5 0 0 1 12.4 4.4M13.4 1.9v3h-3M13.4 9a5.5 5.5 0 0 1-9.8 2.6M2.6 14.1v-3h3"/></svg>
@@ -57,14 +57,6 @@
 
   <details data-key="style">
     <summary>樣式</summary>
-    <div class="grid2">
-      <button class="btn" id="btnSync" title="工作區裡的標註都套用目前的樣式；工作區外面的不動（要改就選取後按「套用選取」）">同步全部</button>
-      <button class="btn" id="btnRestyle" title="只改選取的標註">套用選取</button>
-      <button class="btn" id="btnPickStyle" title="選取一個標註後按這裡：下面的樣式改成跟它一樣，之後新增的標註就用這個樣式（要改其他標註，再按「同步全部」或「套用選取」）">吸取樣式</button>
-      <button class="btn" id="btnRelayout" title="用直接選取工具移動線條錨點後，讓編號重新對齊">重新排版</button>
-    </div>
-    <label class="check"><input type="checkbox" id="autoSync">修改樣式時自動同步全部</label>
-
     <!-- 一個標註的圖：點編號、圓圈、引線、端點，打開那個部位的設定卡片，
          卡片放在圖的下面（js/callout.js 畫圖，js/figcard.js 開關卡片）。右上角「重設」大小 -->
     <div class="fig-wrap">
@@ -161,6 +153,14 @@
         </div>
       </div>
     </div>
+    <!-- 工具列（滑鼠停上去有說明）：同步全部、套用選取、吸取樣式、重新排版、修改樣式時自動同步全部 -->
+    <div class="tools" role="toolbar" aria-label="標註的樣式工具">
+      <button class="ibtn" id="btnSync" title="同步全部：工作區裡的標註都套用目前的樣式；工作區外面的不動（要改就選取後按「套用選取」）" aria-label="同步全部"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5a6 6 0 0 1 10.4-3.8M16 10.5a6 6 0 0 1-10.4 3.8M14.8 3v3h-3M5.2 17v-3h3"/><rect x="8" y="8" width="4" height="4" rx="1"/></svg></button>
+      <button class="ibtn" id="btnRestyle" title="套用選取：只把選取的標註改成目前的樣式" aria-label="套用選取"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3.5l9.5 4.8-4.2 1.3-1.6 4.3z"/><path d="M14.5 11.5l.8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8z"/></svg></button>
+      <button class="ibtn" id="btnPickStyle" title="吸取樣式：選取一個標註後按這裡：下面的樣式改成跟它一樣，之後新增的標註就用這個樣式（要改其他標註，再按「同步全部」或「套用選取」）" aria-label="吸取樣式"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.6 3.6a1.9 1.9 0 0 1 2.7 0l1.1 1.1a1.9 1.9 0 0 1 0 2.7l-1.6 1.6-3.8-3.8z"/><path d="M11 5.2 4.4 11.8 3.5 16.5l4.7-.9 6.6-6.6"/></svg></button>
+      <button class="ibtn" id="btnRelayout" title="重新排版：用直接選取工具移動線條錨點後，讓編號重新對齊" aria-label="重新排版"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="14" cy="6.5" r="3.2"/><path d="M11.2 8.2 4.8 15.5"/><circle cx="4.5" cy="15.8" r="1.3" fill="currentColor" stroke="none"/><path d="M2.5 6.5h6" stroke-dasharray="1.6 1.8"/></svg></button>
+      <input type="checkbox" class="tgl-in" id="autoSync"><label class="ibtn tbtn" for="autoSync" title="修改樣式時自動同步全部：改了樣式，工作區裡的標註馬上跟著改" aria-label="修改樣式時自動同步全部"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2.5 5 11h4.2l-1 6.5 6-8.6H10z"/></svg></label>
+    </div>
   </details>
 
   <details data-key="more">
@@ -213,7 +213,8 @@
       <input type="checkbox" class="tgl-in" id="dimTypeRad">
       <label class="ticon" for="dimTypeRad" title="圓弧、圓角的半徑；同樣大小的圓角標一個" aria-label="半徑"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M4 17v-7a6 6 0 0 1 6-6h7"/><path d="M10 10 6 6"/><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/></svg></label>
     </div>
-    <button class="go" id="btnDimAdd" title="標尺寸：照選好的類型和位置，標註選取的物件"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="11" width="16" height="16" rx="1.5"/><path d="M5 6h16M5 4v4M21 4v4M26 11v16M24 11h4M24 27h4"/></svg><span>標尺寸</span></button>
+    <span class="sp"></span>
+    <button class="go" id="btnDimAdd" title="標尺寸：照選好的類型和位置，標註選取的物件" aria-label="標尺寸"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="11" width="16" height="16" rx="1.5"/><path d="M5 6h16M5 4v4M21 4v4M26 11v16M24 11h4M24 27h4"/></svg></button>
   </div>
   <!-- 示範框：照目前的樣式畫一個尺寸，左上角切換標矩形（寬、高）或標圓（直徑）。點文字、尺寸線、端點、延伸線，
        打開那個部位的設定卡片，跟標註的圖一樣（js/dimension.js 畫圖，js/figcard.js 開關卡片）。
@@ -434,8 +435,22 @@
     </div>
   </div>
 
-  <label class="check" title="量到線條的外緣：寬高跟「變形」面板勾「使用預視邊界」一樣，圓的直徑、圓角的半徑也加上線寬；不勾 = 只量形狀（線條中間）"><input type="checkbox" id="dimVisible">含線寬</label>
-  <label class="check" title="字級、線寬、箭頭、間距、引線和距離跟著量的物件大小等比調整：下面「樣式」的數值是給「基準」大小的物件用的，物件比較大就放大、比較小就縮小（最多縮到一半）。只在新增尺寸時作用；「同步全部」、「套用選取」會把尺寸都改成面板上的樣式"><input type="checkbox" id="dimAuto">依物件大小自動調整樣式</label>
+  <!-- 工具列（滑鼠停上去有說明）：量法的兩個開關 | 樣式：同步全部、套用選取、吸取樣式、修改時自動套用 | ⋯ 其他 -->
+  <div class="tools" role="toolbar" aria-label="尺寸的工具">
+    <input type="checkbox" class="tgl-in" id="dimVisible"><label class="ibtn tbtn" for="dimVisible" title="含線寬：量到線條的外緣：寬高跟「變形」面板勾「使用預視邊界」一樣，圓的直徑、圓角的半徑也加上線寬；不勾 = 只量形狀（線條中間）" aria-label="含線寬"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="4.5" width="11" height="11" rx="2.5" stroke-width="3"/><rect x="1.8" y="1.8" width="16.4" height="16.4" rx="4" stroke-width=".9" stroke-dasharray="1.5 1.6"/></svg></label>
+    <input type="checkbox" class="tgl-in" id="dimAuto"><label class="ibtn tbtn" for="dimAuto" title="依物件大小自動調整樣式：字級、線寬、箭頭、間距、引線和距離跟著量的物件大小等比調整：示範框裡的樣式數值是給「基準」大小的物件用的，物件比較大就放大、比較小就縮小（最多縮到一半）。只在新增尺寸時作用；「同步全部」、「套用選取」會把尺寸都改成面板上的樣式" aria-label="依物件大小自動調整樣式"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="11" width="6" height="6" rx="1.2"/><rect x="2.5" y="2.5" width="15" height="15" rx="3" stroke-dasharray="1.6 1.8"/><path d="M10 10l4.5-4.5M11 5.5h3.5V9"/></svg></label>
+    <span class="tools-sep"></span>
+    <button class="ibtn" id="btnDimSync" title="同步全部：工作區裡的尺寸都改成面板上的樣式（字級、線寬一樣大）、數字格式和直徑半徑的標法，位置不變；工作區外面的不動（要改就選取後按「套用選取」）" aria-label="同步全部"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5a6 6 0 0 1 10.4-3.8M16 10.5a6 6 0 0 1-10.4 3.8M14.8 3v3h-3M5.2 17v-3h3"/><rect x="8" y="8" width="4" height="4" rx="1"/></svg></button>
+    <button class="ibtn" id="btnDimRestyle" title="套用選取：只把選取的尺寸改成面板上的樣式" aria-label="套用選取"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3.5l9.5 4.8-4.2 1.3-1.6 4.3z"/><path d="M14.5 11.5l.8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8z"/></svg></button>
+    <button class="ibtn" id="btnDimPickStyle" title="吸取樣式：選取一個尺寸後按這裡：樣式和數字的設定改成跟它一樣，之後新增的尺寸就用這個樣式（要改其他尺寸，再按「同步全部」或「套用選取」）" aria-label="吸取樣式"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.6 3.6a1.9 1.9 0 0 1 2.7 0l1.1 1.1a1.9 1.9 0 0 1 0 2.7l-1.6 1.6-3.8-3.8z"/><path d="M11 5.2 4.4 11.8 3.5 16.5l4.7-.9 6.6-6.6"/></svg></button>
+    <input type="checkbox" class="tgl-in" id="dimAutoApply"><label class="ibtn tbtn" for="dimAutoApply" title="修改時自動套用到選取的尺寸：選取尺寸之後修改樣式、數字或標法，選取的尺寸馬上跟著改" aria-label="修改時自動套用到選取的尺寸"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2.5 5 11h4.2l-1 6.5 6-8.6H10z"/></svg></label>
+    <span class="sp"></span>
+    <button class="ibtn" id="btnDimMore" title="其他" aria-label="其他" aria-expanded="false" aria-controls="dimMore"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="10" r="1.3" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1.3" fill="currentColor" stroke="none"/></svg></button>
+  </div>
+  <div class="tools tools-more" id="dimMore" hidden>
+    <button class="ibtn" id="btnDimSelectAll" title="選取全部尺寸：選取文件裡所有用 CMF Tool 標的尺寸" aria-label="選取全部尺寸"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="15" height="15" rx="3.5" stroke-dasharray="1.8 1.9"/><path d="M6.5 10h7M6.5 8.3v3.4M13.5 8.3v3.4"/></svg></button>
+    <button class="ibtn" id="btnDimToggle" title="顯示 / 隱藏尺寸圖層：切換尺寸所在圖層的顯示" aria-label="顯示 / 隱藏尺寸圖層"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10z"/><circle cx="10" cy="10" r="2.3"/></svg></button>
+  </div>
   <div class="row" id="dimAutoRow">
     <label for="dimAutoBase">基準</label>
     <div class="unit-field">
@@ -445,23 +460,6 @@
   </div>
   <div class="hint" id="dimAutoHint"></div>
 
-  <details data-key="dimstyle" open>
-    <summary>樣式</summary>
-    <div class="grid3">
-      <button class="btn" id="btnDimSync" title="工作區裡的尺寸都改成面板上的樣式（字級、線寬一樣大）、數字格式和直徑半徑的標法，位置不變；工作區外面的不動（要改就選取後按「套用選取」）">同步全部</button>
-      <button class="btn" id="btnDimRestyle" title="只改選取的尺寸">套用選取</button>
-      <button class="btn" id="btnDimPickStyle" title="選取一個尺寸後按這裡：樣式和數字的設定改成跟它一樣，之後新增的尺寸就用這個樣式（要改其他尺寸，再按「同步全部」或「套用選取」）">吸取樣式</button>
-    </div>
-    <label class="check" title="選取尺寸之後修改樣式、數字或標法，選取的尺寸馬上跟著改"><input type="checkbox" id="dimAutoApply">修改時自動套用到選取的尺寸</label>
-  </details>
-
-  <details data-key="dimmore">
-    <summary>其他</summary>
-    <div class="grid2">
-      <button class="btn" id="btnDimSelectAll">選取全部尺寸</button>
-      <button class="btn" id="btnDimToggle">顯示 / 隱藏圖層</button>
-    </div>
-  </details>
 </section>
 
 <!-- ==================== Excel ==================== -->

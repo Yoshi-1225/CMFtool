@@ -72,11 +72,10 @@ body {
   cursor: pointer; transition: background-color .2s, color .2s, box-shadow .2s;
 }
 .tab svg { flex: none; width: 16px; height: 16px; }
-.tab-label { display: none; white-space: nowrap; }
 .tab:hover { color: var(--fg); }
-.tab.is-active { color: var(--fg); background: var(--raise); box-shadow: 0 1px 3px rgba(0, 0, 0, .3); padding-right: 11px; }
-.tab.is-active .tab-label { display: inline; }
+.tab.is-active { color: var(--fg); background: var(--raise); box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
 .tabs .reload { margin-left: auto; }
+.tab { justify-content: center; min-width: 34px; }
 @media (prefers-reduced-motion: reduce) { .tab { transition: none; } }
 
 /* ---------- 表單 ---------- */
@@ -134,6 +133,45 @@ input::placeholder { color: var(--muted); }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
 .mt { margin-top: 6px; }
+
+/* 工具列：圖示按鈕（.ibtn），開關（.tgl-in + label.tbtn，開 = 藍色），說明在滑鼠停上去的泡泡裡 */
+.tools { display: flex; align-items: center; gap: 4px; margin: 10px 0 4px; }
+.tools-more { margin-top: 0; }
+.tools-sep { width: 1px; height: 18px; margin: 0 3px; background: var(--line-soft); }
+.tools .sp { flex: 1; }
+.ibtn {
+  flex: none; display: grid; place-items: center; width: 30px; height: 30px; padding: 0;
+  background: var(--surface); color: var(--muted);
+  border: 0; border-radius: 9px; cursor: pointer;
+  transition: background-color .15s, color .15s, box-shadow .15s;
+}
+.ibtn svg { width: 18px; height: 18px; }
+.ibtn:hover { color: var(--fg); background: var(--surface-hi); }
+.ibtn:active { transform: translateY(1px); }
+.ibtn:disabled { opacity: .45; cursor: default; }
+.ibtn[aria-expanded="true"] { color: var(--fg); background: var(--surface-hi); }
+.tgl-in:checked + .tbtn { color: var(--fg); background: rgba(38, 128, 235, .22); box-shadow: inset 0 0 0 1px rgba(38, 128, 235, .65); }
+.light .tgl-in:checked + .tbtn { color: var(--accent); background: rgba(38, 128, 235, .12); }
+
+/* 說明泡泡（js/app.js）：滑鼠停在有 title 的東西上一下子就出現；名稱粗體，說明在下面 */
+.tip {
+  position: fixed; z-index: 40; max-width: 230px; padding: 5px 10px 6px; pointer-events: none;
+  background: #f4f4f4; color: #1e1e1e; border-radius: 10px;
+  font-size: 11px; line-height: 1.45; box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+  animation: tip-in .12s ease-out;
+}
+.tip b { display: block; font-weight: 600; }
+.tip b + span { display: block; margin-top: 1px; color: #5a5a5a; }
+.tip::after {
+  content: ""; position: absolute; left: var(--tip-x, 50%); margin-left: -4px; bottom: -4px;
+  width: 8px; height: 8px; background: #f4f4f4; border-radius: 1px; transform: rotate(45deg);
+}
+.tip.below::after { bottom: auto; top: -4px; }
+.light .tip { background: #2b2b2b; color: #f0f0f0; }
+.light .tip::after { background: #2b2b2b; }
+.light .tip b + span { color: #bdbdbd; }
+@keyframes tip-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .tip { animation: none; } }
 
 /* 主要按鈕 */
 .add {
@@ -382,8 +420,9 @@ input.invalid { border-color: var(--error); }
 .ticon svg { width: 21px; height: 21px; }
 .ticon:hover { opacity: 1; }
 .tgl-in:checked + .ticon { color: var(--fg); opacity: 1; background: var(--raise); box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
+.dim-bar .sp { flex: 1; }
 .go {
-  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; height: 34px; padding: 0 10px;
+  flex: none; display: flex; align-items: center; justify-content: center; width: 58px; height: 34px; padding: 0;
   background: var(--accent); color: var(--accent-fg); font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap;
   border: 0; border-radius: 10px; cursor: pointer;
   box-shadow: 0 2px 8px rgba(38, 128, 235, .3);
