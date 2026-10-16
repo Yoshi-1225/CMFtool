@@ -856,13 +856,16 @@
 
   // 圖右上角的「重設」：這些大小改回預設值（index.html 寫的值），顏色、字體、圓圈底開關、端點樣式不動。
   // 跟改其他樣式一樣：存起來，勾了「修改樣式時自動套用到選取的標註」就套用到選取的標註
+  // 預設值依目前工作區的大小等比放大縮小（App.artboardFactor：A4 = 預設值）
   $("btnReset").addEventListener("click", function () {
-    SIZE_FIELDS.forEach(function (k) { var el = $(k); el.value = el.defaultValue; });
-    renderPreview();
-    saveSettings();
-    scheduleSync(true);
-    setStatus("大小改回預設：字級 " + $("fontSize").value + "、線寬 " + $("lineWidth").value + "、端點 " + $("endSize").value +
-      "、圓圈內距 " + $("badgePadding").value + " pt");
+    App.artboardFactor(function (k, note) {
+      SIZE_FIELDS.forEach(function (id) { var el = $(id); el.value = App.scaledDefault(el, k); });
+      renderPreview();
+      saveSettings();
+      scheduleSync(true);
+      setStatus("大小改回預設" + (note ? "（" + note + "）" : "") + "：字級 " + $("fontSize").value + "、線寬 " + $("lineWidth").value +
+        "、端點 " + $("endSize").value + "、圓圈內距 " + $("badgePadding").value + " pt");
+    });
   });
 
   loadSettings(function () {

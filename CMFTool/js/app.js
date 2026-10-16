@@ -112,6 +112,29 @@
   }
   $('btnReload').addEventListener('click', reload);
 
+  /* ---------- 「重設大小」：依目前工作區的大小 ---------- */
+  // 預設的字級、線寬⋯是給 A4（長邊 297 mm = 841.89 pt）的工作區用的。工作區較長的一邊是它的幾倍，預設值就乘幾倍。
+  // cb(k, 說明)：k = 倍率（讀不到工作區時 1），說明 =「依工作區「01」420 × 297 mm，× 1.41」
+  var A4_LONG = 841.89;
+  App.artboardFactor = function (cb) {
+    if (!cep) { cb(1, ''); return; }
+    cep.evalScript('CMF.artboardSize()', function (raw) {
+      var r = null;
+      try { r = JSON.parse(raw); } catch (e) { r = null; }
+      if (!r || !r.ok || !(Math.max(r.w, r.h) > 0)) { cb(1, ''); return; }
+      var k = Math.max(0.05, Math.min(50, Math.max(r.w, r.h) / A4_LONG));
+      var f = function (v) { return String(Math.round(v * 10) / 10); };
+      cb(k, '依工作區「' + r.name + '」' + f(r.wmm) + ' × ' + f(r.hmm) + ' mm，× ' + (Math.round(k * 100) / 100));
+    });
+  };
+  // 重設用的數值：預設 × k，留 3 位有效數字
+  App.scaledDefault = function (el, k) {
+    var v = (parseFloat(el.defaultValue) || 0) * k;
+    if (!v) return '0';
+    var p = Math.pow(10, Math.max(0, 2 - Math.floor(Math.log(Math.abs(v)) / Math.LN10)));
+    return String(Math.round(v * p) / p);
+  };
+
   /* ---------- CMF 圖層只放標註和尺寸 ---------- */
   // 每 1.5 秒請 host.jsx 的 guardLayers 檢查：CMF Callouts、CMF Dimensions 圖層裡別的東西搬到其他圖層，
   // 沒選取東西時作用中的圖層切回一般圖層。正在新增標註、兩點距離、取色（App.busy 裡有 true）或在面板打字時不檢查

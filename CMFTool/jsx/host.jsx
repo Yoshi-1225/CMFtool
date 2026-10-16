@@ -2414,6 +2414,19 @@ $.global.CMF = (function () {
         } catch (e) { return res(false, e.message); }
     }
 
+    // ---------- 目前的工作區大小 ----------
+    // 「重設大小」用：預設值是給 A4 大的工作區用的，面板照工作區較長的一邊等比放大縮小。
+    // w、h 是腳本座標（樣式的大小也是腳本座標，大型畫布不用另外換算）；mm 是實際大小（給狀態列顯示）
+    function artboardSize() {
+        try {
+            if (app.documents.length === 0) return res(false, "沒有開啟的文件");
+            var d = app.activeDocument, i = d.artboards.getActiveArtboardIndex(), A = d.artboards[i], r = A.artboardRect;
+            var w = Math.abs(r[2] - r[0]), h = Math.abs(r[1] - r[3]), f = docScaleFactor(d) * 25.4 / 72;
+            return '{"ok":true,"w":' + jsonNum(w) + ',"h":' + jsonNum(h) + ',"wmm":' + jsonNum(w * f) + ',"hmm":' + jsonNum(h * f) +
+                ',"name":"' + esc(A.name) + '"}';
+        } catch (e) { return res(false, e.message); }
+    }
+
     // ---------- CMF 圖層只放標註和尺寸 ----------
     // 面板每 1.5 秒呼叫一次（面板「其他」裡可以關掉）：
     //   1. CMF Callouts、CMF Dimensions 圖層裡不是標註、尺寸的東西（使用者在這兩個圖層畫的），沒有選取著的時候，
@@ -2539,6 +2552,7 @@ $.global.CMF = (function () {
         dimToggle: dimToggle,
         pickStyle: pickStyle,
         guardLayers: guardLayers,
+        artboardSize: artboardSize,
         loadSettings: loadSettings,
         saveSettings: saveSettings
     };

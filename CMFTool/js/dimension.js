@@ -811,12 +811,15 @@
 
   // 示範框右上角的「重設」：這些大小改回預設值（index.html 寫的值），顏色、字體、數字格式、標法不動。
   // 跟改其他樣式一樣：存起來，勾了「修改時自動套用到選取的尺寸」就套用到選取的尺寸
+  // 預設值依目前工作區的大小等比放大縮小（App.artboardFactor：A4 = 預設值；自動調整的基準也一起）
   function resetSizes() {
-    SIZE_FIELDS.forEach(function (id) { var el = $(id); el.value = el.defaultValue; });
-    changed();
-    scheduleApply(true);
-    App.setStatus('大小改回預設：字級 ' + $('dimFontSize').value + '、線寬 ' + $('dimLineWidth').value + '、端點 ' + $('dimEndSize').value +
-      '、距離 ' + $('dimOffset').value + ' pt');
+    App.artboardFactor(function (k, note) {
+      SIZE_FIELDS.forEach(function (id) { var el = $(id); el.value = App.scaledDefault(el, k); });
+      changed();
+      scheduleApply(true);
+      App.setStatus('大小改回預設' + (note ? '（' + note + '）' : '') + '：字級 ' + $('dimFontSize').value + '、線寬 ' + $('dimLineWidth').value +
+        '、端點 ' + $('dimEndSize').value + '、距離 ' + $('dimOffset').value + ' pt');
+    });
   }
   $('btnDimReset').addEventListener('click', resetSizes);
   function scaleSize(s) {
