@@ -133,7 +133,7 @@
   // 在部位上按住左右拖曳，直接改它的大小（js/numfield.js 的拖曳把手）：編號 = 字級、圓圈 = 內距、引線 = 線寬、
   // 端點 = 大小（繪圖樣式 = %）。第一次在圖上點過之後，角落的提示就不再出現
   var PART_NAMES = { text: "文字", badge: "圓圈", chip: "色塊", line: "引線", end: "端點" };
-  // 每個部位的設定：圖上選著一個部位時，「同步全部」、「套用選取」、自動同步、「吸取樣式」只處理這些
+  // 每個部位的設定：圖上選著一個部位時，「同步全部」、「套用選取」、⚡ 自動套用、「吸取樣式」只處理這些
   var PART_FIELDS = {
     text: ["fontSize", "textColor", "fontName", "badgeTextColor"],
     badge: ["badge", "badgeColor", "badgePadding", "badgeStrokeWidth", "badgeStrokeColor"],
@@ -713,18 +713,19 @@
     return o;
   }
 
-  // ---------- 樣式自動同步 ----------
+  // ---------- 修改樣式時自動套用到選取的標註（⚡） ----------
   var syncTimer = null;
   function scheduleSync(full) {
     if (!$("autoSync").checked || !cep) return;
     clearTimeout(syncTimer);
     var st = syncStyle(full);
-    syncTimer = setTimeout(function () { callHost("syncAll", st); }, 700);
+    // 只改選取的標註（跟尺寸分頁的 ⚡ 一樣）；沒有選取標註時不提示
+    syncTimer = setTimeout(function () { callHost("restyle", st, function (r) { if (r.ok) setStatus(r.msg); }, true); }, 700);
   }
 
   // ---------- 吸取樣式 ----------
   // 選一個標註按「吸取樣式」：面板的樣式改成這個標註記錄的樣式，之後新增的標註、按「同步全部」就跟它一樣。
-  // 只改面板（快捷鍵腳本用的設定檔也一起存），不會觸發「修改樣式時自動同步全部」。
+  // 只改面板（快捷鍵腳本用的設定檔也一起存），不會觸發「修改樣式時自動套用到選取的標註」。
   // 記錄裡沒有的項目（舊版的標註）或不認得的值，用 host.jsx 遇到時的做法
   var PICK_DEFAULT = { textColor: "#000000", fontName: "", badge: false, badgeStrokeWidth: 0, lineColor: "#000000",
     endStyle: "none", styleScale: 100 };
@@ -848,7 +849,7 @@
   });
 
   // 圖右上角的「重設」：這些大小改回預設值（index.html 寫的值），顏色、字體、圓圈底開關、端點樣式不動。
-  // 跟改其他樣式一樣：存起來，勾了「修改樣式時自動同步全部」就同步
+  // 跟改其他樣式一樣：存起來，勾了「修改樣式時自動套用到選取的標註」就套用到選取的標註
   $("btnReset").addEventListener("click", function () {
     SIZE_FIELDS.forEach(function (k) { var el = $(k); el.value = el.defaultValue; });
     renderPreview();
