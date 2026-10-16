@@ -10,7 +10,7 @@
  *     Shift 一次 10 格；只接受數字、小數點、正負號。其他程式用 App.isNum(el) 判斷。
  *   有 inputmode="decimal" 或 data-ime="off" 的文字欄位（可以帶單位，例如 150mm、1:2）。
  * 之後才加入的欄位（例如編號表）也會自動套用。全形數字會換成半形。
- * 數字欄位也可以用滑鼠改：左右拖曳、點進去後轉滾輪（見最後的「滑鼠」）。
+ * 數字欄位也可以用滑鼠改：左右拖曳、滑鼠停在上面轉滾輪（見最後的「滑鼠」）。
  */
 (function () {
   'use strict';
@@ -226,7 +226,8 @@
   /* ---------- 滑鼠：左右拖曳、滾輪 ---------- */
   // 數字欄位（data-num）：
   //   還沒點進去的格子上按住左右拖曳：每 DRAG_PX 一格（step），往右加、往左減；只點一下沒有拖 = 點進格子、選取整個數字
-  //   點進格子後轉滾輪：一格加減一個 step，往上加；格子沒點進去時滾輪照常捲動面板，捲動時才不會不小心改到
+  //   滑鼠停在格子上轉滾輪（不用點進去）：一格加減一個 step，往上加。正在捲動面板時（捲動中游標滑過格子）照常捲動，
+//   停下來 0.4 秒後再轉才算改數字，捲面板時才不會不小心改到。沒點進去時每一格只送 input，停手 0.4 秒才送一次 change
   //   Shift ×10，Alt ×0.1（沒有 step 屬性的整數欄位不 ×0.1）；拖曳中按 Esc 回到原本的數字
   // 拖曳中只送 input（預覽、面板的設定跟著變），放開才送一次 change（存檔、自動同步），跟打完字按 Enter 一樣。
   // 不要這樣改的欄位加 data-scrub="off"（例如編號表：改了就會重新編號）
@@ -334,10 +335,18 @@
     if (drag && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endDrag(true); }
   }, true);
 
-  var wheelAcc = 0, wheelEl = null, wheelAt = 0;
+  var wheelAcc = 0, wheelEl = null, wheelAt = 0, scrollAt = -1e9, changeTimer = null, changeEl = null;
+  var SCROLL_QUIET = 400;
+  function flushChange() {
+    clearTimeout(changeTimer);
+    changeTimer = null;
+    if (changeEl) { var el = changeEl; changeEl = null; fire(el, 'change'); }
+  }
   document.addEventListener('wheel', function (e) {
-    var el = e.target;
-    if (!scrubbable(el) || document.activeElement !== el) return;
+    var el = e.target, focused = document.activeElement === el;
+    if (!scrubbable(el)) { scrollAt = e.timeStamp; flushChange(); return; }   // 捲動面板
+    // 剛剛還在捲面板（游標捲到格子上）：繼續捲，不改數字
+    if (!focused && el !== wheelEl && e.timeStamp - scrollAt < SCROLL_QUIET) { scrollAt = e.timeStamp; return; }
     e.preventDefault();
     var d = e.deltaY || e.deltaX;   // Shift + 滾輪在 Chromium 是左右捲動
     if (e.deltaMode === 1) d *= 33; else if (e.deltaMode === 2) d *= 300;
@@ -346,7 +355,19 @@
     wheelAt = e.timeStamp;
     wheelAcc += d;
     if (Math.abs(wheelAcc) < WHEEL_NOTCH) return;   // 觸控板一點一點捲：累積到一格
-    step(el, wheelAcc < 0 ? 1 : -1, factor(el, e));
+    if (focused) step(el, wheelAcc < 0 ? 1 : -1, factor(el, e));
+    else {
+      // 沒點進去：改數字、送 input（預覽跟著變），停手才送 change（存檔、自動套用），不會一格呼叫一次 Illustrator
+      if (changeEl && changeEl !== el) flushChange();
+      var v = parseFloat(el.value), min = parseFloat(el.getAttribute('min'));
+      el.value = String(clampNum(el, isFinite(v) ? v + (wheelAcc < 0 ? 1 : -1) * stepOf(el) * factor(el, e) : (isFinite(min) ? min : 0)));
+      fire(el, 'input');
+      changeEl = el;
+      clearTimeout(changeTimer);
+      changeTimer = setTimeout(flushChange, SCROLL_QUIET);
+    }
     wheelAcc = 0;
   }, { capture: true, passive: false });
+  // 滑鼠離開格子：馬上送 change
+  document.addEventListener('mouseout', function (e) { if (changeEl && e.target === changeEl) flushChange(); }, true);
 })();
