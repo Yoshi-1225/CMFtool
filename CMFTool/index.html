@@ -214,6 +214,7 @@
       <label class="ticon" for="dimTypeRad" title="圓弧、圓角的半徑；同樣大小的圓角標一個" aria-label="半徑"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M4 17v-7a6 6 0 0 1 6-6h7"/><path d="M10 10 6 6"/><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/></svg></label>
     </div>
     <span class="sp"></span>
+    <button class="go alt" id="btnDimLen" type="button" aria-pressed="false" title="兩點距離：切到鋼筆，點起點、點終點，標一個箭頭和中間的距離（不用選物件）。箭頭只畫一端時畫在起點。按住 Shift 鎖水平、垂直；可以一直標下去，再按一次或 Esc 結束" aria-label="兩點距離"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12.5h14M5.6 10.3 3 12.5l2.6 2.2M14.4 10.3l2.6 2.2-2.6 2.2"/><path d="M7.5 7h5" stroke-width="1.3"/></svg></button>
     <button class="go" id="btnDimAdd" title="標尺寸：照選好的類型和位置，標註選取的物件" aria-label="標尺寸"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="11" width="16" height="16" rx="1.5"/><path d="M5 6h16M5 4v4M21 4v4M26 11v16M24 11h4M24 27h4"/></svg></button>
   </div>
   <!-- 示範框：照目前的樣式畫一個尺寸，左上角切換標矩形（寬、高）或標圓（直徑）。點文字、尺寸線、端點、延伸線，
@@ -227,6 +228,8 @@
         <label class="fm" for="dimFigRect" title="示範標矩形：寬度、高度"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="2.5" y="5.5" width="11" height="8" rx=".8"/><path d="M2.5 2.5h11M2.5 1.5v2M13.5 1.5v2"/></svg></label>
         <input type="radio" class="tgl-in" name="dimFig" id="dimFigCircle" value="circle">
         <label class="fm" for="dimFigCircle" title="示範標圓：直徑"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="6.5" cy="9.5" r="5"/><path d="M10 6 12.5 3.5H15.5"/></svg></label>
+        <input type="radio" class="tgl-in" name="dimFig" id="dimFigLen" value="len">
+        <label class="fm" for="dimFigLen" title="示範兩點距離：箭頭和中間的距離（上面的「兩點距離」按鈕標）"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 4v9M14.5 4v9M2 8.5h12M4 7l-2 1.5L4 10M12 7l2 1.5-2 1.5"/></svg></label>
       </div>
       <div class="pad" id="dimPad" role="group" aria-label="寬高標在哪一邊（可以多選）">
         <input type="checkbox" class="tgl-in" id="dimPosTop" checked>
@@ -405,7 +408,14 @@
             <input type="number" id="dimEndSize" min="0.5" step="0.5" value="4" title="端點大小：箭頭、斜線的長度 (pt)">
           </div>
         </div>
-        <div class="row only-rect">
+        <div class="row only-len">
+          <label for="dimLenEnds">兩點距離</label>
+          <select id="dimLenEnds" title="兩點距離的箭頭：兩端都畫，或只畫在起點（第一下點的地方），另一端留給文字說明">
+            <option value="both">兩端</option>
+            <option value="one">只畫起點（單向）</option>
+          </select>
+        </div>
+        <div class="row only-rect and-len">
           <label for="dimArrowPos">箭頭位置</label>
           <select id="dimArrowPos" title="寬高的箭頭（開放箭頭）放在延伸線內側往外指，或放在外側往內指">
             <option value="auto">自動（放不下時放外側）</option>

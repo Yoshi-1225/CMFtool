@@ -508,6 +508,7 @@
   function startAdd() {
     if (!cep) { setStatus("請在 Illustrator 中開啟此面板", true); return; }
     if (picking) stopPick();
+    App.emit("pen", "callout");   // 尺寸分頁的「兩點距離」也用鋼筆：先結束它
     callHost("beginAdd", null, function (r) {
       if (!r.ok) return;
       adding = true;
@@ -621,6 +622,7 @@
 
   $("btnAdd").addEventListener("click", function () { if (adding) stopAdd(false); else startAdd(); });
   $("btnFinish").addEventListener("click", finishFree);
+  App.on("pen", function (who) { if (who !== "callout" && adding) stopAdd(true); });
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && picking) { stopPick("已取消取色"); return; }
     if (e.key === "Escape" && adding && document.activeElement.tagName !== "INPUT") stopAdd(false);

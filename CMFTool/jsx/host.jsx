@@ -1190,6 +1190,7 @@ $.global.CMF = (function () {
     // 選取物件後標寬度、高度（外框尺寸），或圓的直徑 Ø、圓弧和圓角的半徑 R。
     // 每個尺寸是一個群組，放在「CMF Dimensions」圖層，備註存著：CMF_DIM|幾何 JSON|樣式 JSON
     //   寬高：{ t:"lin", p1, p2 量測點（延伸線起點）, a 量測方向, n 尺寸線在哪一側, off 尺寸線離量測點的距離 }
+    //     兩點距離也是 lin，多一個 free = 1：p1 起點（第一下）、p2 終點，off = 0、沒有延伸線，「同步全部」不改距離
     //   直徑、半徑：{ t:"dia" | "rad", c 圓心, r 半徑, u 標註方向（圓心 → 箭頭指的點）, out = 1 一律用引線,
     //     x 引線比樣式的「引線」多拉的長度（同心圓的內圈）, q 同樣大小的圓有幾個 }
     //     舊版的尺寸沒有 x，引線長度記在 off
@@ -1429,10 +1430,13 @@ $.global.CMF = (function () {
         }
         if (vdot(vsub(Q[1], Q[0]), a) < 0) Q.reverse();
         var Q1 = Q[0], Q2 = Q[1], len = vlen(vsub(Q2, Q1));
+        // 兩點距離、箭頭只畫一端：端點只畫在起點 Q1（第一下點的地方），另一端什麼都不畫
+        var one = !!gm.free && st.lenEnds === "one";
 
         // 箭頭放在延伸線內側往外指，或外側往內指；自動 = 放不下時放外側
-        var inside = st.arrowPos === "inside" ? true : (st.arrowPos === "outside" ? false : len >= L * 2.6), pts;
-        if (arrowLike(kind)) pts = inside ? [along(Q1, a, tr), along(Q2, a, -tr)] : [along(Q1, a, -L * 2.2), along(Q2, a, L * 2.2)];
+        var inside = one ? true : (st.arrowPos === "inside" ? true : (st.arrowPos === "outside" ? false : len >= L * 2.6)), pts;
+        if (one) pts = [arrowLike(kind) ? along(Q1, a, tr) : Q1, Q2];
+        else if (arrowLike(kind)) pts = inside ? [along(Q1, a, tr), along(Q2, a, -tr)] : [along(Q1, a, -L * 2.2), along(Q2, a, L * 2.2)];
         else if (kind === "tick") pts = [along(Q1, a, -L * 0.6), along(Q2, a, L * 0.6)];
         else pts = [Q1, Q2];
 
@@ -1444,7 +1448,8 @@ $.global.CMF = (function () {
         }
         var split = !!line;
         if (!line) line = dimPath(g, pts, st, col, "DIM_Line");
-        if (kind === "tick") {
+        if (one) dimEnd(g, Q1, kind === "tick" ? a : [-a[0], -a[1]], st, col, kind);
+        else if (kind === "tick") {
             dimEnd(g, Q1, a, st, col, kind);
             dimEnd(g, Q2, a, st, col, kind);
         } else {
@@ -1537,7 +1542,8 @@ $.global.CMF = (function () {
 
     function geomStr(gm) {
         var s = '{"t":"' + gm.t + '"';
-        if (gm.t === "lin") s += ',"p1":' + ptStr(gm.p1) + ',"p2":' + ptStr(gm.p2) + ',"a":' + ptStr(gm.a) + ',"n":' + ptStr(gm.n);
+        if (gm.t === "lin") s += ',"p1":' + ptStr(gm.p1) + ',"p2":' + ptStr(gm.p2) + ',"a":' + ptStr(gm.a) + ',"n":' + ptStr(gm.n) +
+            (gm.free ? ',"free":1' : "");
         else s += ',"c":' + ptStr(gm.c) + ',"r":' + jsonNum(gm.r) + ',"u":' + ptStr(gm.u) + (gm.out ? ',"out":1' : "") +
             (gm.x !== undefined ? ',"x":' + jsonNum(gm.x) : "") + (gm.q > 1 ? ',"q":' + gm.q : "");
         if (gm.z > 0) s += ',"z":' + jsonNum(gm.z);
@@ -1576,6 +1582,7 @@ $.global.CMF = (function () {
         var o = { t: gm.t, off: gm.off * T.s };
         if (gm.t === "lin") {
             o.p1 = simPt(T, gm.p1); o.p2 = simPt(T, gm.p2); o.a = simDir(T, gm.a); o.n = simDir(T, gm.n);
+            if (gm.free) o.free = 1;
         } else {
             o.c = simPt(T, gm.c); o.r = gm.r * T.s; o.u = simDir(T, gm.u); o.out = gm.out; o.q = gm.q;
             if (gm.x !== undefined) o.x = gm.x * T.s;
@@ -1596,11 +1603,11 @@ $.global.CMF = (function () {
     // 用尺寸自己的記錄重建；styleStr 省略 = 原本的樣式。「同步全部」、「套用選取」一律照面板的樣式，
     // 不再依物件大小調整（自動調整只在新增時作用），所有尺寸的字級、線寬才會一致。
     // withOffset（同步全部、套用選取）：寬高的尺寸線離物件的距離也改成面板的「距離」（樣式裡的 offset）；
-    // 從尺寸自己的記錄重建（例如縮放文件後）時距離不變
+    // 從尺寸自己的記錄重建（例如縮放文件後）時距離不變；兩點距離的箭頭就在點的位置，沒有距離
     function rebuildDim(d, g, styleStr, withOffset) {
         var p = dimNote(g), gm = dimGeomNow(g, p);
         if (!gm) return null;
-        if (withOffset && gm.t === "lin") {
+        if (withOffset && gm.t === "lin" && !gm.free) {
             var off = /"offset"\s*:\s*([0-9.eE+-]+)/.exec(styleStr || "");
             if (off && Number(off[1]) >= 0) gm.off = Number(off[1]);
         }
@@ -1914,6 +1921,60 @@ $.global.CMF = (function () {
         } catch (e) { return res(false, e.message); }
     }
 
+    // ---- 兩點距離 ----
+    // 面板按「兩點距離」後切到鋼筆，點兩下（起點 → 終點）標一個尺寸：箭頭畫在兩點之間，數字在中間。
+    // 跟新增標註一樣，面板每 200ms 呼叫 dimLenPoll，選取的線有 2 個錨點時換成尺寸、刪掉那條線。
+    // 按住 Shift 點第二下，鋼筆會鎖在水平、垂直或 45°
+    // 文字放在線的哪一側：線轉成由左往右（直的由下往上）讀的方向 r，文字在 r 的左手邊（橫的在上面、直的在左邊）
+    function freeGeom(p1, p2) {
+        var v = vsub(p2, p1), l = vlen(v);
+        if (l < 0.01) return null;
+        var a = [v[0] / l, v[1] / l], deg = Math.atan2(a[1], a[0]) * 180 / Math.PI;
+        var r = deg > 90.01 || deg <= -89.99 ? [-a[0], -a[1]] : a;
+        return { t: "lin", p1: [p1[0], p1[1]], p2: [p2[0], p2[1]], a: a, n: [-r[1], r[0]], off: 0, free: 1 };
+    }
+
+    function dimLenBegin() {
+        try {
+            var d = getDoc();
+            d.selection = null; // 清空選取，之後出現的選取路徑就一定是新畫的
+            var ok = selectToolSafe("Adobe Pen Tool");
+            return res(true, ok ? "" : "請按 P 切換到鋼筆工具", null, "ready");
+        } catch (e) { return res(false, e.message); }
+    }
+
+    function dimLenPoll(styleStr) {
+        try {
+            if (app.documents.length === 0) return res(true, "", null, "idle");
+            var d = app.activeDocument, sel = d.selection;
+            if (!sel || sel.length !== 1) return res(true, "", null, "idle");
+            var it = sel[0];
+            if (it.typename !== "PathItem" || it.closed || ownerOf(it, isDim) || ownerOf(it, isCallout)) return res(true, "", null, "idle");
+            var pts = it.pathPoints;
+            if (pts.length < 2) return res(true, "", null, "drawing");
+            var gm = freeGeom(pts[0].anchor, pts[pts.length - 1].anchor);
+            it.remove();
+            d.selection = null; // 鋼筆下一次點擊會開始新的線
+            if (!gm) return res(false, "兩個點在同一個位置，沒有標", null, "drawing");
+            var g = buildDim(d, getLayer(d, true, DIM_LAYER), gm, styleStr);
+            return res(true, "已標註 " + findChild(g, "DIM_Text").contents, null, "done");
+        } catch (e) { return res(false, e.message, null, "error"); }
+    }
+
+    // o.keepTool：不切回選取工具。只點了第一下就結束時，刪掉留下的單一錨點
+    function dimLenEnd(optStr) {
+        try {
+            var keepTool = !!(optStr && parse(optStr).keepTool);
+            if (app.documents.length > 0) {
+                var sel = app.activeDocument.selection;
+                if (sel && sel.length === 1 && sel[0].typename === "PathItem" && sel[0].pathPoints.length < 2 &&
+                    !ownerOf(sel[0], isDim) && !ownerOf(sel[0], isCallout)) sel[0].remove();
+            }
+            if (!keepTool) selectToolSafe("Adobe Select Tool");
+            return res(true, "已結束兩點距離", null, "idle");
+        } catch (e) { return res(false, e.message); }
+    }
+
     // 面板顯示用：選取物件合起來的寬高（pt）、文件單位；o.visible = 含線寬
     function dimInfo(optStr) {
         try {
@@ -1993,7 +2054,7 @@ $.global.CMF = (function () {
                 var g = dims[0], p = dimNote(g), gm, st;
                 try { gm = dimGeomNow(g, p) || parse(p.geom); st = flatJson(parse(p.style)); }
                 catch (eD) { return res(false, "「" + (g.name || "尺寸") + "」的樣式記錄讀不到（" + eD.message + "）"); }
-                out += ',"dim":' + st + ',"dimGeom":' + flatJson({ t: gm.t, off: Number(gm.off), x: gm.x, out: gm.out, z: gm.z * docScaleFactor(d) }) +
+                out += ',"dim":' + st + ',"dimGeom":' + flatJson({ t: gm.t, free: gm.free, off: Number(gm.off), x: gm.x, out: gm.out, z: gm.z * docScaleFactor(d) }) +
                     ',"dimName":"' + esc(g.name) + '","dims":' + dims.length;
             }
             if (cs.length) {
@@ -2058,6 +2119,9 @@ $.global.CMF = (function () {
         scaleDoc: scaleDoc,
         swapItems: swapItems,
         dimAdd: dimAdd,
+        dimLenBegin: dimLenBegin,
+        dimLenPoll: dimLenPoll,
+        dimLenEnd: dimLenEnd,
         dimInfo: dimInfo,
         dimSync: dimSync,
         dimRestyle: dimRestyle,
