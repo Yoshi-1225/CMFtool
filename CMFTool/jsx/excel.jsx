@@ -220,10 +220,11 @@ function es_apply(valuesJson, keepJson) {
  * 同一格有好幾個文字：只有一種改法就用它；改得不一樣 = { ref, multi: true } */
 function es_edited() {
     if (app.documents.length === 0) return '{"doc":null,"items":[]}';
-    var doc = app.activeDocument, byRef = {}, order = [], i, k;
+    var doc = app.activeDocument, byRef = {}, order = [], i, k, inTables = 0;
     for (i = 0; i < doc.textFrames.length; i++) {
         var tf = doc.textFrames[i], ref = _refOf(tf);
         if (ref === null) continue;
+        if (_inTable(tf)) inTables++;
         if (!byRef.hasOwnProperty(ref)) { byRef[ref] = []; order.push(ref); }
         byRef[ref].push({ text: tf.contents, base: _baseOf(tf) });
     }
@@ -238,7 +239,9 @@ function es_edited() {
         if (edited.length > 1) items.push({ ref: order[i], multi: true });
         else if (edited.length === 1) items.push({ ref: order[i], text: edited[0].text, base: edited[0].base });
     }
-    return '{"doc":' + _q(_docKey(doc)) + ',"items":' + _json(items) + "}";
+    // tables：文件裡有幾個表格；tableCells：表格裡對到儲存格的字（0 = 表格還沒對過，改了不會寫回）
+    return '{"doc":' + _q(_docKey(doc)) + ',"items":' + _json(items) + ',"tables":' + _tableGroups(doc).length +
+        ',"tableCells":' + inTables + "}";
 }
 
 /* 選取所有綁定到某個儲存格的物件，方便找東西 */
@@ -604,49 +607,80 @@ function es_selectTable(label) {
 /* 剪貼簿可能暫時被別的程式佔用（OneDrive、剪貼簿工具，或 Excel 還在準備資料）：等一下再試 */
 /* 從 Excel 複製貼上的表格：每個文字對回它的儲存格，之後在 Illustrator 裡改字可以寫回 Excel
  * layoutJson = { w, h, cells: [{ ref, x, y, w, h, text }] }（js/table.js 的 buildTable 算的位置，pt，從左上角起算，y 往下）
- * 表格的外框照 w、h 縮放對齊；文字的中心落在哪一格就是哪一格。
- * 一格只有一個文字、而且內容跟 Excel 那格一樣才對上（Excel 貼過來時有時一格拆成好幾段，這種不對，免得寫錯）
- * 回傳 { tagged 對上幾格, total 有字的格數 } */
+ * 先比內容：文字的內容在表格裡只有一格是這樣，就是那一格（跟位置、縮放無關）。
+ * 好幾格內容一樣：文字的中心落在哪一格就是哪一格（表格外框照 w、h 縮放對齊）；位置對不上時照順序（由上到下、由左到右）配對。
+ * 一格對到兩個文字（Excel 貼過來時拆成好幾段）不對，免得寫錯。
+ * 回傳 { tagged 對上幾格, total 有字的格數, frames 表格裡有幾個文字, miss: 對不上的文字（最多 6 個）, tables 找到幾個表格 } */
 function _norm(t) {
-    return String(t).replace(/\r\n|\r|\u0003/g, "\n").replace(/[ \t\u00A0]+/g, " ").replace(/^\s+|\s+$/g, "");
+    return String(t).replace(/\r\n|\r|\u0003/g, "\n").replace(/[ \t\u00A0\u3000]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/^\s+|\s+$/g, "");
 }
 
 function es_tagTable(label, layoutJson) {
-    if (app.documents.length === 0) return '{"tagged":0,"total":0}';
+    if (app.documents.length === 0) return '{"tagged":0,"total":0,"frames":0,"miss":[],"tables":0}';
     var doc = app.activeDocument, L = eval("(" + layoutJson + ")"), groups = _tableGroups(doc), name = XL_TABLE + label;
-    var tagged = 0, total = 0, i, j, k;
-    for (k = 0; k < L.cells.length; k++) if (_norm(L.cells[k].text) !== "") total++;
+    var tagged = 0, total = 0, nframes = 0, ntables = 0, miss = [], i, j, k;
+    var cellText = [];
+    for (k = 0; k < L.cells.length; k++) { cellText.push(_norm(L.cells[k].text)); if (cellText[k] !== "") total++; }
+
     for (i = 0; i < groups.length; i++) {
         var g = groups[i];
-        if (g.name !== name || _tableMode(g) !== "excel" || !(L.w > 0) || !(L.h > 0)) continue;
-        var b = g.geometricBounds, sx = (b[2] - b[0]) / L.w, sy = (b[1] - b[3]) / L.h;
-        if (!(sx > 0) || !(sy > 0)) continue;
+        if (g.name !== name || _tableMode(g) !== "excel") continue;
+        ntables++;
+        var b = g.geometricBounds, sx = L.w > 0 ? (b[2] - b[0]) / L.w : 0, sy = L.h > 0 ? (b[1] - b[3]) / L.h : 0;
         var frames = [];
         var walk = function (it) {
             if (it.typename === "TextFrame") frames.push(it);
             else if (it.typename === "GroupItem") for (var w = 0; w < it.pageItems.length; w++) walk(it.pageItems[w]);
         };
         walk(g);
-        var byCell = {};
+        nframes += frames.length;
+
+        // 文字 → 同樣內容的格子
+        var info = [], byText = {};
         for (j = 0; j < frames.length; j++) {
-            var tb = frames[j].geometricBounds;
-            var x = ((tb[0] + tb[2]) / 2 - b[0]) / sx, y = (b[1] - (tb[1] + tb[3]) / 2) / sy;
-            for (k = 0; k < L.cells.length; k++) {
-                var c = L.cells[k];
-                if (x >= c.x && x < c.x + c.w && y >= c.y && y < c.y + c.h) {
-                    (byCell[k] = byCell[k] || []).push(frames[j]);
-                    break;
-                }
-            }
+            var t = _norm(frames[j].contents), tb = frames[j].geometricBounds;
+            var f = { tf: frames[j], text: t, x: sx > 0 ? ((tb[0] + tb[2]) / 2 - b[0]) / sx : 0, y: sy > 0 ? (b[1] - (tb[1] + tb[3]) / 2) / sy : 0, cell: -1 };
+            info.push(f);
+            if (t !== "") (byText[t] = byText[t] || []).push(f);
         }
-        for (k in byCell) {
-            if (!byCell.hasOwnProperty(k) || byCell[k].length !== 1) continue;
-            var tf = byCell[k][0], cell = L.cells[k];
-            if (_norm(tf.contents) === "" || _norm(tf.contents) !== _norm(cell.text)) continue;
-            try { tf.name = XL_PREFIX + cell.ref; _setBase(tf, tf.contents); tagged++; } catch (e) {}
+        var cellsOf = {};
+        for (k = 0; k < L.cells.length; k++) if (cellText[k] !== "") (cellsOf[cellText[k]] = cellsOf[cellText[k]] || []).push(k);
+
+        for (var key in byText) {
+            if (!byText.hasOwnProperty(key)) continue;
+            var fs = byText[key], cs = cellsOf.hasOwnProperty(key) ? cellsOf[key] : [];
+            if (!cs.length) continue;
+            if (cs.length === 1) {                       // 內容只有一格：直接對
+                if (fs.length === 1) fs[0].cell = cs[0];
+                continue;                                 // 一格拆成好幾個同樣的字：不對
+            }
+            // 好幾格內容一樣：先看位置
+            var used = {}, ok = true;
+            for (j = 0; j < fs.length; j++) {
+                for (var m = 0; m < cs.length; m++) {
+                    var c = L.cells[cs[m]];
+                    if (fs[j].x >= c.x && fs[j].x < c.x + c.w && fs[j].y >= c.y && fs[j].y < c.y + c.h) { fs[j].cell = cs[m]; break; }
+                }
+                if (fs[j].cell < 0 || used[fs[j].cell]) ok = false;
+                used[fs[j].cell] = true;
+            }
+            if (ok) continue;
+            // 位置對不上：數量一樣就照順序配
+            for (j = 0; j < fs.length; j++) fs[j].cell = -1;
+            if (fs.length !== cs.length) continue;
+            fs.sort(function (p, q) { return Math.abs(p.y - q.y) > 2 ? p.y - q.y : p.x - q.x; });
+            var sorted = cs.slice().sort(function (p, q) { var a = L.cells[p], z = L.cells[q]; return a.y - z.y || a.x - z.x; });
+            for (j = 0; j < fs.length; j++) fs[j].cell = sorted[j];
+        }
+
+        for (j = 0; j < info.length; j++) {
+            var it2 = info[j];
+            if (it2.cell >= 0) {
+                try { it2.tf.name = XL_PREFIX + L.cells[it2.cell].ref; _setBase(it2.tf, it2.tf.contents); tagged++; } catch (e) {}
+            } else if (it2.text !== "" && miss.length < 6) miss.push(it2.text.replace(/\n/g, " "));
         }
     }
-    return '{"tagged":' + tagged + ',"total":' + total + "}";
+    return '{"tagged":' + tagged + ',"total":' + total + ',"frames":' + nframes + ',"miss":' + _arr(miss) + ',"tables":' + ntables + "}";
 }
 
 function _paste(doc) {

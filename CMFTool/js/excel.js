@@ -774,7 +774,7 @@
               // 換好的表格：文字對回儲存格（寫回用）。CMF 清單只在 Illustrator 裡排過（Excel 檔沒有照這個順序）的不對，免得寫到別列
               var tagLabels = [];
               excelTables.forEach(function (t, i) { if (done[t.label] && (!t.cmf || synced[i]) && tagLabels.indexOf(t.label) < 0) tagLabels.push(t.label); });
-              return tagTables(file, tagLabels);
+              return tagTables(file, tagLabels).then(function (tg) { tg.lines.forEach(function (l) { lines.push(l); }); });
             });
           }
         }
@@ -986,6 +986,7 @@
           return tagTables(state.excelPath, [label]).then(function (tg) {
             App.setStatus('已匯入 ' + label + (res.live ? '（Excel 目前開啟的內容）' : '') +
               (tg.total ? '；' + tg.tagged + ' / ' + tg.total + ' 格可以在 Illustrator 裡改字、寫回 Excel' : ''));
+            if (tg.lines.length) showResult(tg.lines);
             return refreshContext();
           });
         }
@@ -1002,23 +1003,32 @@
   }
 
   // 從 Excel 複製貼上的表格：每個文字對回它的儲存格（jsx/excel.jsx 的 es_tagTable），之後在 Illustrator 裡改字可以寫回。
-  // 位置照 js/table.js 的 buildTable 算（跟內建方式畫的一樣）。回傳 { tagged, total }（全部表格加起來）
+  // 位置照 js/table.js 的 buildTable 算（跟內建方式畫的一樣）。
+  // 回傳 { tagged, total, lines }：lines = 結果欄的說明（每個表格對上幾格、對不上的字），讀不到 Excel 時也寫原因
   function tagTables(file, labels) {
-    if (!labels.length) return Promise.resolve({ tagged: 0, total: 0 });
+    var sum = { tagged: 0, total: 0, lines: [] };
+    if (!labels.length) return Promise.resolve(sum);
     return readWorkbook(file, true).then(function (wb) {
-      var sum = { tagged: 0, total: 0 };
       return labels.reduce(function (p, label) {
         return p.then(function () {
           var sel = Table.parseRange(label), t;
-          try { t = Table.buildTable(wb, sel, {}); } catch (e) { return null; }
+          try { t = Table.buildTable(wb, sel, {}); }
+          catch (e) { sum.lines.push(['warn', label + '：無法寫回（' + e.message + '）']); return null; }
           var layout = { w: t.width, h: t.height, cells: t.cells.map(function (c) { return { ref: c.ref, x: c.x, y: c.y, w: c.w, h: c.h, text: c.text }; }) };
           return host('es_tagTable', [label, JSON.stringify(layout)]).then(function (r) {
             sum.tagged += r.tagged || 0;
             sum.total += r.total || 0;
+            var line = label + '：' + (r.tagged || 0) + ' / ' + (r.total || 0) + ' 格可以在 Illustrator 裡改字、寫回 Excel' +
+              '（表格裡有 ' + (r.frames || 0) + ' 個文字' + (r.tables ? '' : '，找不到表格') + '）';
+            if (r.miss && r.miss.length) line += '；對不上的字：' + r.miss.map(function (m) { return '「' + m + '」'; }).join('、');
+            sum.lines.push([r.tagged ? 'ok' : 'warn', line]);
           });
         });
-      }, Promise.resolve()).then(function () { return sum; });
-    }).catch(function () { return { tagged: 0, total: 0 }; });
+      }, Promise.resolve());
+    }).then(function () { return sum; }, function (e) {
+      sum.lines.push(['warn', '表格的文字沒有對回儲存格，改了不會寫回（讀不到 Excel 檔：' + e.message + '）']);
+      return sum;
+    });
   }
 
   // 內建方式：依 Excel 的樣式自己畫出表格（Mac，或 Excel 無法使用時）
@@ -1069,7 +1079,14 @@
         if (force) throw new Error(file ? '找不到檔案：' + file : '請先選擇 Excel 檔案');
         return null;
       }
-      if (!r.items.length) { if (force) App.setStatus('沒有在 Illustrator 裡改過的綁定文字'); return null; }
+      if (!r.items.length) {
+        if (force) {
+          App.setStatus(r.tables && !r.tableCells
+            ? '沒有改過的字可以寫回：表格的字還沒對回儲存格，先按一次「從 Excel 更新」（結果欄會寫幾格可以寫回）'
+            : '沒有在 Illustrator 裡改過的綁定文字或表格的字');
+        }
+        return null;
+      }
       return readWorkbook(file, true).then(function (wb) {
         var plan = Table.writeBackPlan(wb, r.items, !!force);
         if (!plan.write.length) return finishWriteBack(r.items, plan, null, force);
