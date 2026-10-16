@@ -404,8 +404,9 @@ $.global.CMF = (function () {
         var chip = g.pathItems.rectangle(C[1] + cs / 2, left + bw / 2, cs, cs);
         chip.name = "CMF_Chip";
         chip.filled = true;
-        var col = null;
-        if (sw.spot) { try { col = d.swatches.getByName(sw.spot).color; } catch (eS) { col = null; } }
+        // sw.color：重建時沿用色塊原本的填色（在 Illustrator 裡自己改過的顏色）
+        var col = sw.color || null;
+        if (!col && sw.spot) { try { col = d.swatches.getByName(sw.spot).color; } catch (eS) { col = null; } }
         chip.fillColor = col || hexToColor(sw.hex, d);
         if (bw > 0) {
             chip.stroked = true;
@@ -447,10 +448,22 @@ $.global.CMF = (function () {
     }
 
     // 色號標註、文字說明用同一條線、同一個顏色和文字重建；文字在 Illustrator 裡直接改過時，用改過的文字
-    // （文字說明保留換行）
+    // （文字說明保留換行）。色塊的填色自己改過時也沿用，記錄的色碼、色票名稱一起改成新的顏色
     function rebuildSwatch(d, g, styleStr) {
         if (!findChild(g, "CMF_Line")) return null;
         var sw = swParts(g), lb = findChild(g, "CMF_Label"), locked = g.locked, hidden = g.hidden, saved = openAncestors(g);
+        var chip = findChild(g, "CMF_Chip");
+        if (chip && chip.typename === "PathItem" && chip.filled) {
+            try {
+                var c = chip.fillColor, hex = colorToHex(c);
+                if (hex) {
+                    sw.color = c;
+                    sw.hex = hex;
+                    sw.spot = "";
+                    if (c.typename === "SpotColor") { try { sw.spot = c.tint < 99.5 ? "" : c.spot.name; } catch (eN) {} }
+                }
+            } catch (eC) {}
+        }
         if (lb && lb.typename === "TextFrame") {
             var now = String(lb.contents);
             now = sw.note ? cleanNote(now) : now.replace(/[\r\n\t\u0003]+/g, " ").replace(/^\s+|\s+$/g, "");
