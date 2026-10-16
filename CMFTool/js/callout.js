@@ -5,9 +5,9 @@
   var KEY = "cmfCalloutSettings";
   var STYLE_FIELDS = ["fontSize", "textColor", "fontName", "badge", "badgeColor", "badgeTextColor", "badgePadding",
     "badgeStrokeWidth", "badgeStrokeColor", "lineWidth", "lineColor", "endStyle", "endSize", "styleName", "styleScale", "gap",
-    "chipSize", "chipBorder", "chipBorderColor", "noteEnd"];
+    "chipSize", "chipBorder", "chipBorderColor"];
   // kind：新增 number 編號、swatch 色號（色塊 swColor + 文字 swText；swSpot = 滴管取到的色票名稱）、
-  //   note 文字說明（noteText，可以好幾行；端點用 noteEnd）
+  //   note 文字說明（noteText，可以好幾行）。三種各自有一套樣式（kindStyles），欄位裡是目前那一種的
   var FIELDS = ["lineMode", "continuous", "startMode", "startNumber", "sortMode", "sameNumber", "autoSync",
     "kind", "swColor", "swText", "swSpot", "noteText"].concat(STYLE_FIELDS);
   var KIND_LABEL = { number: "編號", swatch: "色號", note: "說明" };
@@ -58,8 +58,34 @@
       else if (App.isNum(el)) o[k] = parseFloat(el.value) || 0;
       else o[k] = el.value;
     });
+    if (o.kind === "note") o.noteEnd = o.endStyle;   // host.jsx 的文字說明用 noteEnd 當端點
     o.hostPath = extensionPath() + "/jsx/host.jsx";
     return o;
+  }
+
+  // 編號、色號、文字說明各自的樣式：{ number: {...}, swatch: {...}, note: {...} }。
+  // 欄位裡放的是目前那一種的；切換種類時先存起來，再換成另一種的（第一次切到的種類從目前的樣式複製，文字說明的端點改成箭頭）。
+  // 「同步全部」、「套用選取」送出目前那一種的樣式，host.jsx 只改同一種的標註
+  var STYLES_KEY = "cmfCalloutKindStyles";
+  var kindStyles = {};
+  try { kindStyles = JSON.parse(localStorage.getItem(STYLES_KEY) || "{}") || {}; } catch (e) { kindStyles = {}; }
+
+  function storeKindStyle() {
+    var o = readSettings(), st = {};
+    STYLE_FIELDS.forEach(function (k) { st[k] = o[k]; });
+    kindStyles[kindOf()] = st;
+    try { localStorage.setItem(STYLES_KEY, JSON.stringify(kindStyles)); } catch (e) {}
+  }
+
+  function switchKind(k) {
+    if (!KIND_LABEL[k] || k === kindOf()) return;
+    storeKindStyle();
+    $("kind").value = k;
+    if (kindStyles[k]) applySettings(kindStyles[k]);
+    else if (k === "note") $("endStyle").value = "arrow";
+    syncFontSelects();
+    renderPreview();
+    saveSettings();
   }
 
   function applySettings(o) {
@@ -87,11 +113,13 @@
 
   function saveLocal() {
     try { localStorage.setItem(KEY, JSON.stringify(readSettings())); } catch (e) {}
+    storeKindStyle();
   }
 
   var saveTimer = null;
   function saveSettings() {
     var o = readSettings();
+    storeKindStyle();
     try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) {}
     clearTimeout(saveTimer);
     saveTimer = setTimeout(function () { if (cep) callHost("saveSettings", o, null, true); }, 400);
@@ -119,10 +147,7 @@
   function renderPreview() {
     var o = readSettings(), kind = kindOf(), sw = kind !== "number", note = kind === "note";
     $("badgeRows").classList.toggle("hidden", !o.badge);
-    // 文字說明的端點另外設定：端點選單換成 noteEnd
-    $("endStyle").hidden = note;
-    $("noteEnd").hidden = !note;
-    $("styleRow").classList.toggle("hidden", (note ? o.noteEnd : o.endStyle) !== "style");
+    $("styleRow").classList.toggle("hidden", o.endStyle !== "style");
     $("startNumber").disabled = o.startMode === "auto";
     $("badgeStrokeColor").disabled = !(o.badgeStrokeWidth > 0);
     $("chipBorderColor").disabled = !(o.chipBorder > 0);
@@ -147,9 +172,8 @@
     var gap = clamp(o.gap * K, 0, 20), pad = clamp(o.badgePadding * K, 0, 16);
     var bsw = o.badgeStrokeWidth > 0 ? clamp(o.badgeStrokeWidth * K, 0.75, 5) : 0;
     // 正方形的圖：編號端在右上 → (轉折) → 目標點（落在左下角的產品上）；最大的圓圈也放得下
-    // 色號、文字說明：標籤比較寬，編號端放左邊一點；文字說明的端點用 noteEnd
+    // 色號、文字說明：標籤比較寬，編號端放左邊一點
     var sw = o.kind === "swatch" || o.kind === "note";
-    if (o.kind === "note") o.endStyle = o.noteEnd || "arrow";
     var pts = sw ? (o.lineMode === "straight" ? [[118, 76], [100, 182]] : [[96, 58], [64, 58], [100, 182]])
       : (o.lineMode === "straight" ? [[176, 84], [100, 182]] : [[156, 64], [118, 64], [100, 182]]);
     var S = pts[0], S1 = pts[1], E = pts[pts.length - 1], E1 = pts[pts.length - 2];
@@ -680,9 +704,10 @@
   var PICK_DEFAULT = { textColor: "#000000", fontName: "", badge: false, badgeStrokeWidth: 0, lineColor: "#000000",
     endStyle: "none", styleScale: 100 };
 
-  // r = CMF.pickStyle()：{ callout, num, callouts }
+  // r = CMF.pickStyle()：{ callout, num, label, kind, callouts }。吸取的是別種標註時，面板先切到那一種
   function applyPicked(r) {
     var st = r.callout;
+    if (r.kind) switchKind(r.kind);
     STYLE_FIELDS.forEach(function (k) {
       if (!App.setField($(k), st[k]) && PICK_DEFAULT[k] !== undefined) App.setField($(k), PICK_DEFAULT[k]);
     });
@@ -724,9 +749,7 @@
   ["kindNumber", "kindSwatch", "kindNote"].forEach(function (id) {
     $(id).addEventListener("change", function () {
       if (!$(id).checked) return;
-      $("kind").value = $(id).value;
-      renderPreview();
-      saveSettings();
+      switchKind($(id).value);
       if (adding) setStatus(modeTip());
     });
   });
@@ -780,6 +803,14 @@
     SIZE_FIELDS.forEach(function (k) {
       var el = $(k);
       el.value = Math.round((parseFloat(el.value) || 0) * s * 1000) / 1000;
+    });
+    // 另外兩種存起來的樣式也一起縮放
+    Object.keys(kindStyles).forEach(function (kind) {
+      if (kind === kindOf()) return;
+      SIZE_FIELDS.forEach(function (k) {
+        var v = parseFloat(kindStyles[kind][k]);
+        if (isFinite(v)) kindStyles[kind][k] = Math.round(v * s * 1000) / 1000;
+      });
     });
     renderPreview();
     saveSettings();

@@ -841,27 +841,51 @@ $.global.CMF = (function () {
     function outsideNote(n) { return n ? "（工作區外面的 " + n + " 個沒有同步）" : ""; }
 
     // 同步全部：工作區裡的標註套用目前樣式
+    // 編號、色號、文字說明各自有一套樣式：「同步全部」、「套用選取」只改面板目前那一種（樣式裡的 kind，沒有 = 編號）
+    var KIND_NAMES = { number: "編號標註", swatch: "色號標註", note: "文字說明" };
+
+    function labelKind(g) {
+        if (isCallout(g)) return "number";
+        return swParts(g).note ? "note" : "swatch";
+    }
+
+    function styleKind(styleStr) {
+        var m = /"kind"\s*:\s*"(\w+)"/.exec(styleStr || "");
+        return m && KIND_NAMES[m[1]] ? m[1] : "number";
+    }
+
+    function ofKind(gs, kind) {
+        var out = [];
+        for (var i = 0; i < gs.length; i++) if (labelKind(gs[i]) === kind) out.push(gs[i]);
+        return out;
+    }
+
     function syncAll(styleStr) {
         try {
-            var d = getDoc(), all = allLabels(d);
-            if (all.length === 0) return res(true, "文件中沒有標註");
+            var kind = styleKind(styleStr), name = KIND_NAMES[kind];
+            var d = getDoc(), all = ofKind(allLabels(d), kind);
+            if (all.length === 0) return res(true, "文件中沒有" + name);
             var on = onArtboards(d, all);
-            if (!on.inside.length) return res(true, "標註都在工作區外面，沒有同步（要改它們，選取後按「套用選取」）");
+            if (!on.inside.length) return res(true, name + "都在工作區外面，沒有同步（要改它們，選取後按「套用選取」）");
             var sel = selectedOwners(d, isLabel);
             var r = rebuildMany(d, on.inside, function () { return styleStr; });
             if (sel.length === 0) d.selection = null;
-            return res(r.made.length > 0, "已同步 " + r.made.length + " 個標註的樣式" + failNote(r) + outsideNote(on.outside));
+            return res(r.made.length > 0, "已同步 " + r.made.length + " 個" + name + "的樣式" + failNote(r) + outsideNote(on.outside));
         } catch (e) { return res(false, e.message); }
     }
 
-    // 套用到選取的標註
+    // 套用到選取的標註（只改跟面板同一種的）
     function restyle(styleStr) {
         try {
-            var d = getDoc(), cs = selectedOwners(d, isLabel);
-            if (cs.length === 0) return res(false, "請先選取標註");
+            var kind = styleKind(styleStr), name = KIND_NAMES[kind];
+            var d = getDoc(), sel = selectedOwners(d, isLabel), cs = ofKind(sel, kind);
+            if (sel.length === 0) return res(false, "請先選取標註");
+            if (cs.length === 0) return res(false, "選取的不是" + name + "（面板上方切到那一種再套用）");
             var r = rebuildMany(d, cs, function () { return styleStr; });
             d.selection = r.made;
-            return res(r.made.length > 0, "已更新 " + r.made.length + " 個標註的樣式" + failNote(r));
+            var skip = sel.length - cs.length;
+            return res(r.made.length > 0, "已更新 " + r.made.length + " 個" + name + "的樣式" + failNote(r) +
+                (skip ? "（其他種類的 " + skip + " 個沒有改）" : ""));
         } catch (e) { return res(false, e.message); }
     }
 
@@ -2261,7 +2285,7 @@ $.global.CMF = (function () {
                 var label = isSw ? "「" + cs[0].name + "」" : "標註 " + q.num;
                 try { cst = flatJson(parse(q.style)); }
                 catch (eC) { return res(false, label + "的樣式記錄讀不到（" + eC.message + "）"); }
-                out += ',"callout":' + cst + ',"label":"' + esc(label) + '","callouts":' + cs.length;
+                out += ',"callout":' + cst + ',"label":"' + esc(label) + '","kind":"' + labelKind(cs[0]) + '","callouts":' + cs.length;
                 if (!isSw) out += ',"num":' + jsonNum(q.num);
             }
             return out + "}";
