@@ -74,7 +74,11 @@
   function load() {
     var o = null;
     try { o = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+    // 線條的預設顏色改成深灰：存著的還是舊的預設（黑色）就換掉，只做一次（沒有存過設定的也記下來，之後選的黑色不會被換掉）
+    var firstFix = false;
+    try { firstFix = !localStorage.getItem('cmftool:dimDefaults2'); localStorage.setItem('cmftool:dimDefaults2', '1'); } catch (e) {}
     if (!o) return;
+    if (firstFix && String(o.dimLineColor || '').toLowerCase() === '#000000') o.dimLineColor = '#404040';
     // 舊版是「寬在上／下」「高在右／左」兩個選單和「每個物件分別標寬高」
     if (o.dimPosTop === undefined && o.dimWSide !== undefined) {
       o.dimPosTop = o.dimWSide !== 'bottom';

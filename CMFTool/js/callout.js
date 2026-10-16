@@ -110,13 +110,46 @@
     try { saved = localStorage.getItem(KEY); } catch (e) {}
     if (saved || !cep) {
       try { applySettings(JSON.parse(saved || "{}")); } catch (e) {}
+      migrateDefaults();
       done();
       return;
     }
     run("CMF.loadSettings()", function (r) {
       if (r && r.ok && r.settings) applySettings(r.settings);
+      migrateDefaults();
       done();
     }, true);
+  }
+
+  // 預設值改過一次（線、箭頭深灰；編號有圓圈：白底、深灰框、黑字、內距 3；色塊無框；色號文字 Pantone）。
+  // 存著的設定還是舊的預設值的，換成新的；自己改過的不動。只做一次
+  var DEFAULTS_KEY = "cmftool:calloutDefaults2";
+  var OLD_DEFAULTS = { lineColor: "#2b7bd6", chipBorder: 0.25, swText: "" };
+  var NEW_DEFAULTS = { lineColor: "#404040", chipBorder: 0, swText: "Pantone" };
+  var OLD_BADGE = { badge: false, badgeColor: "#2b7bd6", badgeTextColor: "#ffffff", badgePadding: 2, badgeStrokeWidth: 0, badgeStrokeColor: "#000000" };
+  var NEW_BADGE = { badge: true, badgeColor: "#ffffff", badgeTextColor: "#000000", badgePadding: 3, badgeStrokeWidth: 0.5, badgeStrokeColor: "#404040" };
+  function same(a, b) {
+    if (typeof b === "boolean") return !!a === b;
+    if (typeof b === "number") return Math.abs(parseFloat(a) - b) < 1e-6;
+    return String(a === undefined || a === null ? "" : a).toLowerCase() === b;
+  }
+  function migrateDefaults() {
+    try { if (localStorage.getItem(DEFAULTS_KEY)) return; localStorage.setItem(DEFAULTS_KEY, "1"); } catch (e) { return; }
+    // get(k) / put(k, v)：一份設定（面板的欄位，或 kindStyles 裡存的另外兩種）
+    var fix = function (get, put) {
+      Object.keys(OLD_DEFAULTS).forEach(function (k) { if (get(k) !== undefined && same(get(k), OLD_DEFAULTS[k])) put(k, NEW_DEFAULTS[k]); });
+      // 圓圈：還是舊的預設（沒有圓圈底、藍色）才整組換成新的
+      if (Object.keys(OLD_BADGE).every(function (k) { return get(k) === undefined || same(get(k), OLD_BADGE[k]); })) {
+        Object.keys(NEW_BADGE).forEach(function (k) { put(k, NEW_BADGE[k]); });
+      }
+    };
+    fix(function (k) { var el = $(k); return el.type === "checkbox" ? el.checked : el.value; },
+      function (k, v) { var el = $(k); if (el.type === "checkbox") el.checked = !!v; else el.value = v; });
+    Object.keys(kindStyles).forEach(function (kind) {
+      var st = kindStyles[kind];
+      fix(function (k) { return st[k]; }, function (k, v) { if (k !== "swText") st[k] = v; });
+    });
+    try { localStorage.setItem(STYLES_KEY, JSON.stringify(kindStyles)); } catch (e) {}
   }
 
   function saveLocal() {
@@ -508,7 +541,7 @@
   }
 
   // 色號的滴管：記下色票名稱（色塊用文件裡的色票），文字空白或還是上次自動帶入的名稱時，換成這個名稱
-  var autoText = "";
+  var autoText = "Pantone";   // 預設的文字也算自動帶入的：滴管取到色票名稱時換掉
   function pickedSwatch(spot) {
     $("swSpot").value = spot;
     var t = $("swText");
