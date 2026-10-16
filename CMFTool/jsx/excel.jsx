@@ -15,6 +15,7 @@
 var XL_PREFIX = "xl:";
 var XL_TABLE = "xltable:";
 var XL_BASE = "xlbase:";
+var XL_LAYER = "CMF Tables";   // 匯入、貼上的表格放在這個圖層（跟 CMF Callouts、CMF Dimensions 一樣只放工具的東西）
 
 /* ---------- 小工具（ExtendScript 沒有 JSON） ---------- */
 
@@ -289,6 +290,16 @@ function _keepCmf(fresh, oldMeta) {
     fresh.note = _json(m);
 }
 
+/* 表格的圖層：沒有就新增（在最上面），鎖定、隱藏時打開 */
+function _tableLayer(doc) {
+    var L = null;
+    try { L = doc.layers.getByName(XL_LAYER); } catch (e) { L = null; }
+    if (!L) { L = doc.layers.add(); L.name = XL_LAYER; }
+    L.locked = false;
+    L.visible = true;
+    return L;
+}
+
 function _tableGroups(doc) {
     var list = [];
     for (var i = 0; i < doc.groupItems.length; i++) {
@@ -400,7 +411,7 @@ function _line(group, x1, y1, x2, y2, b) {
 
 function _buildTable(t, left, top, missing) {
     var doc = app.activeDocument;
-    var group = doc.groupItems.add();
+    var group = _tableLayer(doc).groupItems.add();
     group.name = XL_TABLE + t.label;
     group.note = '{"w":' + t.width + ',"h":' + t.height + ',"grid":' + (t.grid ? "true" : "false") + "}";
 
@@ -632,6 +643,7 @@ function _pasteTable(label, mode) {
     pasted.note = '{"mode":"excel","w":' + (pb[2] - pb[0]) + ',"h":' + (pb[1] - pb[3]) + "}";
 
     if (mode !== "replace") {
+        try { pasted.move(_tableLayer(doc), ElementPlacement.PLACEATBEGINNING); } catch (eL) {}
         app.redraw();
         return '{"count":1,"failed":[]}';
     }

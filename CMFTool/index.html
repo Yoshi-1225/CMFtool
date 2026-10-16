@@ -34,6 +34,7 @@
   </div>
   <input type="hidden" id="kind" value="number">
   <div class="swrow" id="swRow" hidden>
+    <input type="checkbox" class="tgl-in" id="swNoLine"><label class="ibtn tbtn" for="swNoLine" title="沒有箭頭：只有色塊 + 文字，在畫布上點一下就放在那裡（色塊的左邊）。再按一次回到有引線的色號" aria-label="沒有箭頭"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6.5" width="7" height="7" rx="1.3" fill="currentColor" stroke="none"/><path d="M12 8.2h5.5M12 11.8h4"/><path d="M3 3l14 14" stroke-width="1.3" opacity=".75"/></svg></label>
     <input type="color" id="swColor" value="#2b7bd6" title="色塊的顏色：按滴管點畫布上的物件取色（特別色、全域色票會一起帶入名稱）">
     <input type="text" id="swText" placeholder="色號，例如 PANTONE 186 C" spellcheck="false" autocomplete="off"
            title="色塊旁邊的文字（一行）；空白 = 色票名稱或色碼">
@@ -233,7 +234,7 @@
       <button class="btn" id="btnSelectAll">選取全部標註</button>
       <button class="btn" id="btnToggle">顯示 / 隱藏圖層</button>
     </div>
-    <label class="check" title="CMF Callouts、CMF Dimensions 圖層只給工具用：在這兩個圖層畫的其他東西，取消選取後自動搬到你上次用的圖層；沒選取東西時，作用中的圖層也自動切回去（標註分頁、尺寸分頁共用這個設定）"><input type="checkbox" id="guardLayers" checked>CMF 圖層只放標註和尺寸</label>
+    <label class="check" title="CMF Callouts、CMF Dimensions、CMF Tables 圖層只給工具用：在這兩個圖層畫的其他東西，取消選取後自動搬到你上次用的圖層；沒選取東西時，作用中的圖層也自動切回去。標註、尺寸搬到（或複製貼上到）其他圖層，就變成一般物件，不再同步（標註分頁、尺寸分頁共用這個設定）"><input type="checkbox" id="guardLayers" checked>CMF 圖層只放標註、尺寸和表格</label>
   </details>
 </section>
 

@@ -185,7 +185,7 @@ input::placeholder { color: var(--muted); }
 .tgl-in:focus-visible + .sg { box-shadow: 0 0 0 2px var(--ring); }
 .light .seg { background: rgba(0, 0, 0, .06); }
 /* 色號：色塊顏色（含滴管）+ 文字 */
-.swrow { display: grid; grid-template-columns: 76px 1fr; gap: 6px; align-items: center; margin: 0 0 8px; }
+.swrow { display: grid; grid-template-columns: auto 70px 1fr; gap: 6px; align-items: center; margin: 0 0 8px; }
 /* 文字說明：可以好幾行 */
 .noterow { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: start; margin: 0 0 8px; }
 .noterow textarea:disabled { opacity: .45; }

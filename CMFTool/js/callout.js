@@ -9,7 +9,7 @@
   // kind：新增 number 編號、swatch 色號（色塊 swColor + 文字 swText；swSpot = 滴管取到的色票名稱）、
   //   note 文字說明（noteText，可以好幾行）。三種各自有一套樣式（kindStyles），欄位裡是目前那一種的
   var FIELDS = ["lineMode", "continuous", "startMode", "startNumber", "sortMode", "sameNumber", "autoSync",
-    "kind", "swColor", "swText", "swSpot", "noteText", "noteArrowOnly"].concat(STYLE_FIELDS);
+    "kind", "swColor", "swText", "swSpot", "swNoLine", "noteText", "noteArrowOnly"].concat(STYLE_FIELDS);
   var KIND_LABEL = { number: "編號", swatch: "色號", note: "說明" };
   var KIND_ADD = { number: "新增標註", swatch: "新增色號", note: "新增說明" };
   var MODE_TIPS = {
@@ -21,7 +21,12 @@
   // 文字說明「只畫箭頭」：沒有文字
   function arrowOnly() { return kindOf() === "note" && $("noteArrowOnly").checked; }
   function addLabel() { return arrowOnly() ? "新增箭頭" : KIND_ADD[kindOf()]; }
-  function modeTip() { return MODE_TIPS[$("lineMode").value].replace("{label}", arrowOnly() ? "箭頭尾端" : KIND_LABEL[kindOf()]); }
+  // 色號「沒有箭頭」：點一下就放
+  function noLine() { return kindOf() === "swatch" && $("swNoLine").checked; }
+  function modeTip() {
+    if (noLine()) return "點一下要放色號的位置（色塊的左邊）";
+    return MODE_TIPS[$("lineMode").value].replace("{label}", arrowOnly() ? "箭頭尾端" : KIND_LABEL[kindOf()]);
+  }
   var $ = function (id) { return document.getElementById(id); };
 
   // ---------- 與 ExtendScript 溝通 ----------
@@ -194,8 +199,8 @@
     var bsw = bsw0 ? Math.max(0.75, bsw0 * z) : 0;
     // 正方形的圖：編號端在右上 → (轉折) → 目標點（落在左下角的產品上）；最大的圓圈也放得下
     // 色號、文字說明：標籤比較寬，編號端放左邊一點
-    var sw = o.kind === "swatch" || o.kind === "note";
-    var pts = sw ? (o.lineMode === "straight" ? [[118, 76], [100, 182]] : [[96, 58], [64, 58], [100, 182]])
+    var sw = o.kind === "swatch" || o.kind === "note", bare = o.kind === "swatch" && o.swNoLine;   // bare：沒有箭頭的色號
+    var pts = bare ? [[40, 112], [39, 112]] : sw ? (o.lineMode === "straight" ? [[118, 76], [100, 182]] : [[96, 58], [64, 58], [100, 182]])
       : (o.lineMode === "straight" ? [[176, 84], [100, 182]] : [[156, 64], [118, 64], [100, 182]]);
     var S = pts[0], S1 = pts[1], E = pts[pts.length - 1], E1 = pts[pts.length - 2];
     // 拖曳改哪個欄位：[欄位 id, 顯示的名稱, 單位]；沒有圓圈底、端點是「無」時不能拖
@@ -222,7 +227,7 @@
     ux /= L; uy /= L;
     var tip = o.endStyle === "arrow" ? [E[0] - ux * es * 1.6, E[1] - uy * es * 1.6] : E;
     var full = pts.map(xy).join(" "), drawn = pts.slice(0, -1).concat([tip]).map(xy).join(" ");
-    out.push(group("line",
+    if (!bare) out.push(group("line",
       '<polyline class="hl glow" points="' + full + '" style="stroke-width:' + (lw + 7) + 'px"/>' +   // style：蓋過 css 的 .hl 線寬
       '<polyline points="' + drawn + '" fill="none" stroke="' + o.lineColor + '" stroke-width="' + lw + '" stroke-linejoin="round"/>' +
       '<polyline class="hit" points="' + full + '" stroke-width="14"/>'));
@@ -243,7 +248,7 @@
       mark = '<circle class="ghost" cx="' + E[0] + '" cy="' + E[1] + '" r="4"/>';
     }
     var er = Math.max(es * 1.2, 7) + 3;
-    out.push(group("end", '<circle class="hl" cx="' + E[0] + '" cy="' + E[1] + '" r="' + er + '"/>' + mark +
+    if (!bare) out.push(group("end", '<circle class="hl" cx="' + E[0] + '" cy="' + E[1] + '" r="' + er + '"/>' + mark +
       '<circle class="hit" cx="' + E[0] + '" cy="' + E[1] + '" r="' + Math.max(er, 12) + '"/>'));
 
     // 編號：沿線的第一段往外推（跟 host.jsx 的 buildCallout 一樣）
@@ -638,7 +643,7 @@
 
   // ---------- 互動新增 ----------
   function updateFinishButton() {
-    $("btnFinish").classList.toggle("hidden", !(adding && $("lineMode").value === "free"));
+    $("btnFinish").classList.toggle("hidden", !(adding && $("lineMode").value === "free" && !noLine()));
   }
 
   function finishFree() {

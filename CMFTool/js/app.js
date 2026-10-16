@@ -137,7 +137,7 @@
 
   /* ---------- CMF 圖層只放標註和尺寸 ---------- */
   // 每 1.5 秒請 host.jsx 的 guardLayers 檢查：CMF Callouts、CMF Dimensions 圖層裡別的東西搬到其他圖層，
-  // 沒選取東西時作用中的圖層切回一般圖層。正在新增標註、兩點距離、取色（App.busy 裡有 true）或在面板打字時不檢查
+  // 沒選取東西時作用中的圖層切回一般圖層，搬出這兩個圖層的標註、尺寸變成一般物件。正在新增標註、兩點距離、取色（App.busy 裡有 true）或在面板打字時不檢查
   App.busy = {};
   (function () {
     var box = $('guardLayers'), KEY = 'cmftool:guardLayers', running = false;
@@ -151,7 +151,11 @@
         running = false;
         var r;
         try { r = JSON.parse(raw); } catch (e) { return; }
-        if (r && r.moved > 0) App.setStatus('已把 ' + r.moved + ' 個物件搬到「' + r.layer + '」（CMF 圖層只放標註和尺寸）');
+        var msg = [];
+        if (r && r.moved > 0) msg.push('已把 ' + r.moved + ' 個物件搬到「' + r.layer + '」（CMF 圖層只放標註、尺寸和表格）');
+        if (r && r.detached > 0) msg.push(r.detached + ' 個標註、尺寸搬出了 CMF 圖層，已變成一般物件（不再同步）');
+        if (msg.length) App.setStatus(msg.join('；'));
+        if (r && r.detached > 0) App.emit('numbers');   // 編號表重新整理
       });
     }
     box.addEventListener('change', function () {

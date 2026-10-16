@@ -11,6 +11,8 @@
  * （文字、色票名稱用 encodeURIComponent 編碼）。它沒有編號，不在編號表裡，不會被重新編號，也不會影響 Excel 的排序。
  * 文字說明（箭頭 + 一段文字，可以好幾行）跟色號標註同一種做法，只是沒有色塊、端點用樣式裡的 noteEnd：
  *   CMF_NOTE|#000000|t=文字|s=|樣式 JSON；只畫箭頭（沒有文字）的多一段 a=1：CMF_NOTE|#000000|t=|s=|a=1|樣式 JSON
+ * 沒有箭頭的色號（只有色塊 + 文字）多一段 n=1。它也有 CMF_Line（看不見的 1 pt 短線，從點的位置往左），
+ * 重建、同步、對齊才能照一般的標註處理；標籤從點的位置往右排
  */
 $.global.CMF = (function () {
     var LAYER_NAME = "CMF Callouts";
@@ -104,13 +106,15 @@ $.global.CMF = (function () {
     // 標註、色號標註或文字說明（樣式、同步、重新排版共用）
     function isLabel(it) { return isCallout(it) || isSwatch(it); }
 
-    // 色號標註：{ hex, text, spot 色票名稱（沒有 = 空字串）, note 是文字說明, arrow 只畫箭頭（文字說明沒有文字）, style }
+    // 色號標註：{ hex, text, spot 色票名稱（沒有 = 空字串）, note 是文字說明, arrow 只畫箭頭（文字說明沒有文字）,
+    //   noLine 沒有箭頭（色號只有色塊 + 文字）, style }
     function swParts(g) {
         var p = String(g.note).split("|"), out = { hex: p[1] || "#000000", text: "", spot: "", note: p[0] === TAG_NOTE }, i = 2;
-        for (; i < p.length && /^[tsa]=/.test(p[i]); i++) {
+        for (; i < p.length && /^[tsan]=/.test(p[i]); i++) {
             var v = "", c = p[i].charAt(0);
             try { v = decodeURIComponent(p[i].substring(2)); } catch (e) { v = ""; }
-            if (c === "t") out.text = v; else if (c === "s") out.spot = v; else out.arrow = v === "1";
+            if (c === "t") out.text = v; else if (c === "s") out.spot = v;
+            else if (c === "a") out.arrow = v === "1"; else out.noLine = v === "1";
         }
         out.style = p.slice(i).join("|");
         return out;
@@ -118,7 +122,7 @@ $.global.CMF = (function () {
 
     function swNote(sw, styleStr) {
         return (sw.note ? TAG_NOTE : TAG_SW) + "|" + sw.hex + "|t=" + encodeURIComponent(sw.text || "") + "|s=" + encodeURIComponent(sw.spot || "") + "|" +
-            (sw.arrow ? "a=1|" : "") + styleStr;
+            (sw.arrow ? "a=1|" : "") + (sw.noLine ? "n=1|" : "") + styleStr;
     }
 
     // 沒寫文字時標色票名稱，再沒有就標色碼；文字說明沒寫 =「說明」
@@ -262,6 +266,7 @@ $.global.CMF = (function () {
     function buildCallout(d, line, num, styleStr, container, key, sw) {
         var o = parse(styleStr);
         if (sw && sw.note) o.endStyle = o.noteEnd || "arrow"; // 文字說明的端點另外設定（預設箭頭）
+        if (sw && sw.noLine) o.endStyle = "none";             // 沒有箭頭的色號：沒有端點、線看不見
         var pts = line.pathPoints, n = pts.length;
         var S = pts[0].anchor, S1 = pts[1].anchor;
         var E = pts[n - 1].anchor, E1 = pts[n - 2].anchor;
@@ -279,6 +284,7 @@ $.global.CMF = (function () {
         line.strokeWidth = Number(o.lineWidth);
         line.strokeDashes = [];
         line.strokeJoin = StrokeJoin.ROUNDENDJOIN;
+        if (sw && sw.noLine) line.stroked = false;
 
         // 端點
         var size = Number(o.endSize);
@@ -551,13 +557,18 @@ $.global.CMF = (function () {
         }
         if (o.kind !== "swatch") return null;
         var hex = /^#[0-9a-fA-F]{6}$/.test(String(o.swColor)) ? String(o.swColor) : "#808080";
-        return { hex: hex, text: String(o.swText || "").replace(/[\r\n\t]+/g, " ").replace(/^\s+|\s+$/g, ""), spot: String(o.swSpot || "") };
+        return { hex: hex, text: String(o.swText || "").replace(/[\r\n\t]+/g, " ").replace(/^\s+|\s+$/g, ""), spot: String(o.swSpot || ""),
+            noLine: !!o.swNoLine };
     }
 
     // 回傳 { msg, next }：next = 下一個編號（色號標註沒有）
     function finalize(d, path, styleStr) {
         var o = parse(styleStr), sw = swOf(o);
-        reversePath(path); // 鋼筆第一點是目標點，buildCallout 需要第一點是編號端
+        if (sw && sw.noLine) {
+            // 沒有箭頭的色號：點的位置 S，線往左 1 pt（看不見），標籤從 S 往右排
+            var a = path.pathPoints[0].anchor;
+            path.setEntirePath([[a[0], a[1]], [a[0] - 1, a[1]]]);
+        } else reversePath(path); // 鋼筆第一點是目標點，buildCallout 需要第一點是編號端
         if (sw) {
             buildCallout(d, path, 0, styleStr, getLayer(d, true), "", sw);
             d.selection = null;
@@ -586,6 +597,15 @@ $.global.CMF = (function () {
             if (app.documents.length === 0) { pendingFP = null; return res(true, "", null, "idle"); }
             var d = app.activeDocument, o = parse(styleStr), mode = o.lineMode || "straight";
             var sel = d.selection;
+
+            // 沒有箭頭的色號：點一下就放
+            if (o.kind === "swatch" && o.swNoLine) {
+                pendingFP = null;
+                if (!sel || sel.length !== 1) return res(true, "", null, "idle");
+                var one = sel[0];
+                if (one.typename !== "PathItem" || one.closed || isLabel(one.parent) || one.pathPoints.length < 1) return res(true, "", null, "idle");
+                return doneRes(finalize(d, one, styleStr));
+            }
 
             if (mode === "free" && pendingFP) {
                 // 還選取著同一條線 = 還在畫
@@ -668,6 +688,7 @@ $.global.CMF = (function () {
             lines = sortByMode(lines, function (l) { return l.pathPoints[0].anchor; }, o.sortMode);
 
             var layer = getLayer(d, true), made = [], sw = swOf(o);
+            if (sw) sw.noLine = false; // 轉換線段一律有線
             if (sw) {
                 for (i = 0; i < lines.length; i++) made.push(buildCallout(d, lines[i], 0, styleStr, layer, "", sw));
                 d.selection = made;
@@ -955,6 +976,7 @@ $.global.CMF = (function () {
             p.anchor = a; p.leftDirection = a; p.rightDirection = a;
         };
         var S = pts[0].anchor, S1 = pts[1].anchor;
+        if (isSwatch(g) && swParts(g).noLine) { for (var i = 0; i < n; i++) move(pts[i]); return true; }   // 沒有箭頭：整個移
         if (n > 2 && Math.abs(S[k] - S1[k]) < 0.5) move(pts[1]);
         move(pts[0]);
         return true;
@@ -2443,10 +2465,20 @@ $.global.CMF = (function () {
     //   1. CMF Callouts、CMF Dimensions 圖層裡不是標註、尺寸的東西（使用者在這兩個圖層畫的），沒有選取著的時候，
     //      搬到「備用圖層」的最上面。選取著的（正在畫、正在編輯的）先不動，取消選取後再搬
     //   2. 沒有選取任何東西、作用中的圖層是這兩個時，切回備用圖層，之後畫的東西直接落在那裡
+    //   3. 標註搬到（或複製貼上到）CMF Callouts 以外的圖層、尺寸搬到 CMF Dimensions 以外的圖層：變成一般的群組
+    //      （拿掉備註裡的記錄），之後同步、編號、縮放都不再管它
+    // CMF Tables（Excel 匯入的表格，jsx/excel.jsx）也一樣只放表格：別的東西搬出去。
+    // 表格搬到別的圖層不會變成一般物件（舊版的表格本來就在一般圖層裡）
     // 備用圖層：上次作用中的一般圖層（記名稱），沒有就用最上面沒鎖定、看得到的一般圖層，再沒有就新增「圖層 1」放到最下面
     var lastUserLayer = null; // { doc, name }
 
-    function isToolLayer(L) { return !!L && L.typename === "Layer" && (L.name === LAYER_NAME || L.name === DIM_LAYER); }
+    var TABLE_LAYER = "CMF Tables", TABLE_PREFIX = "xltable:"; // 跟 jsx/excel.jsx 的 XL_LAYER、XL_TABLE 一樣
+
+    function isToolLayer(L) {
+        return !!L && L.typename === "Layer" && (L.name === LAYER_NAME || L.name === DIM_LAYER || L.name === TABLE_LAYER);
+    }
+
+    function isTable(it) { return !!it && it.typename === "GroupItem" && String(it.name).indexOf(TABLE_PREFIX) === 0; }
 
     function usableLayer(L) { return !!L && !isToolLayer(L) && !L.locked && L.visible; }
 
@@ -2463,16 +2495,44 @@ $.global.CMF = (function () {
         return L;
     }
 
+    // 最上層的圖層（子圖層、群組裡的東西也算到它所在的最上層圖層）
+    function topLayerOf(it) {
+        var p = it.parent, L = null;
+        while (p && p.typename !== "Document") { if (p.typename === "Layer") L = p; p = p.parent; }
+        return L;
+    }
+
+    // 不在自己圖層裡的標註、尺寸 → 一般群組；回傳幾個
+    function detachOutside(d) {
+        var gs = d.groupItems, out = [], i, n = 0;
+        for (i = 0; i < gs.length; i++) {
+            var g = gs[i];
+            try {
+                var dim = isDim(g);
+                if (!dim && !isLabel(g)) continue;
+                var top = topLayerOf(g);
+                if (!top || top.name !== (dim ? DIM_LAYER : LAYER_NAME)) out.push(g);
+            } catch (e) {}
+        }
+        for (i = 0; i < out.length; i++) {
+            var saved = openAncestors(out[i]);
+            try { out[i].note = ""; n++; } catch (eN) {} finally { restoreTemp(saved); }
+        }
+        return n;
+    }
+
     function guardLayers() {
         try {
             if (app.documents.length === 0) return '{"ok":true,"moved":0}';
             var d = app.activeDocument, tools = [], i, j, act = null;
             try { act = d.activeLayer; } catch (e) { act = null; }
             if (act && !isToolLayer(act)) lastUserLayer = { doc: docKey(d), name: act.name };
+            var sel0 = d.selection;
+            var detached = sel0 && sel0.typename === "TextRange" ? 0 : detachOutside(d);
             for (i = 0; i < d.layers.length; i++) if (isToolLayer(d.layers[i])) tools.push(d.layers[i]);
-            if (!tools.length) return '{"ok":true,"moved":0}';
+            if (!tools.length) return '{"ok":true,"moved":0,"detached":' + detached + '}';
             var sel = d.selection;
-            if (sel && sel.typename === "TextRange") return '{"ok":true,"moved":0}'; // 正在打字
+            if (sel && sel.typename === "TextRange") return '{"ok":true,"moved":0,"detached":' + detached + '}'; // 正在打字
             var stray = [];
             for (i = 0; i < tools.length; i++) {
                 var items = tools[i].pageItems;
@@ -2480,7 +2540,7 @@ $.global.CMF = (function () {
                     var it = items[j];
                     try {
                         if (it.parent.typename !== "Layer") continue;   // 只看圖層最上層的東西
-                        if (isLabel(it) || isDim(it) || it.selected) continue;
+                        if (isLabel(it) || isDim(it) || isTable(it) || it.selected) continue;
                         stray.push(it);
                     } catch (eI) {}
                 }
@@ -2495,7 +2555,7 @@ $.global.CMF = (function () {
                 if (!target) target = fallbackLayer(d);
                 try { d.activeLayer = target; switched = true; } catch (eA) {}
             }
-            return '{"ok":true,"moved":' + moved + ',"switched":' + (switched ? "true" : "false") +
+            return '{"ok":true,"moved":' + moved + ',"detached":' + detached + ',"switched":' + (switched ? "true" : "false") +
                 ',"layer":"' + esc(target ? target.name : "") + '"}';
         } catch (e) { return res(false, e.message); }
     }
