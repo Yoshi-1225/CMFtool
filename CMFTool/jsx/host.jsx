@@ -1789,9 +1789,11 @@ $.global.CMF = (function () {
     // 不再依物件大小調整（自動調整只在新增時作用），所有尺寸的字級、線寬才會一致。
     // withOffset（同步全部、套用選取）：寬高的尺寸線離物件的距離也改成面板的「距離」（樣式裡的 offset）；
     // 從尺寸自己的記錄重建（例如縮放文件後）時距離不變；兩點距離的箭頭就在點的位置，沒有距離
-    function rebuildDim(d, g, styleStr, withOffset) {
+    // withSide（套用選取）：兩點距離的文字改放到樣式的 lenSide 那一側；「同步全部」不改，每個尺寸維持自己選的那一側
+    function rebuildDim(d, g, styleStr, withOffset, withSide) {
         var p = dimNote(g), gm = dimGeomNow(g, p);
         if (!gm) return null;
+        if (withSide && gm.free) gm.n = freeNormal(gm.a, lenSideOf(styleStr));
         if (withOffset && gm.t === "lin" && !gm.free) {
             var off = /"offset"\s*:\s*([0-9.eE+-]+)/.exec(styleStr || "");
             if (off && Number(off[1]) >= 0) gm.off = Number(off[1]);
@@ -2110,13 +2112,24 @@ $.global.CMF = (function () {
     // 面板按「兩點距離」後切到鋼筆，點兩下（起點 → 終點）標一個尺寸：箭頭畫在兩點之間，數字在中間。
     // 跟新增標註一樣，面板每 200ms 呼叫 dimLenPoll，選取的線有 2 個錨點時換成尺寸、刪掉那條線。
     // 按住 Shift 點第二下，鋼筆會鎖在水平、垂直或 45°
-    // 文字放在線的哪一側：線轉成由左往右（直的由下往上）讀的方向 r，文字在 r 的左手邊（橫的在上面、直的在左邊）
-    function freeGeom(p1, p2) {
+    // 文字放在線的哪一側（樣式的 lenSide）：線轉成由左往右（直的由下往上）讀的方向 r，
+    // "a" = r 的左手邊（橫的在上面、直的在左邊），"b" = 右手邊（橫的在下面、直的在右邊）
+    function freeNormal(a, side) {
+        var deg = Math.atan2(a[1], a[0]) * 180 / Math.PI;
+        var r = deg > 90.01 || deg <= -89.99 ? [-a[0], -a[1]] : a;
+        return side === "b" ? [r[1], -r[0]] : [-r[1], r[0]];
+    }
+
+    function lenSideOf(styleStr) {
+        var m = /"lenSide"\s*:\s*"(\w+)"/.exec(styleStr || "");
+        return m ? m[1] : "a";
+    }
+
+    function freeGeom(p1, p2, side) {
         var v = vsub(p2, p1), l = vlen(v);
         if (l < 0.01) return null;
-        var a = [v[0] / l, v[1] / l], deg = Math.atan2(a[1], a[0]) * 180 / Math.PI;
-        var r = deg > 90.01 || deg <= -89.99 ? [-a[0], -a[1]] : a;
-        return { t: "lin", p1: [p1[0], p1[1]], p2: [p2[0], p2[1]], a: a, n: [-r[1], r[0]], off: 0, free: 1 };
+        var a = [v[0] / l, v[1] / l];
+        return { t: "lin", p1: [p1[0], p1[1]], p2: [p2[0], p2[1]], a: a, n: freeNormal(a, side), off: 0, free: 1 };
     }
 
     function dimLenBegin() {
@@ -2137,7 +2150,7 @@ $.global.CMF = (function () {
             if (it.typename !== "PathItem" || it.closed || ownerOf(it, isDim) || ownerOf(it, isLabel)) return res(true, "", null, "idle");
             var pts = it.pathPoints;
             if (pts.length < 2) return res(true, "", null, "drawing");
-            var gm = freeGeom(pts[0].anchor, pts[pts.length - 1].anchor);
+            var gm = freeGeom(pts[0].anchor, pts[pts.length - 1].anchor, lenSideOf(styleStr));
             it.remove();
             d.selection = null; // 鋼筆下一次點擊會開始新的線
             if (!gm) return res(false, "兩個點在同一個位置，沒有標", null, "drawing");
@@ -2175,11 +2188,11 @@ $.global.CMF = (function () {
         } catch (e) { return res(false, e.message); }
     }
 
-    function rebuildDims(d, gs, styleStr) {
+    function rebuildDims(d, gs, styleStr, withSide) {
         var r = { made: [], failed: 0, why: "" };
         for (var i = 0; i < gs.length; i++) {
             var ng = null;
-            try { ng = rebuildDim(d, gs[i], styleStr, true); } catch (e) { if (!r.why) r.why = e.message; }
+            try { ng = rebuildDim(d, gs[i], styleStr, true, withSide); } catch (e) { if (!r.why) r.why = e.message; }
             if (ng) r.made.push(ng); else r.failed++;
         }
         return r;
@@ -2201,7 +2214,7 @@ $.global.CMF = (function () {
         try {
             var d = getDoc(), gs = selectedDims(d);
             if (gs.length === 0) return res(false, "請先選取尺寸");
-            var r = rebuildDims(d, gs, styleStr);
+            var r = rebuildDims(d, gs, styleStr, true);
             d.selection = r.made;
             return res(r.made.length > 0, "已更新 " + r.made.length + " 個尺寸的樣式" + failNote(r));
         } catch (e) { return res(false, e.message); }
@@ -2239,7 +2252,7 @@ $.global.CMF = (function () {
                 var g = dims[0], p = dimNote(g), gm, st;
                 try { gm = dimGeomNow(g, p) || parse(p.geom); st = flatJson(parse(p.style)); }
                 catch (eD) { return res(false, "「" + (g.name || "尺寸") + "」的樣式記錄讀不到（" + eD.message + "）"); }
-                out += ',"dim":' + st + ',"dimGeom":' + flatJson({ t: gm.t, free: gm.free, off: Number(gm.off), x: gm.x, out: gm.out, z: gm.z * docScaleFactor(d) }) +
+                out += ',"dim":' + st + ',"dimGeom":' + flatJson({ t: gm.t, free: gm.free, side: gm.free ? (vdot(gm.n, freeNormal(gm.a, "a")) >= 0 ? "a" : "b") : undefined, off: Number(gm.off), x: gm.x, out: gm.out, z: gm.z * docScaleFactor(d) }) +
                     ',"dimName":"' + esc(g.name) + '","dims":' + dims.length;
             }
             if (cs.length) {

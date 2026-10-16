@@ -10,7 +10,7 @@
   var STYLE = ['dimFontSize', 'dimTextColor', 'dimFontName', 'dimTextAlign', 'dimTextPos', 'dimTextGap', 'dimBreakGap', 'dimTextBg', 'dimTextBgColor',
     'dimLineWidth', 'dimLineColor', 'dimEndStyle', 'dimEndSize', 'dimArrowPos', 'dimExtLine', 'dimExtGap', 'dimExtOver',
     'dimUnit', 'dimDecimals', 'dimShowUnit', 'dimRatio', 'dimDiaSym', 'dimCount', 'dimPrefix', 'dimSuffix',
-    'dimRadMode', 'dimLeader', 'dimShelf', 'dimCenterMark', 'dimLenEnds', 'dimAuto', 'dimAutoBase'];
+    'dimRadMode', 'dimLeader', 'dimShelf', 'dimCenterMark', 'dimLenEnds', 'dimLenSide', 'dimAuto', 'dimAutoBase'];
   // 要標的類型（可以多選）和寬高的位置（上下左右，可以多選）
   var TYPES = ['dimTypeSel', 'dimTypeEach', 'dimTypeDia', 'dimTypeRad'];
   var POS = ['dimPosTop', 'dimPosBottom', 'dimPosLeft', 'dimPosRight'];
@@ -325,7 +325,7 @@
   var PICK_DEFAULT = { textColor: '#000000', fontName: '', textAlign: 'aligned', textPos: 'above', textBg: 'none',
     textBgColor: '#ffffff', lineColor: '#000000', endStyle: 'arrow', arrowPos: 'auto', extLine: 'same', unit: 'doc',
     showUnit: false, ratio: '1:1', diaSym: 'slash', count: 'none', prefix: '', suffix: '', radMode: 'auto', shelf: 'over',
-    centerMark: true, lenEnds: 'both' };
+    centerMark: true, lenEnds: 'both', lenSide: 'a' };
 
   // r = CMF.pickStyle()：{ dim, dimGeom, dimName, dims }
   function applyPicked(r) {
@@ -341,6 +341,7 @@
     });
     // 寬高的「距離」；依物件大小自動調整時，基準改成這個尺寸量的物件大小：一樣大的物件標出來就跟它一樣
     if (lin) App.setField($('dimOffset'), gm.off);
+    if (gm.free && gm.side) App.setField($('dimLenSide'), gm.side);   // 兩點距離：文字實際在哪一側
     if ($('dimAuto').checked && gm.z > 0) App.setField($('dimAutoBase'), gm.z / UNIT_PT.mm);
     syncFontSelects();
     changed();
@@ -575,7 +576,7 @@
     return fitFigure(function (W, dx, dy) {
       var f = newFig(), bw = W * 0.3, H = W * 0.45, y = dy + H / 2;
       f.shape = { blocks: [{ x: dx, y: dy, w: bw, h: H }, { x: dx + W - bw, y: dy, w: bw, h: H }] };
-      linDim(f, { p1: [dx + bw, y], p2: [dx + W - bw, y], a: [1, 0], n: [0, 1], free: true }, s, sampleLabel(SAMPLE.len));
+      linDim(f, { p1: [dx + bw, y], p2: [dx + W - bw, y], a: [1, 0], n: [0, s.st.lenSide === 'b' ? -1 : 1], free: true }, s, sampleLabel(SAMPLE.len));
       return f;
     }, 220, 60, function (W, ox, oy) { return W - Math.max(ox, oy / 0.45) - 0.5; }, s);
   }

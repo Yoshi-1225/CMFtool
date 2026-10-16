@@ -402,6 +402,13 @@
             <input type="color" id="dimLineColor" value="#000000" title="線條和箭頭的顏色">
           </div>
         </div>
+        <div class="row only-len">
+          <label for="dimLenSide">文字在</label>
+          <select id="dimLenSide" title="兩點距離的文字放在線的哪一側：橫的線是上面或下面，直的線是左邊或右邊。新增時用這個；已經標好的，選取後按「套用選取」改（「同步全部」不改）">
+            <option value="a">上方／左側</option>
+            <option value="b">下方／右側</option>
+          </select>
+        </div>
         <div class="row only-rect">
           <label for="dimOffset">距離</label>
           <input type="number" id="dimOffset" min="0" step="1" value="12" title="寬度、高度的尺寸線離物件的距離 (pt)：新增的尺寸用這個距離；「同步全部」、「套用選取」也會把寬高的尺寸改成這個距離">
