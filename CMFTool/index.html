@@ -22,12 +22,15 @@
 
 <!-- ==================== 標註 ==================== -->
 <section class="page" id="page-callout" role="tabpanel">
-  <!-- 新增哪一種：編號（圓圈或數字）或色號（色塊 + 一行文字）。兩種共用下面的線條模式和「樣式」 -->
+  <!-- 新增哪一種：編號（圓圈或數字）、色號（色塊 + 一行文字）或文字說明（箭頭 + 一段文字）。
+       三種共用下面的線條模式和「樣式」（文字說明的端點另外設定） -->
   <div class="seg" role="radiogroup" aria-label="新增哪一種標註">
     <input type="radio" class="tgl-in" name="kindSel" id="kindNumber" value="number" checked>
-    <label class="sg" for="kindNumber" title="編號標註：圓圈或數字，對應 CMF 清單">編號</label>
+    <label class="sg" for="kindNumber" title="編號：圓圈或數字，對應 CMF 清單" aria-label="編號"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r="4"/><path d="M13 4.9l1-.6v4.4"/><path d="M10.6 9.4 4.6 15.4"/><circle cx="4.2" cy="15.8" r="1.4" fill="currentColor" stroke="none"/></svg></label>
     <input type="radio" class="tgl-in" name="kindSel" id="kindSwatch" value="swatch">
-    <label class="sg" for="kindSwatch" title="色號標註：色塊 + 一行文字（例如 PANTONE 186 C），不編號">色號</label>
+    <label class="sg" for="kindSwatch" title="色號：色塊 + 一行文字（例如 PANTONE 186 C），不編號" aria-label="色號"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6.5" width="7" height="7" rx="1.3" fill="currentColor" stroke="none"/><path d="M12 8.2h5.5M12 11.8h4"/></svg></label>
+    <input type="radio" class="tgl-in" name="kindSel" id="kindNote" value="note">
+    <label class="sg" for="kindNote" title="文字說明：箭頭 + 一段文字（可以好幾行），不編號" aria-label="文字說明"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 4.5h7M10.5 7.5h7M10.5 10.5h4.5"/><path d="M8.5 9.5 3 15M3 11.2V15h3.8"/></svg></label>
   </div>
   <input type="hidden" id="kind" value="number">
   <div class="swrow" id="swRow" hidden>
@@ -35,6 +38,9 @@
     <input type="text" id="swText" placeholder="色號，例如 PANTONE 186 C" spellcheck="false" autocomplete="off"
            title="色塊旁邊的文字（一行）；空白 = 色票名稱或色碼">
     <input type="hidden" id="swSpot">
+  </div>
+  <div class="noterow" id="noteRow" hidden>
+    <textarea id="noteText" rows="2" placeholder="文字說明（Enter 換行）" spellcheck="false" title="箭頭旁邊的文字，可以好幾行"></textarea>
   </div>
   <button class="add" id="btnAdd">新增標註</button>
   <div class="addopts">
@@ -159,9 +165,16 @@
           <div class="row">
             <label for="endStyle">端點</label>
             <div class="pair">
-              <select id="endStyle">
+              <select id="endStyle" title="編號、色號的端點">
                 <option value="dot">圓點</option>
                 <option value="arrow">箭頭</option>
+                <option value="none">無</option>
+                <option value="style">繪圖樣式</option>
+              </select>
+              <!-- 文字說明的端點另外設定（預設箭頭），新增文字說明時取代上面那個 -->
+              <select id="noteEnd" title="文字說明的端點（跟編號、色號分開設定）" hidden>
+                <option value="arrow">箭頭</option>
+                <option value="dot">圓點</option>
                 <option value="none">無</option>
                 <option value="style">繪圖樣式</option>
               </select>
@@ -242,7 +255,7 @@
       <label class="ticon" for="dimTypeRad" title="圓弧、圓角的半徑；同樣大小的圓角標一個" aria-label="半徑"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M4 17v-7a6 6 0 0 1 6-6h7"/><path d="M10 10 6 6"/><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/></svg></label>
     </div>
     <span class="sp"></span>
-    <button class="go alt" id="btnDimLen" type="button" aria-pressed="false" title="兩點距離：切到鋼筆，點起點、點終點，標一個箭頭和中間的距離（不用選物件）。箭頭只畫一端時畫在起點。按住 Shift 鎖水平、垂直；可以一直標下去，再按一次或 Esc 結束" aria-label="兩點距離"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12.5h14M5.6 10.3 3 12.5l2.6 2.2M14.4 10.3l2.6 2.2-2.6 2.2"/><path d="M7.5 7h5" stroke-width="1.3"/></svg></button>
+    <button class="go alt" id="btnDimLen" type="button" aria-pressed="false" title="兩點距離：切到鋼筆，點起點、點終點，標一個箭頭和中間的距離（不用選物件）。箭頭只畫一端時畫在起點。按住 Shift 鎖水平、垂直；標好一個就切回選取工具（再按一次或 Esc 取消）" aria-label="兩點距離"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12.5h14M5.6 10.3 3 12.5l2.6 2.2M14.4 10.3l2.6 2.2-2.6 2.2"/><path d="M7.5 7h5" stroke-width="1.3"/></svg></button>
     <button class="go" id="btnDimAdd" title="標尺寸：照選好的類型和位置，標註選取的物件" aria-label="標尺寸"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="11" width="16" height="16" rx="1.5"/><path d="M5 6h16M5 4v4M21 4v4M26 11v16M24 11h4M24 27h4"/></svg></button>
   </div>
   <!-- 示範框：照目前的樣式畫一個尺寸，左上角切換標矩形（寬、高）或標圓（直徑）。點文字、尺寸線、端點、延伸線，

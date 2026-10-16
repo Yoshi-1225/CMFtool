@@ -252,7 +252,8 @@
   }
 
   /* ---------- 兩點距離 ---------- */
-  // 按「兩點距離」切到鋼筆，點起點、點終點就標一個（host.jsx 的 dimLenPoll）；可以一直標下去，再按一次或 Esc 結束。
+  // 按「兩點距離」切到鋼筆，點起點、點終點就標一個（host.jsx 的 dimLenPoll），標好就結束、切回選取工具；
+  // 點第二下之前再按一次或 Esc 取消。
   // 跟「新增標註」都用鋼筆，開始一個時會結束另一個（App 的 'pen' 事件）
   var lenOn = false, lenTimer = null, lenPolling = false, lenIdle = 0;
   var LEN_IDLE = 60000;   // 閒置太久自動結束，避免把之後畫的線當成兩點距離
@@ -273,7 +274,7 @@
       lenButton(true);
       if (figMode !== 'len') setFigMode('len');   // 示範框換成兩點距離，看得到現在的樣式
       App.setStatus(r.msg || ($('dimLenEnds').value === 'one' ? '點起點（箭頭指的地方）→ 點終點' : '點起點 → 點終點') +
-        '，按住 Shift 鎖水平、垂直。Esc 結束');
+        '，按住 Shift 鎖水平、垂直。Esc 取消');
       lenTimer = setInterval(pollLen, 200);
     });
   }
@@ -295,7 +296,7 @@
       lenPolling = false;
       if (!lenOn) return;
       if (r.state === 'drawing') { lenIdle = Date.now(); if (!r.ok) App.setStatus(r.msg, true); return; }
-      if (r.state === 'done') { lenIdle = Date.now(); App.setStatus(r.msg + '，繼續點下一個起點（Esc 結束）'); return; }
+      if (r.state === 'done') { stopLen(false, r.msg); return; }   // 標好一個就結束，切回選取工具
       if (r.state !== 'idle') { App.setStatus(r.msg, true); stopLen(true, false); return; }
       if (Date.now() - lenIdle > LEN_IDLE) stopLen(true, '閒置過久，已結束兩點距離');
     });

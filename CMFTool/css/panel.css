@@ -176,15 +176,25 @@ input::placeholder { color: var(--muted); }
 /* 標註分頁：新增哪一種（編號、色號），選到的浮起來 */
 .seg { display: flex; gap: 2px; padding: 2px; margin: 2px 0 8px; background: var(--field); border-radius: 10px; }
 .sg {
-  flex: 1; height: 26px; line-height: 26px; text-align: center; border-radius: var(--r-ctl);
+  flex: 1; display: grid; place-items: center; height: 28px; border-radius: var(--r-ctl);
   color: var(--muted); cursor: pointer; transition: background-color .15s, color .15s;
 }
+.sg svg { width: 19px; height: 19px; }
 .sg:hover { color: var(--fg); }
 .tgl-in:checked + .sg { color: var(--fg); font-weight: 600; background: var(--raise); box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
 .tgl-in:focus-visible + .sg { box-shadow: 0 0 0 2px var(--ring); }
 .light .seg { background: rgba(0, 0, 0, .06); }
 /* 色號：色塊顏色（含滴管）+ 文字 */
 .swrow { display: grid; grid-template-columns: 76px 1fr; gap: 6px; align-items: center; margin: 0 0 8px; }
+/* 文字說明：可以好幾行 */
+.noterow { margin: 0 0 8px; }
+.noterow textarea {
+  display: block; width: 100%; min-height: 44px; padding: 4px 7px; resize: vertical;
+  background: var(--field); color: var(--fg); border: 1px solid var(--line-soft); border-radius: var(--r-field);
+  font: inherit; line-height: 1.4; user-select: text;
+}
+.noterow textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring); }
+.noterow textarea::placeholder { color: var(--muted); }
 
 /* 主要按鈕 */
 .add {

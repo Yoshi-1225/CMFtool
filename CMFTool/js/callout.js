@@ -5,17 +5,20 @@
   var KEY = "cmfCalloutSettings";
   var STYLE_FIELDS = ["fontSize", "textColor", "fontName", "badge", "badgeColor", "badgeTextColor", "badgePadding",
     "badgeStrokeWidth", "badgeStrokeColor", "lineWidth", "lineColor", "endStyle", "endSize", "styleName", "styleScale", "gap",
-    "chipSize", "chipBorder", "chipBorderColor"];
-  // kind：新增 number 編號、swatch 色號（色塊 swColor + 文字 swText；swSpot = 滴管取到的色票名稱）
+    "chipSize", "chipBorder", "chipBorderColor", "noteEnd"];
+  // kind：新增 number 編號、swatch 色號（色塊 swColor + 文字 swText；swSpot = 滴管取到的色票名稱）、
+  //   note 文字說明（noteText，可以好幾行；端點用 noteEnd）
   var FIELDS = ["lineMode", "continuous", "startMode", "startNumber", "sortMode", "sameNumber", "autoSync",
-    "kind", "swColor", "swText", "swSpot"].concat(STYLE_FIELDS);
+    "kind", "swColor", "swText", "swSpot", "noteText"].concat(STYLE_FIELDS);
+  var KIND_LABEL = { number: "編號", swatch: "色號", note: "說明" };
+  var KIND_ADD = { number: "新增標註", swatch: "新增色號", note: "新增說明" };
   var MODE_TIPS = {
     straight: "點目標點 → 點{label}位置",
     elbow: "點目標點 → 點轉折點 → 點{label}位置",
     free: "左鍵持續加點，按「完成這條線」或快捷鍵完成"
   };
-  function isSwatch() { return $("kind").value === "swatch"; }
-  function modeTip() { return MODE_TIPS[$("lineMode").value].replace("{label}", isSwatch() ? "色號" : "編號"); }
+  function kindOf() { var k = $("kind").value; return KIND_LABEL[k] ? k : "number"; }
+  function modeTip() { return MODE_TIPS[$("lineMode").value].replace("{label}", KIND_LABEL[kindOf()]); }
   var $ = function (id) { return document.getElementById(id); };
 
   // ---------- 與 ExtendScript 溝通 ----------
@@ -114,19 +117,24 @@
   function clamp(v, lo, hi) { return isFinite(v) ? Math.max(lo, Math.min(hi, v)) : lo; }
 
   function renderPreview() {
-    var o = readSettings(), sw = o.kind === "swatch";
+    var o = readSettings(), kind = kindOf(), sw = kind !== "number", note = kind === "note";
     $("badgeRows").classList.toggle("hidden", !o.badge);
-    $("styleRow").classList.toggle("hidden", o.endStyle !== "style");
+    // 文字說明的端點另外設定：端點選單換成 noteEnd
+    $("endStyle").hidden = note;
+    $("noteEnd").hidden = !note;
+    $("styleRow").classList.toggle("hidden", (note ? o.noteEnd : o.endStyle) !== "style");
     $("startNumber").disabled = o.startMode === "auto";
     $("badgeStrokeColor").disabled = !(o.badgeStrokeWidth > 0);
     $("chipBorderColor").disabled = !(o.chipBorder > 0);
     // 編號的顏色：有圓圈底時是圓圈裡的數字顏色；色號的文字一律用文字顏色
     boxOf("textColor").classList.toggle("hidden", !!o.badge && !sw);
     boxOf("badgeTextColor").classList.toggle("hidden", !o.badge || sw);
-    $("kindNumber").checked = !sw;
-    $("kindSwatch").checked = sw;
-    $("swRow").hidden = !sw;
-    if (!adding) $("btnAdd").textContent = sw ? "新增色號" : "新增標註";
+    $("kindNumber").checked = kind === "number";
+    $("kindSwatch").checked = kind === "swatch";
+    $("kindNote").checked = note;
+    $("swRow").hidden = kind !== "swatch";
+    $("noteRow").hidden = !note;
+    if (!adding) $("btnAdd").textContent = KIND_ADD[kind];
     updateFinishButton();
     $("preview").innerHTML = figure(o);
     fc.update();
@@ -138,8 +146,9 @@
     var gap = clamp(o.gap * K, 0, 20), pad = clamp(o.badgePadding * K, 0, 16);
     var bsw = o.badgeStrokeWidth > 0 ? clamp(o.badgeStrokeWidth * K, 0.75, 5) : 0;
     // 正方形的圖：編號端在右上 → (轉折) → 目標點（落在左下角的產品上）；最大的圓圈也放得下
-    // 色號：標籤比較寬，編號端放左邊一點
-    var sw = o.kind === "swatch";
+    // 色號、文字說明：標籤比較寬，編號端放左邊一點；文字說明的端點用 noteEnd
+    var sw = o.kind === "swatch" || o.kind === "note";
+    if (o.kind === "note") o.endStyle = o.noteEnd || "arrow";
     var pts = sw ? (o.lineMode === "straight" ? [[118, 76], [100, 182]] : [[96, 58], [64, 58], [100, 182]])
       : (o.lineMode === "straight" ? [[176, 84], [100, 182]] : [[156, 64], [118, 64], [100, 182]]);
     var S = pts[0], S1 = pts[1], E = pts[pts.length - 1], E1 = pts[pts.length - 2];
@@ -194,7 +203,7 @@
     // 編號：沿線的第一段往外推（跟 host.jsx 的 buildCallout 一樣）
     var dx = S[0] - S1[0], dy = S[1] - S1[1], dl = Math.sqrt(dx * dx + dy * dy) || 1;
     dx /= dl; dy /= dl;
-    if (sw) { out.push(swatchFigure(o, S, [dx, dy], fs, gap, group)); return out.join(""); }
+    if (sw) { out.push((o.kind === "note" ? noteFigure : swatchFigure)(o, S, [dx, dy], fs, gap, group)); return out.join(""); }
     var tw = fs * 0.3, th = fs * 0.36, R = Math.max(tw, th) + pad, C;
     if (o.badge) {
       C = [S[0] + dx * (gap + R + bsw / 2), S[1] + dy * (gap + R + bsw / 2)];
@@ -257,6 +266,31 @@
         '" font-weight="' + pf.weight + '" font-style="' + (pf.italic ? "italic" : "normal") + '" dominant-baseline="central">' +
         label.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</text>" +
         '<rect class="hit" ' + textBox + "/>");
+  }
+
+  // 文字說明：一段文字（好幾行），往右靠左、往左靠右、上下置中（host.jsx 的 swatchLabel）
+  function noteFigure(o, S, dir, fs, gap, group) {
+    var pf = previewFont(o), lines = (String(o.noteText || "").replace(/\r/g, "").trim() || "說明").split("\n");
+    var widths = lines.map(function (l) { return textWidth(l, fs, pf); });
+    var tw = Math.max.apply(null, widths), lh = fs * 1.2;
+    var room = Math.abs(dir[0]) > 0.7 ? 236 - S[0] - gap : 2 * Math.min(S[0], 240 - S[0]) - 8;
+    var k = Math.min(1, room / tw, 150 / (lines.length * lh));
+    fs *= k; tw *= k; lh *= k;
+    var hw = tw / 2, hh = lines.length * lh / 2;
+    var ext = Math.min(Math.abs(dir[0]) > 0.001 ? hw / Math.abs(dir[0]) : 1e9, Math.abs(dir[1]) > 0.001 ? hh / Math.abs(dir[1]) : 1e9);
+    var C = [S[0] + dir[0] * (gap + ext), S[1] + dir[1] * (gap + ext)];
+    var anchor = Math.abs(dir[0]) < 0.3 ? "middle" : dir[0] > 0 ? "start" : "end";
+    var x = anchor === "middle" ? C[0] : anchor === "start" ? C[0] - hw : C[0] + hw;
+    var f = function (v) { return v.toFixed(2); };
+    var box = 'x="' + f(C[0] - hw - 2) + '" y="' + f(C[1] - hh - 2) + '" width="' + f(tw + 4) + '" height="' + f(hh * 2 + 4) + '"';
+    return group("text", '<rect class="hl" ' + box + ' rx="2"/>' +
+      '<text fill="' + o.textColor + '" font-size="' + f(fs) + '" font-family="' + pf.family + '" font-weight="' + pf.weight +
+      '" font-style="' + (pf.italic ? "italic" : "normal") + '" text-anchor="' + anchor + '">' +
+      lines.map(function (l, i) {
+        return '<tspan x="' + f(x) + '" y="' + f(C[1] - hh + lh * (i + 0.5)) + '" dominant-baseline="central">' +
+          l.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</tspan>";
+      }).join("") + "</text>" +
+      '<rect class="hit" ' + box + "/>");
   }
 
   // ---------- 字體選單 ----------
@@ -590,7 +624,7 @@
     clearInterval(pollTimer);
     pollTimer = null;
     adding = false;
-    $("btnAdd").textContent = isSwatch() ? "新增色號" : "新增標註";
+    $("btnAdd").textContent = KIND_ADD[kindOf()];
     $("btnAdd").classList.remove("active");
     updateFinishButton();
     run("CMF.endAdd(" + (keepTool ? "true" : "false") + "," + q(readSettings()) + ")", afterAdded);
@@ -685,8 +719,8 @@
     });
   });
 
-  // 編號／色號：存在 kind 裡（設定檔、快捷鍵腳本也看得到）。新增中切換，下一條線就用新的種類
-  ["kindNumber", "kindSwatch"].forEach(function (id) {
+  // 編號／色號／文字說明：存在 kind 裡（設定檔、快捷鍵腳本也看得到）。新增中切換，下一條線就用新的種類
+  ["kindNumber", "kindSwatch", "kindNote"].forEach(function (id) {
     $(id).addEventListener("change", function () {
       if (!$(id).checked) return;
       $("kind").value = $(id).value;
@@ -700,7 +734,7 @@
   App.on("pen", function (who) { if (who !== "callout" && adding) stopAdd(true); });
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && picking) { stopPick("已取消取色"); return; }
-    if (e.key === "Escape" && adding && document.activeElement.tagName !== "INPUT") stopAdd(false);
+    if (e.key === "Escape" && adding && !/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)) stopAdd(false);
   });
 
   $("btnConvert").addEventListener("click", function () { callHost("convert", readSettings(), afterAdded); });
