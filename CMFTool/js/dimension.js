@@ -798,12 +798,6 @@
   $('btnDimSelectAll').addEventListener('click', function () { call('dimSelectAll', null, function (r) { App.setStatus(r.msg, !r.ok); }); });
   $('btnDimToggle').addEventListener('click', function () { call('dimToggle', null, function (r) { App.setStatus(r.msg, !r.ok); }); });
   $('btnDimRefresh').addEventListener('click', refresh);
-  // 工具列的 ⋯：打開、收起其他的工具
-  $('btnDimMore').addEventListener('click', function () {
-    var more = $('dimMore');
-    more.hidden = !more.hidden;
-    $('btnDimMore').setAttribute('aria-expanded', String(!more.hidden));
-  });
 
   // 在 Illustrator 裡換了選取之後，滑鼠移回面板時更新
   App.on('tab', function (name) { if (name === 'dim') refresh(); });

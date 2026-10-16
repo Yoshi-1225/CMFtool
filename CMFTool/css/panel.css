@@ -223,6 +223,7 @@ input::placeholder { color: var(--muted); }
 .sect-meta.warn { color: var(--warn); }
 
 details { border-top: 1px solid var(--line-soft); padding: 9px 0; }
+.tools + details { margin-top: 10px; }   /* 工具列下面接收合區塊（尺寸分頁的「其他」）：分隔線不要貼著按鈕 */
 summary {
   display: flex; align-items: center; gap: 4px;
   cursor: pointer; list-style: none; font-weight: 600; padding: 1px 0;
