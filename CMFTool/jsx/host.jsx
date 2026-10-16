@@ -10,7 +10,7 @@
  * 色號標註（色塊 + 一行文字）也是標註的群組，備註存著：CMF_SWATCH|#色碼|t=文字|s=色票名稱|樣式 JSON
  * （文字、色票名稱用 encodeURIComponent 編碼）。它沒有編號，不在編號表裡，不會被重新編號，也不會影響 Excel 的排序。
  * 文字說明（箭頭 + 一段文字，可以好幾行）跟色號標註同一種做法，只是沒有色塊、端點用樣式裡的 noteEnd：
- *   CMF_NOTE|#000000|t=文字|s=|樣式 JSON
+ *   CMF_NOTE|#000000|t=文字|s=|樣式 JSON；只畫箭頭（沒有文字）的多一段 a=1：CMF_NOTE|#000000|t=|s=|a=1|樣式 JSON
  */
 $.global.CMF = (function () {
     var LAYER_NAME = "CMF Callouts";
@@ -104,20 +104,21 @@ $.global.CMF = (function () {
     // 標註、色號標註或文字說明（樣式、同步、重新排版共用）
     function isLabel(it) { return isCallout(it) || isSwatch(it); }
 
-    // 色號標註：{ hex, text, spot 色票名稱（沒有 = 空字串）, note 是文字說明, style }
+    // 色號標註：{ hex, text, spot 色票名稱（沒有 = 空字串）, note 是文字說明, arrow 只畫箭頭（文字說明沒有文字）, style }
     function swParts(g) {
         var p = String(g.note).split("|"), out = { hex: p[1] || "#000000", text: "", spot: "", note: p[0] === TAG_NOTE }, i = 2;
-        for (; i < p.length && /^[ts]=/.test(p[i]); i++) {
-            var v = "";
+        for (; i < p.length && /^[tsa]=/.test(p[i]); i++) {
+            var v = "", c = p[i].charAt(0);
             try { v = decodeURIComponent(p[i].substring(2)); } catch (e) { v = ""; }
-            if (p[i].charAt(0) === "t") out.text = v; else out.spot = v;
+            if (c === "t") out.text = v; else if (c === "s") out.spot = v; else out.arrow = v === "1";
         }
         out.style = p.slice(i).join("|");
         return out;
     }
 
     function swNote(sw, styleStr) {
-        return (sw.note ? TAG_NOTE : TAG_SW) + "|" + sw.hex + "|t=" + encodeURIComponent(sw.text || "") + "|s=" + encodeURIComponent(sw.spot || "") + "|" + styleStr;
+        return (sw.note ? TAG_NOTE : TAG_SW) + "|" + sw.hex + "|t=" + encodeURIComponent(sw.text || "") + "|s=" + encodeURIComponent(sw.spot || "") + "|" +
+            (sw.arrow ? "a=1|" : "") + styleStr;
     }
 
     // 沒寫文字時標色票名稱，再沒有就標色碼；文字說明沒寫 =「說明」
@@ -128,6 +129,7 @@ $.global.CMF = (function () {
 
     // 圖層面板上的名稱：色號 PANTONE 186 C、說明 第一行
     function swName(sw) {
+        if (sw.arrow) return "箭頭";
         return sw.note ? "說明 " + swLabel(sw).split("\n")[0] : "色號 " + swLabel(sw);
     }
 
@@ -368,6 +370,7 @@ $.global.CMF = (function () {
     // 有色票名稱、文件裡也有這個色票時，色塊直接用色票（特別色印刷時才會對）
     // 文字說明：沒有色塊，好幾行時照線的方向對齊（往右靠左、往左靠右、上下置中），整段跟色號一樣往外推
     function swatchLabel(d, g, o, S, S1, sw) {
+        if (sw.arrow) return; // 只畫箭頭：沒有文字
         var dir = norm(S[0] - S1[0], S[1] - S1[1], -1, 0);
         var t = g.textFrames.add();
         t.name = "CMF_Label";
@@ -542,7 +545,10 @@ $.global.CMF = (function () {
     // 面板的設定 kind = "swatch" 時新增色號標註（swColor、swText、swSpot），"note" 時新增文字說明（noteText），
     // 否則新增編號的標註
     function swOf(o) {
-        if (o.kind === "note") return { hex: "#000000", text: cleanNote(o.noteText), spot: "", note: true };
+        if (o.kind === "note") {
+            if (o.noteArrowOnly) return { hex: "#000000", text: "", spot: "", note: true, arrow: true };
+            return { hex: "#000000", text: cleanNote(o.noteText), spot: "", note: true };
+        }
         if (o.kind !== "swatch") return null;
         var hex = /^#[0-9a-fA-F]{6}$/.test(String(o.swColor)) ? String(o.swColor) : "#808080";
         return { hex: hex, text: String(o.swText || "").replace(/[\r\n\t]+/g, " ").replace(/^\s+|\s+$/g, ""), spot: String(o.swSpot || "") };
@@ -555,7 +561,7 @@ $.global.CMF = (function () {
         if (sw) {
             buildCallout(d, path, 0, styleStr, getLayer(d, true), "", sw);
             d.selection = null;
-            return { msg: "已新增" + (sw.note ? "文字說明" : "色號 " + swLabel(sw)), next: null };
+            return { msg: "已新增" + (sw.arrow ? "箭頭" : (sw.note ? "文字說明" : "色號 " + swLabel(sw))), next: null };
         }
         var num = nextNumber(d, o);
         buildCallout(d, path, num, styleStr, getLayer(d, true));
@@ -665,7 +671,7 @@ $.global.CMF = (function () {
             if (sw) {
                 for (i = 0; i < lines.length; i++) made.push(buildCallout(d, lines[i], 0, styleStr, layer, "", sw));
                 d.selection = made;
-                return res(true, "已建立 " + made.length + " 個" + (sw.note ? "文字說明" : "色號標註「" + swLabel(sw) + "」"));
+                return res(true, "已建立 " + made.length + " 個" + (sw.arrow ? "箭頭" : (sw.note ? "文字說明" : "色號標註「" + swLabel(sw) + "」")));
             }
             var start = nextNumber(d, o);
             for (i = 0; i < lines.length; i++) {
@@ -929,6 +935,11 @@ $.global.CMF = (function () {
             if (it.name !== "CMF_Label" && it.name !== "CMF_Badge" && it.name !== "CMF_Chip") continue;
             var q = it.geometricBounds;
             b = b ? [Math.min(b[0], q[0]), Math.max(b[1], q[1]), Math.max(b[2], q[2]), Math.min(b[3], q[3])] : [q[0], q[1], q[2], q[3]];
+        }
+        if (!b) {
+            // 只畫箭頭（沒有標籤）：用線的尾端
+            var line = findChild(g, "CMF_Line");
+            if (line) { var S = line.pathPoints[0].anchor; b = [S[0], S[1], S[0], S[1]]; }
         }
         return b;
     }

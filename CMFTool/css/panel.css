@@ -187,7 +187,8 @@ input::placeholder { color: var(--muted); }
 /* 色號：色塊顏色（含滴管）+ 文字 */
 .swrow { display: grid; grid-template-columns: 76px 1fr; gap: 6px; align-items: center; margin: 0 0 8px; }
 /* 文字說明：可以好幾行 */
-.noterow { margin: 0 0 8px; }
+.noterow { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: start; margin: 0 0 8px; }
+.noterow textarea:disabled { opacity: .45; }
 .noterow textarea {
   display: block; width: 100%; min-height: 44px; padding: 4px 7px; resize: vertical;
   background: var(--field); color: var(--fg); border: 1px solid var(--line-soft); border-radius: var(--r-field);

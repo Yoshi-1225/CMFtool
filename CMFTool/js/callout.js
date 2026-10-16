@@ -9,7 +9,7 @@
   // kind：新增 number 編號、swatch 色號（色塊 swColor + 文字 swText；swSpot = 滴管取到的色票名稱）、
   //   note 文字說明（noteText，可以好幾行）。三種各自有一套樣式（kindStyles），欄位裡是目前那一種的
   var FIELDS = ["lineMode", "continuous", "startMode", "startNumber", "sortMode", "sameNumber", "autoSync",
-    "kind", "swColor", "swText", "swSpot", "noteText"].concat(STYLE_FIELDS);
+    "kind", "swColor", "swText", "swSpot", "noteText", "noteArrowOnly"].concat(STYLE_FIELDS);
   var KIND_LABEL = { number: "編號", swatch: "色號", note: "說明" };
   var KIND_ADD = { number: "新增標註", swatch: "新增色號", note: "新增說明" };
   var MODE_TIPS = {
@@ -18,7 +18,10 @@
     free: "左鍵持續加點，按「完成這條線」或快捷鍵完成"
   };
   function kindOf() { var k = $("kind").value; return KIND_LABEL[k] ? k : "number"; }
-  function modeTip() { return MODE_TIPS[$("lineMode").value].replace("{label}", KIND_LABEL[kindOf()]); }
+  // 文字說明「只畫箭頭」：沒有文字
+  function arrowOnly() { return kindOf() === "note" && $("noteArrowOnly").checked; }
+  function addLabel() { return arrowOnly() ? "新增箭頭" : KIND_ADD[kindOf()]; }
+  function modeTip() { return MODE_TIPS[$("lineMode").value].replace("{label}", arrowOnly() ? "箭頭尾端" : KIND_LABEL[kindOf()]); }
   var $ = function (id) { return document.getElementById(id); };
 
   // ---------- 與 ExtendScript 溝通 ----------
@@ -168,7 +171,8 @@
     $("swRow").hidden = kind !== "swatch";
     $("noteRow").hidden = !note;
     $("numSect").hidden = sw;   // 色號、文字說明沒有編號，不顯示編號表
-    if (!adding) $("btnAdd").textContent = KIND_ADD[kind];
+    if (!adding) $("btnAdd").textContent = addLabel();
+    $("noteText").disabled = arrowOnly();
     updateFinishButton();
     $("preview").innerHTML = figure(o);
     fc.update();
@@ -313,6 +317,7 @@
 
   // 文字說明：一段文字（好幾行），往右靠左、往左靠右、上下置中（host.jsx 的 swatchLabel）
   function noteFigure(o, S, dir, fs, gap, group) {
+    if (o.noteArrowOnly) return "";   // 只畫箭頭：沒有文字
     var pf = previewFont(o), lines = (String(o.noteText || "").replace(/\r/g, "").trim() || "說明").split("\n");
     var widths = lines.map(function (l) { return textWidth(l, fs, pf); });
     var tw = Math.max.apply(null, widths), lh = fs * 1.2;
@@ -671,7 +676,7 @@
     pollTimer = null;
     adding = false;
     App.busy.callout = false;
-    $("btnAdd").textContent = KIND_ADD[kindOf()];
+    $("btnAdd").textContent = addLabel();
     $("btnAdd").classList.remove("active");
     updateFinishButton();
     run("CMF.endAdd(" + (keepTool ? "true" : "false") + "," + q(readSettings()) + ")", afterAdded);
