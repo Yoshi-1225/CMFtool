@@ -1,4 +1,6 @@
-/* CMF Tool — 顏色由 js/app.js 依 Illustrator 的介面亮度調整 */
+/* CMF Tool — 顏色由 js/app.js 依 Illustrator 的介面亮度調整
+ * 風格：乾淨、圓潤。圓角分三層（欄位 6、按鈕和分段 8～10、卡片 14，分頁列是膠囊），
+ * 深度只用在有意義的地方（選到的分段浮起來、示範框和設定卡片），焦點一定看得到 */
 :root {
   --bg: #323232;
   --fg: #dcdcdc;
@@ -10,6 +12,11 @@
   --accent-fg: #ffffff;
   --paper: #e4e4e4;        /* 標註的圖：像白紙，顏色看起來跟工作區上一樣 */
   --pop: #3c3c3c;          /* 浮出來的設定 */
+  --raise: #4a4a4a;        /* 選到的分段（分頁、類型）：比背景亮、浮起來 */
+  --surface: rgba(255, 255, 255, .05);      /* 按鈕的底 */
+  --surface-hi: rgba(255, 255, 255, .09);
+  --ring: rgba(38, 128, 235, .35);          /* 焦點外圈 */
+  --r-field: 6px; --r-ctl: 8px; --r-card: 14px;
   --paper-prod: #c4c4c4;
   --hover: rgba(255, 255, 255, .05);
   --warn: #e0a43a;
@@ -24,6 +31,9 @@
   --paper: #ffffff;
   --paper-prod: #d8d8d8;
   --pop: #ffffff;
+  --raise: #ffffff;
+  --surface: rgba(0, 0, 0, .04);
+  --surface-hi: rgba(0, 0, 0, .08);
   --hover: rgba(0, 0, 0, .05);
   --warn: #9a6200;
   --error: #c42b1c;
@@ -45,42 +55,46 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 .muted { color: var(--muted); }
 
-/* ---------- 分頁 ---------- */
+/* ---------- 分頁：膠囊裡的圖示，選到的浮起來、寫出名稱 ---------- */
 .tabs {
   position: sticky; top: 0; z-index: 5;
-  display: flex; gap: 18px;
-  margin: 0 -10px 10px; padding: 0 12px;
+  display: flex; align-items: center; gap: 6px;
+  margin: 0 -10px 8px; padding: 8px 10px;
   background: var(--bg);
-  border-bottom: 1px solid var(--line);
 }
+.tab-track { display: flex; gap: 2px; padding: 3px; background: var(--field); border-radius: 999px; }
+.light .tab-track, .light .types { background: rgba(0, 0, 0, .06); }   /* 淺色介面：底比選到的白色深一點 */
 .tab {
-  position: relative;
-  height: 32px; padding: 0;
-  border: 0; background: none;
-  color: var(--muted); font: inherit; font-size: 12px; font-weight: 600;
-  cursor: pointer;
+  display: flex; align-items: center; gap: 5px;
+  height: 28px; padding: 0 9px;
+  border: 0; border-radius: 999px; background: none;
+  color: var(--muted); font: inherit; font-size: 11.5px; font-weight: 600;
+  cursor: pointer; transition: background-color .2s, color .2s, box-shadow .2s;
 }
+.tab svg { flex: none; width: 16px; height: 16px; }
+.tab-label { display: none; white-space: nowrap; }
 .tab:hover { color: var(--fg); }
-.tab.is-active { color: var(--fg); }
-.tab.is-active::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
-  height: 2px; border-radius: 1px; background: var(--accent);
-}
-.tabs .reload { margin-left: auto; align-self: center; }
+.tab.is-active { color: var(--fg); background: var(--raise); box-shadow: 0 1px 3px rgba(0, 0, 0, .3); padding-right: 11px; }
+.tab.is-active .tab-label { display: inline; }
+.tabs .reload { margin-left: auto; }
+@media (prefers-reduced-motion: reduce) { .tab { transition: none; } }
 
 /* ---------- 表單 ---------- */
 input[type=text], input[type=number], select {
-  width: 100%; height: 22px; padding: 0 5px;
+  width: 100%; height: 24px; padding: 0 7px;
   background: var(--field); color: var(--fg);
-  border: 1px solid var(--line); border-radius: 3px;
+  border: 1px solid var(--line-soft); border-radius: var(--r-field);
   font: inherit;
 }
 select:disabled, input:disabled { opacity: .45; }
 input[type=color] {
-  width: 100%; height: 22px; padding: 1px;
-  background: var(--field); border: 1px solid var(--line); border-radius: 3px;
+  width: 100%; height: 24px; padding: 2px;
+  background: var(--field); border: 1px solid var(--line-soft); border-radius: var(--r-field);
 }
-input:focus, select:focus, button:focus-visible { outline: 1px solid var(--accent); outline-offset: 0; }
+input[type=color]::-webkit-color-swatch-wrapper { padding: 0; }
+input[type=color]::-webkit-color-swatch { border: 0; border-radius: 4px; }
+input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring); }
+button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ring); }
 input::placeholder { color: var(--muted); }
 
 .row { display: grid; grid-template-columns: 60px 1fr; align-items: center; gap: 6px; margin: 5px 0; }
@@ -89,43 +103,45 @@ input::placeholder { color: var(--muted); }
 .pair > * { flex: 1; min-width: 0; }
 .pair > .btn { flex: 0 0 auto; }
 .pair > .check { margin: 0; }
-.check { display: flex; align-items: center; gap: 6px; margin: 6px 0; cursor: pointer; white-space: nowrap; }
+.check { display: flex; align-items: center; gap: 7px; margin: 7px 0; cursor: pointer; white-space: nowrap; }
 .check input { margin: 0; accent-color: var(--accent); }
 
 .btn {
-  height: 24px; padding: 0 9px;
-  background: transparent; color: var(--fg);
-  border: 1px solid var(--line); border-radius: 3px;
+  height: 26px; padding: 0 10px;
+  background: var(--surface); color: var(--fg);
+  border: 1px solid var(--line-soft); border-radius: var(--r-ctl);
   font: inherit; cursor: pointer; white-space: nowrap;
+  transition: background-color .15s, border-color .15s;
 }
-.btn:hover { border-color: var(--muted); }
+.btn:hover { background: var(--surface-hi); }
 .btn:disabled { opacity: .5; cursor: default; }
 .btn.strong { border-color: var(--accent); color: var(--accent); }
-.btn.quiet { border-color: transparent; color: var(--muted); }
-.btn.quiet:hover { color: var(--fg); }
+.btn.quiet { background: none; border-color: transparent; color: var(--muted); }
+.btn.quiet:hover { color: var(--fg); background: var(--surface); }
 .link {
   background: none; border: 0; padding: 0;
   color: var(--muted); font: inherit; cursor: pointer;
 }
 .link:hover { color: var(--fg); text-decoration: underline; }
 .icon-btn {
-  width: 22px; height: 22px; padding: 0;
+  width: 24px; height: 24px; padding: 0;
   display: inline-grid; place-items: center;
-  background: none; border: 0; border-radius: 3px;
+  background: none; border: 0; border-radius: 999px;
   color: var(--muted); cursor: pointer;
 }
-.icon-btn:hover { color: var(--fg); background: var(--hover); }
-.icon-btn svg { width: 13px; height: 13px; display: block; }
-.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.icon-btn:hover { color: var(--fg); background: var(--surface-hi); }
+.icon-btn svg { width: 14px; height: 14px; display: block; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
 .mt { margin-top: 6px; }
 
 /* 主要按鈕 */
 .add {
-  width: 100%; height: 32px;
-  border: 0; border-radius: 4px;
+  width: 100%; height: 34px;
+  border: 0; border-radius: 10px;
   background: var(--accent); color: var(--accent-fg);
   font: inherit; font-size: 12px; font-weight: 600;
+  box-shadow: 0 2px 8px rgba(38, 128, 235, .3);
   cursor: pointer;
 }
 .add:hover { filter: brightness(1.1); }
@@ -145,18 +161,18 @@ input::placeholder { color: var(--muted); }
 .sect-meta { flex: 1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sect-meta.warn { color: var(--warn); }
 
-details { border-top: 1px solid var(--line); padding: 7px 0; }
+details { border-top: 1px solid var(--line-soft); padding: 9px 0; }
 summary {
   display: flex; align-items: center; gap: 4px;
   cursor: pointer; list-style: none; font-weight: 600; padding: 1px 0;
 }
 summary::-webkit-details-marker { display: none; }
-summary::before {
-  content: ""; width: 0; height: 0; margin: 0 4px 0 1px;
-  border-left: 4px solid var(--muted); border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent;
-  transition: transform .12s;
+summary::before {   /* 圓角的小箭頭 */
+  content: ""; width: 5px; height: 5px; margin: 0 5px 0 2px;
+  border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); border-radius: 0 0 1px 0;
+  transform: rotate(-45deg); transition: transform .15s;
 }
-details[open] > summary::before { transform: rotate(90deg); }
+details[open] > summary::before { transform: rotate(45deg); }
 details[open] > summary { margin-bottom: 4px; }
 summary .count { font-weight: 400; color: var(--muted); }
 .sub { margin: 10px 0 2px; color: var(--muted); font-size: 10px; letter-spacing: .04em; }
@@ -165,7 +181,11 @@ summary .count { font-weight: 400; color: var(--muted); }
 /* 樣式的圖（標註、尺寸分頁共用）：點圖上的部位打開它的設定卡片，卡片在圖的下面、不會蓋住圖
    （js/figcard.js；標註的圖在 js/callout.js 的 figure，尺寸的在 js/dimension.js 的 dimFigure） */
 .fig-wrap { margin: 8px 0 6px; }
-.cfig { position: relative; background: var(--paper); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.cfig {
+  position: relative; background: var(--paper); border-radius: var(--r-card); overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 18px rgba(0, 0, 0, .18);
+}
+.light .cfig { box-shadow: 0 0 0 1px var(--line-soft), 0 4px 14px rgba(0, 0, 0, .06); }
 .cfig svg { display: block; width: 100%; height: auto; }
 .cfig .prod { fill: var(--paper-prod); }
 .cfig [data-part] { cursor: pointer; }
@@ -189,38 +209,38 @@ summary .count { font-weight: 400; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .cfig .hl, .cfig .ghost { transition: none; } }
 
 /* 示範框左上角：切換示範的物件（尺寸分頁：矩形、圓）。圖是白紙的顏色，深色介面也一樣 */
-.fig-mode { position: absolute; left: 6px; top: 6px; display: flex; gap: 2px; padding: 2px; border-radius: 5px; background: rgba(0, 0, 0, .07); }
-.fm { display: grid; place-items: center; width: 26px; height: 20px; border-radius: 4px; color: #707070; cursor: pointer; }
-.fm:hover { color: #303030; background: rgba(0, 0, 0, .07); }
-.fm svg { width: 16px; height: 16px; }
-.tgl-in:checked + .fm { color: #fff; background: var(--accent); }
-.tgl-in:focus-visible + .fm { outline: 1px solid var(--accent); outline-offset: 1px; }
+.fig-mode { position: absolute; left: 8px; top: 8px; display: flex; gap: 2px; padding: 2px; border-radius: 999px; background: rgba(0, 0, 0, .07); }
+.fm { display: grid; place-items: center; width: 28px; height: 22px; border-radius: 999px; color: #707070; cursor: pointer; }
+.fm:hover { color: #303030; }
+.fm svg { width: 15px; height: 15px; }
+.tgl-in:checked + .fm { color: #1f1f1f; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .18); }
+.tgl-in:focus-visible + .fm { box-shadow: 0 0 0 2px var(--ring); }
 /* 示範框右上角：重設大小 */
 .fig-reset {
-  position: absolute; right: 6px; top: 6px; display: grid; place-items: center; width: 26px; height: 24px; padding: 0;
-  border: 0; border-radius: 5px; background: rgba(0, 0, 0, .07); color: #707070; cursor: pointer;
+  position: absolute; right: 8px; top: 8px; display: grid; place-items: center; width: 26px; height: 26px; padding: 0;
+  border: 0; border-radius: 999px; background: rgba(0, 0, 0, .07); color: #707070; cursor: pointer;
 }
 .fig-reset:hover { color: #303030; background: rgba(0, 0, 0, .12); }
-.fig-reset:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
-.fig-reset svg { width: 15px; height: 15px; }
+.fig-reset svg { width: 14px; height: 14px; }
 
 /* 設定卡片：小三角指著選到的部位（--caret） */
 .pop {
-  position: relative; margin-top: 8px;
-  padding: 6px 8px 4px;
-  background: var(--pop); border: 1px solid var(--line); border-radius: 6px;
-  animation: pop-in .12s ease-out;
+  position: relative; margin-top: 10px;
+  padding: 8px 10px 6px;
+  background: var(--pop); border: 1px solid var(--line-soft); border-radius: var(--r-card);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .22);
+  animation: pop-in .15s ease-out;
 }
 @keyframes pop-in { from { opacity: 0; } }   /* 不移動：卡片的位置照它量到的位置算 */
 @media (prefers-reduced-motion: reduce) { .pop { animation: none; } }
 .pop::before {
   content: ""; position: absolute; top: -6px; left: var(--caret, 50%); margin-left: -5px;
   width: 9px; height: 9px; background: var(--pop);
-  border-left: 1px solid var(--line); border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line-soft); border-top: 1px solid var(--line-soft); border-radius: 2px 0 0 0;
   transform: rotate(45deg);
 }
 .pop-head { display: flex; align-items: center; justify-content: space-between; margin: -2px -4px 2px 0; }
-.pop-title { color: var(--muted); font-size: 10px; letter-spacing: .04em; }
+.pop-title { color: var(--fg); font-size: 11px; font-weight: 600; }
 .pop[data-mode=rect] .only-circle, .pop[data-mode=circle] .only-rect { display: none; }
 .pane > .check:first-child { margin-top: 2px; }
 .addopts { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; margin-top: 6px; }
@@ -230,10 +250,10 @@ summary .count { font-weight: 400; color: var(--muted); }
 .colorbox { display: flex; gap: 2px; min-width: 0; }
 .colorbox input[type=color] { flex: 1; min-width: 0; }
 .pick {
-  flex: 0 0 22px; height: 22px; padding: 0;
+  flex: 0 0 24px; height: 24px; padding: 0;
   display: grid; place-items: center;
   background: var(--field); color: var(--muted);
-  border: 1px solid var(--line); border-radius: 3px; cursor: pointer;
+  border: 1px solid var(--line-soft); border-radius: var(--r-field); cursor: pointer;
 }
 .pick:hover { color: var(--fg); border-color: var(--muted); }
 .pick.active { color: #fff; background: var(--accent); border-color: var(--accent); }
@@ -241,7 +261,7 @@ summary .count { font-weight: 400; color: var(--muted); }
 .pick svg { width: 13px; height: 13px; display: block; }
 
 /* 編號表 */
-.numtable { border: 1px solid var(--line); border-radius: 4px; max-height: 260px; overflow-y: auto; }
+.numtable { border: 1px solid var(--line-soft); border-radius: 10px; max-height: 260px; overflow-y: auto; }
 .numrow {
   display: grid; grid-template-columns: 38px 1fr auto;
   align-items: center; gap: 6px;
@@ -297,7 +317,7 @@ summary .count { font-weight: 400; color: var(--muted); }
 
 .result {
   margin: 8px 0 2px; padding: 6px 8px;
-  background: var(--field); border-radius: 4px;
+  background: var(--field); border-radius: 10px;
   user-select: text;
 }
 .result p { margin: 0; }
@@ -312,10 +332,10 @@ summary .count { font-weight: 400; color: var(--muted); }
 .ref-list { display: flex; flex-wrap: wrap; gap: 4px; }
 .ref-list .muted { margin: 0; }
 .ref-chip {
-  height: 20px; padding: 0 6px;
+  height: 20px; padding: 0 8px;
   font: 10.5px Consolas, "SF Mono", Menlo, monospace;
   color: var(--fg); background: var(--field);
-  border: 1px solid var(--line); border-radius: 3px; cursor: pointer;
+  border: 1px solid var(--line-soft); border-radius: 999px; cursor: pointer;
 }
 .ref-chip:hover { border-color: var(--muted); }
 .ref-chip.is-selected { border-color: var(--accent); color: var(--accent); }
@@ -350,41 +370,40 @@ input.invalid { border-color: var(--error); }
    （.pad 蓋在示範框上，圓點的位置由 js/dimension.js 照畫出來的矩形放，left、top 是 %） */
 .tgl-in { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
-.dim-bar { display: flex; align-items: center; gap: 8px; margin: 4px 0 0; }
-.types { display: flex; gap: 2px; }
+.dim-bar { display: flex; align-items: center; gap: 8px; margin: 2px 0 0; }
+/* 類型：一條分段，選到的浮起來（可以多選） */
+.types { display: flex; gap: 2px; padding: 2px; background: var(--field); border-radius: 10px; }
 .ticon {
-  position: relative; display: grid; place-items: center;
-  width: 34px; height: 34px; border-radius: 6px;
-  color: var(--muted); opacity: .45; cursor: pointer;
+  display: grid; place-items: center;
+  width: 32px; height: 30px; border-radius: var(--r-ctl);
+  color: var(--muted); opacity: .6; cursor: pointer;
+  transition: background-color .15s, opacity .15s;
 }
-.ticon svg { width: 22px; height: 22px; }
-.ticon:hover { opacity: .8; background: var(--hover); }
-.tgl-in:checked + .ticon { color: var(--fg); opacity: 1; }
-.tgl-in:checked + .ticon::after {
-  content: ""; position: absolute; bottom: 1px; left: 50%;
-  width: 14px; height: 2px; margin-left: -7px; border-radius: 1px; background: var(--accent);
-}
+.ticon svg { width: 21px; height: 21px; }
+.ticon:hover { opacity: 1; }
+.tgl-in:checked + .ticon { color: var(--fg); opacity: 1; background: var(--raise); box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
 .go {
-  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; height: 34px; padding: 0 8px;
-  background: var(--accent); color: var(--accent-fg); font: inherit; font-weight: 600; white-space: nowrap;
-  border: 0; border-radius: 7px; cursor: pointer;
-  box-shadow: 0 3px 8px rgba(0, 0, 0, .3);
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; height: 34px; padding: 0 10px;
+  background: var(--accent); color: var(--accent-fg); font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap;
+  border: 0; border-radius: 10px; cursor: pointer;
+  box-shadow: 0 2px 8px rgba(38, 128, 235, .3);
 }
-.go svg { flex: none; width: 22px; height: 22px; }
+.go svg { flex: none; width: 20px; height: 20px; }
 .go:hover { filter: brightness(1.1); }
 .go:active { transform: translateY(1px); }
 .go:disabled { opacity: .55; cursor: default; filter: none; }
+.go:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
 
-.pad { position: absolute; inset: 0; pointer-events: none; }
+.pad { position: absolute; top: 0; right: 0; bottom: 0; left: 0; pointer-events: none; }
 .pad[hidden] { display: none; }
 .dot {
   position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; pointer-events: auto;
-  border: 2px solid #8a8a8a; border-radius: 50%; background: var(--paper); cursor: pointer;
-  box-shadow: 0 0 0 2px var(--paper);
+  border: 1.5px solid #9a9a9a; border-radius: 50%; background: #fff; cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .18); transition: background-color .15s, border-color .15s;
 }
 .dot:hover { border-color: #505050; }
-.tgl-in:checked + .dot { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 3px rgba(38, 128, 235, .3); }
-.tgl-in:focus-visible + .dot, .tgl-in:focus-visible + .ticon { outline: 1px solid var(--accent); outline-offset: 2px; }
+.tgl-in:checked + .dot { border: 3px solid #fff; background: var(--accent); box-shadow: 0 1px 4px rgba(0, 0, 0, .3); }
+.tgl-in:focus-visible + .dot, .tgl-in:focus-visible + .ticon { box-shadow: 0 0 0 2px var(--ring); }
 .pad.off .dot { opacity: .4; }
 
 /* ---------- 數字欄位（js/numfield.js）：鎖成唯讀時自己畫的游標 ---------- */
@@ -396,7 +415,7 @@ html.scrubbing, html.scrubbing * { cursor: ew-resize !important; user-select: no
 /* 拖曳圖上的部位時，滑鼠旁邊顯示數值 */
 .scrub-tip {
   position: fixed; z-index: 30; padding: 2px 7px; pointer-events: none; white-space: nowrap;
-  background: var(--accent); color: var(--accent-fg); border-radius: 3px;
+  background: var(--accent); color: var(--accent-fg); border-radius: 999px;
   font-size: 11px; font-variant-numeric: tabular-nums; box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
 }
 .ime-caret { position: fixed; z-index: 20; width: 1px; background: var(--fg); pointer-events: none; }
@@ -407,7 +426,7 @@ html.scrubbing, html.scrubbing * { cursor: ew-resize !important; user-select: no
 .status {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
   padding: 6px 10px;
-  background: var(--bg); border-top: 1px solid var(--line);
+  background: var(--bg); border-top: 1px solid var(--line-soft);
   color: var(--muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }

@@ -142,6 +142,7 @@
       s.setProperty('--line', light ? shift(-40) : shift(20));
       s.setProperty('--line-soft', light ? shift(-20) : shift(9));
       s.setProperty('--pop', light ? shift(14) : shift(11));
+      s.setProperty('--raise', light ? shift(40) : shift(24));
     } catch (e) {}
     App.emit('theme');
   }
