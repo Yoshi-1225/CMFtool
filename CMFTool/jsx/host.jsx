@@ -586,54 +586,76 @@ $.global.CMF = (function () {
         try {
             var d = getDoc();
             pendingFP = null;
+            penSeen = null;
             d.selection = null; // 清空選取，之後出現的選取路徑就一定是新畫的
             var ok = selectToolSafe("Adobe Pen Tool");
             return res(true, ok ? "" : "請按 P 切換到鋼筆工具", null, "ready");
         } catch (e) { return res(false, e.message); }
     }
 
+    // 鋼筆第一下的位置：看過只有 1 個錨點的新線，才算是正在畫的線。
+    // 選到原本就有的線（2 個錨點以上、沒看過它只有 1 個錨點）不會被拿去當引線，而是當成「選了其他物件」
+    var penSeen = null;
+
+    function firstAnchor(it) { var a = it.pathPoints[0].anchor; return [a[0], a[1]]; }
+    function sameSeen(seen, it) {
+        if (!seen) return false;
+        var a = it.pathPoints[0].anchor;
+        return Math.abs(a[0] - seen[0]) < 0.01 && Math.abs(a[1] - seen[1]) < 0.01;
+    }
+
+    // 新增中選了其他物件（選取工具點了別的東西、選到既有的線、文字、群組、標註、尺寸）：面板結束新增
+    function otherRes() { penSeen = null; pendingFP = null; return res(true, "選了其他物件，已結束新增", null, "other"); }
+
     function pollAdd(styleStr) {
         try {
-            if (app.documents.length === 0) { pendingFP = null; return res(true, "", null, "idle"); }
+            if (app.documents.length === 0) { pendingFP = null; penSeen = null; return res(true, "", null, "idle"); }
             var d = app.activeDocument, o = parse(styleStr), mode = o.lineMode || "straight";
-            var sel = d.selection;
+            var sel = d.selection, isText = !!sel && sel.typename === "TextRange";
 
-            // 沒有箭頭的色號：點一下就放
+            // 沒有箭頭的色號：點一下就放（只接受鋼筆剛點下去、只有 1 個錨點的線）
             if (o.kind === "swatch" && o.swNoLine) {
                 pendingFP = null;
-                if (!sel || sel.length !== 1) return res(true, "", null, "idle");
+                if (isText) return otherRes();
+                if (!sel || sel.length === 0) return res(true, "", null, "idle");
                 var one = sel[0];
-                if (one.typename !== "PathItem" || one.closed || isLabel(one.parent) || one.pathPoints.length < 1) return res(true, "", null, "idle");
+                if (sel.length > 1 || one.typename !== "PathItem" || one.closed || ownerOf(one, isLabel) || ownerOf(one, isDim) ||
+                    one.pathPoints.length !== 1) return otherRes();
                 return doneRes(finalize(d, one, styleStr));
             }
 
             if (mode === "free" && pendingFP) {
                 // 還選取著同一條線 = 還在畫
-                if (sel && sel.length === 1 && matchFP(sel[0])) return res(true, "", null, "drawing");
+                if (sel && !isText && sel.length === 1 && matchFP(sel[0])) return res(true, "", null, "drawing");
                 // 不再被選取 = Ctrl/⌘ + 點空白處結束了
                 var p = findPending(d);
                 pendingFP = null;
+                penSeen = null;
                 if (p && p.pathPoints.length >= 2) return doneRes(finalize(d, p, styleStr));
                 return res(true, "", null, "idle");
             }
 
-            if (!sel || sel.length !== 1) return res(true, "", null, "idle");
+            if (isText) return otherRes();
+            if (!sel || sel.length === 0) return res(true, "", null, "idle");
+            if (sel.length > 1) return otherRes();
             var it = sel[0];
-            if (it.typename !== "PathItem" || it.closed || isLabel(it.parent)) return res(true, "", null, "idle");
+            if (it.typename !== "PathItem" || it.closed || ownerOf(it, isLabel) || ownerOf(it, isDim)) return otherRes();
             var cnt = it.pathPoints.length;
+            if (cnt === 1) { penSeen = firstAnchor(it); return res(true, "", null, "drawing"); }
+            if (!sameSeen(penSeen, it)) return otherRes();
 
             if (mode === "free") {
-                if (cnt >= 2) {
-                    var a = it.pathPoints[0].anchor;
-                    pendingFP = { x: a[0], y: a[1], layer: it.layer };
-                }
+                var a = it.pathPoints[0].anchor;
+                pendingFP = { x: a[0], y: a[1], layer: it.layer };
                 return res(true, "", null, "drawing");
             }
 
             var need = mode === "elbow" ? 3 : 2;
             if (cnt < need) return res(true, "", null, "drawing");
+            if (cnt > need) return otherRes();
+            penSeen = null;
             return doneRes(finalize(d, it, styleStr));
-        } catch (e) { pendingFP = null; return res(false, e.message, null, "error"); }
+        } catch (e) { pendingFP = null; penSeen = null; return res(false, e.message, null, "error"); }
     }
 
     // 自由折線：「完成這條線」按鈕 / 快捷鍵
@@ -2304,9 +2326,13 @@ $.global.CMF = (function () {
         return { t: "lin", p1: [p1[0], p1[1]], p2: [p2[0], p2[1]], a: a, n: freeNormal(a, side), off: 0, free: 1 };
     }
 
+    // 跟新增標註一樣：選了其他物件（或原本就有的線）= "other"，面板取消兩點距離
+    var lenSeen = null;
+
     function dimLenBegin() {
         try {
             var d = getDoc();
+            lenSeen = null;
             d.selection = null; // 清空選取，之後出現的選取路徑就一定是新畫的
             var ok = selectToolSafe("Adobe Pen Tool");
             return res(true, ok ? "" : "請按 P 切換到鋼筆工具", null, "ready");
@@ -2317,11 +2343,16 @@ $.global.CMF = (function () {
         try {
             if (app.documents.length === 0) return res(true, "", null, "idle");
             var d = app.activeDocument, sel = d.selection;
-            if (!sel || sel.length !== 1) return res(true, "", null, "idle");
+            var other = function () { lenSeen = null; return res(true, "選了其他物件，已取消兩點距離", null, "other"); };
+            if (sel && sel.typename === "TextRange") return other();
+            if (!sel || sel.length === 0) return res(true, "", null, "idle");
+            if (sel.length > 1) return other();
             var it = sel[0];
-            if (it.typename !== "PathItem" || it.closed || ownerOf(it, isDim) || ownerOf(it, isLabel)) return res(true, "", null, "idle");
+            if (it.typename !== "PathItem" || it.closed || ownerOf(it, isDim) || ownerOf(it, isLabel)) return other();
             var pts = it.pathPoints;
-            if (pts.length < 2) return res(true, "", null, "drawing");
+            if (pts.length < 2) { lenSeen = firstAnchor(it); return res(true, "", null, "drawing"); }
+            if (pts.length > 2 || !sameSeen(lenSeen, it)) return other();
+            lenSeen = null;
             var gm = freeGeom(pts[0].anchor, pts[pts.length - 1].anchor, lenSideOf(styleStr));
             it.remove();
             d.selection = null; // 鋼筆下一次點擊會開始新的線

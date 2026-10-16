@@ -709,7 +709,8 @@
     });
   }
 
-  function stopAdd(keepTool) {
+  // msg：結束的原因（顯示在狀態列，蓋過 host.jsx 的「已結束新增」）
+  function stopAdd(keepTool, msg) {
     clearInterval(pollTimer);
     pollTimer = null;
     adding = false;
@@ -717,7 +718,10 @@
     $("btnAdd").textContent = addLabel();
     $("btnAdd").classList.remove("active");
     updateFinishButton();
-    run("CMF.endAdd(" + (keepTool ? "true" : "false") + "," + q(readSettings()) + ")", afterAdded);
+    run("CMF.endAdd(" + (keepTool ? "true" : "false") + "," + q(readSettings()) + ")", function (r) {
+      afterAdded(r);
+      if (msg) setStatus(msg);
+    });
   }
 
   function afterAdded(r) {
@@ -736,6 +740,8 @@
       if (!adding || !r) return;
       if (r.state === "drawing") { idleSince = Date.now(); return; }
       if (r.state === "error") { setStatus(r.msg, true); stopAdd(true); return; }
+      // 選了其他物件（或換了工具去點東西）：結束新增，工具維持使用者選的
+      if (r.state === "other") { stopAdd(true, r.msg); return; }
       if (r.state === "done") {
         idleSince = Date.now();
         afterAdded(r);

@@ -303,6 +303,7 @@
       if (!lenOn) return;
       if (r.state === 'drawing') { lenIdle = Date.now(); if (!r.ok) App.setStatus(r.msg, true); return; }
       if (r.state === 'done') { stopLen(false, r.msg); return; }   // 標好一個就結束，切回選取工具
+      if (r.state === 'other') { stopLen(true, r.msg); return; }   // 選了其他物件：取消，工具維持使用者選的
       if (r.state !== 'idle') { App.setStatus(r.msg, true); stopLen(true, false); return; }
       if (Date.now() - lenIdle > LEN_IDLE) stopLen(true, '閒置過久，已結束兩點距離');
     });
