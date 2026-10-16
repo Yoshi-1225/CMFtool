@@ -270,6 +270,7 @@
     call('dimLenBegin', null, function (r) {
       if (!r.ok) { App.setStatus(r.msg, true); return; }
       lenOn = true;
+      App.busy.dimLen = true;
       lenIdle = Date.now();
       lenButton(true);
       if (figMode !== 'len') setFigMode('len');   // 示範框換成兩點距離，看得到現在的樣式
@@ -285,6 +286,7 @@
     clearInterval(lenTimer);
     lenTimer = null;
     lenOn = false;
+    App.busy.dimLen = false;
     lenButton(false);
     call('dimLenEnd', { keepTool: !!keepTool }, function (r) { if (msg !== false) App.setStatus(msg || r.msg, !r.ok); });
   }

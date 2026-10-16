@@ -2414,6 +2414,68 @@ $.global.CMF = (function () {
         } catch (e) { return res(false, e.message); }
     }
 
+    // ---------- CMF 圖層只放標註和尺寸 ----------
+    // 面板每 1.5 秒呼叫一次（面板「其他」裡可以關掉）：
+    //   1. CMF Callouts、CMF Dimensions 圖層裡不是標註、尺寸的東西（使用者在這兩個圖層畫的），沒有選取著的時候，
+    //      搬到「備用圖層」的最上面。選取著的（正在畫、正在編輯的）先不動，取消選取後再搬
+    //   2. 沒有選取任何東西、作用中的圖層是這兩個時，切回備用圖層，之後畫的東西直接落在那裡
+    // 備用圖層：上次作用中的一般圖層（記名稱），沒有就用最上面沒鎖定、看得到的一般圖層，再沒有就新增「圖層 1」放到最下面
+    var lastUserLayer = null; // { doc, name }
+
+    function isToolLayer(L) { return !!L && L.typename === "Layer" && (L.name === LAYER_NAME || L.name === DIM_LAYER); }
+
+    function usableLayer(L) { return !!L && !isToolLayer(L) && !L.locked && L.visible; }
+
+    function fallbackLayer(d) {
+        var i, L;
+        if (lastUserLayer && lastUserLayer.doc === docKey(d)) {
+            try { L = d.layers.getByName(lastUserLayer.name); } catch (e) { L = null; }
+            if (usableLayer(L)) return L;
+        }
+        for (i = 0; i < d.layers.length; i++) if (usableLayer(d.layers[i])) return d.layers[i];
+        L = d.layers.add();
+        L.name = "圖層 1";
+        try { L.zOrder(ZOrderMethod.SENDTOBACK); } catch (e2) {}
+        return L;
+    }
+
+    function guardLayers() {
+        try {
+            if (app.documents.length === 0) return '{"ok":true,"moved":0}';
+            var d = app.activeDocument, tools = [], i, j, act = null;
+            try { act = d.activeLayer; } catch (e) { act = null; }
+            if (act && !isToolLayer(act)) lastUserLayer = { doc: docKey(d), name: act.name };
+            for (i = 0; i < d.layers.length; i++) if (isToolLayer(d.layers[i])) tools.push(d.layers[i]);
+            if (!tools.length) return '{"ok":true,"moved":0}';
+            var sel = d.selection;
+            if (sel && sel.typename === "TextRange") return '{"ok":true,"moved":0}'; // 正在打字
+            var stray = [];
+            for (i = 0; i < tools.length; i++) {
+                var items = tools[i].pageItems;
+                for (j = 0; j < items.length; j++) {
+                    var it = items[j];
+                    try {
+                        if (it.parent.typename !== "Layer") continue;   // 只看圖層最上層的東西
+                        if (isLabel(it) || isDim(it) || it.selected) continue;
+                        stray.push(it);
+                    } catch (eI) {}
+                }
+            }
+            var target = null, moved = 0;
+            for (i = 0; i < stray.length; i++) {
+                if (!target) target = fallbackLayer(d);
+                try { stray[i].move(target, ElementPlacement.PLACEATBEGINNING); moved++; } catch (eM) {}
+            }
+            var switched = false;
+            if ((!sel || !sel.length) && act && isToolLayer(act)) {
+                if (!target) target = fallbackLayer(d);
+                try { d.activeLayer = target; switched = true; } catch (eA) {}
+            }
+            return '{"ok":true,"moved":' + moved + ',"switched":' + (switched ? "true" : "false") +
+                ',"layer":"' + esc(target ? target.name : "") + '"}';
+        } catch (e) { return res(false, e.message); }
+    }
+
     // ---------- 設定檔（給快捷鍵腳本使用） ----------
     // 面板第一次開啟（還沒有自己的設定）時，沿用快捷鍵腳本用的設定檔
     function loadSettings() {
@@ -2476,6 +2538,7 @@ $.global.CMF = (function () {
         dimSelectAll: dimSelectAll,
         dimToggle: dimToggle,
         pickStyle: pickStyle,
+        guardLayers: guardLayers,
         loadSettings: loadSettings,
         saveSettings: saveSettings
     };

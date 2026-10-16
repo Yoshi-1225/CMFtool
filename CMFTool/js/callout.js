@@ -458,6 +458,7 @@
     callHost("beginPick", null, function (r) {
       if (!r.ok) return;
       picking = id;
+      App.busy.pick = true;
       pickStart = Date.now();
       btn.classList.add("active");
       setStatus("點一下畫布上要取色的物件（再按一次滴管或 Esc 取消）");
@@ -469,6 +470,7 @@
     clearInterval(pickTimer);
     pickTimer = null;
     picking = null;
+    App.busy.pick = false;
     Array.prototype.forEach.call(document.querySelectorAll(".pick.active"), function (b) { b.classList.remove("active"); });
     if (cep) cep.evalScript("CMF.endPick()", function () {});
     if (msg) setStatus(msg, isError);
@@ -652,6 +654,7 @@
     callHost("beginAdd", null, function (r) {
       if (!r.ok) return;
       adding = true;
+      App.busy.callout = true;
       idleSince = Date.now();
       $("btnAdd").textContent = "結束新增";
       $("btnAdd").classList.add("active");
@@ -665,6 +668,7 @@
     clearInterval(pollTimer);
     pollTimer = null;
     adding = false;
+    App.busy.callout = false;
     $("btnAdd").textContent = KIND_ADD[kindOf()];
     $("btnAdd").classList.remove("active");
     updateFinishButton();

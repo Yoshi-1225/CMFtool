@@ -112,6 +112,32 @@
   }
   $('btnReload').addEventListener('click', reload);
 
+  /* ---------- CMF 圖層只放標註和尺寸 ---------- */
+  // 每 1.5 秒請 host.jsx 的 guardLayers 檢查：CMF Callouts、CMF Dimensions 圖層裡別的東西搬到其他圖層，
+  // 沒選取東西時作用中的圖層切回一般圖層。正在新增標註、兩點距離、取色（App.busy 裡有 true）或在面板打字時不檢查
+  App.busy = {};
+  (function () {
+    var box = $('guardLayers'), KEY = 'cmftool:guardLayers', running = false;
+    if (!box) return;
+    try { var v = localStorage.getItem(KEY); if (v !== null) box.checked = v === '1'; } catch (e) {}
+    function busy() { for (var k in App.busy) if (App.busy[k]) return true; return false; }
+    function guard() {
+      if (!cep || !box.checked || running || busy() || App.typing()) return;
+      running = true;
+      cep.evalScript('CMF.guardLayers()', function (raw) {
+        running = false;
+        var r;
+        try { r = JSON.parse(raw); } catch (e) { return; }
+        if (r && r.moved > 0) App.setStatus('已把 ' + r.moved + ' 個物件搬到「' + r.layer + '」（CMF 圖層只放標註和尺寸）');
+      });
+    }
+    box.addEventListener('change', function () {
+      try { localStorage.setItem(KEY, box.checked ? '1' : '0'); } catch (e) {}
+      guard();
+    });
+    setInterval(guard, 1500);
+  })();
+
   /* ---------- 收合區塊：記住開合狀態 ---------- */
   Array.prototype.forEach.call(document.querySelectorAll('details[data-key]'), function (d) {
     var key = 'cmftool:open:' + d.getAttribute('data-key');
