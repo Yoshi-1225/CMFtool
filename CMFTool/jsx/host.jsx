@@ -2060,6 +2060,15 @@ $.global.CMF = (function () {
         return false;
     }
 
+    // 匯入的 Excel 表格裡、還沒對到儲存格的字（改了也不會寫回 Excel）。表格和綁定的名稱見 jsx/excel.jsx
+    function unboundTableText(tf) {
+        try { if (String(tf.name).indexOf("xl:") === 0) return false; } catch (e) { return false; }
+        for (var p = tf.parent; p && p.typename === "GroupItem"; p = p.parent) {
+            if (String(p.name).indexOf("xltable:") === 0) return true;
+        }
+        return false;
+    }
+
     // 自己或上層的圖層、群組是鎖定或隱藏的
     function isBlocked(it) {
         for (var p = it; p && p.typename !== "Document"; p = p.parent) {
@@ -2118,7 +2127,7 @@ $.global.CMF = (function () {
                 }
             }
 
-            var nFrames = 0, nNames = 0, skipCmf = 0, skipLocked = 0, failed = 0, err = "";
+            var nFrames = 0, nNames = 0, skipCmf = 0, skipLocked = 0, failed = 0, unbound = 0, err = "";
             for (i = 0; i < frames.length; i++) {
                 var tf = frames[i], s;
                 try { s = tf.contents; } catch (e) { continue; }
@@ -2134,6 +2143,7 @@ $.global.CMF = (function () {
                     restoreTemp(saved);
                 }
                 for (k = 0; k < ms.length; k++) counts[ms[k].k]++;
+                if (unboundTableText(tf)) unbound++;
                 nFrames++;
             }
             for (i = 0; i < boards.length; i++) {
@@ -2157,6 +2167,8 @@ $.global.CMF = (function () {
             if (skipCmf) notes.push(skipCmf + " 個標註、尺寸裡的文字沒改");
             if (skipLocked) notes.push(skipLocked + " 個在鎖定或隱藏的物件裡沒改");
             if (failed) notes.push(failed + " 個無法修改：" + err);
+            if (unbound) notes.push(unbound + " 個在 Excel 表格裡、沒有對到儲存格，" + (dry ? "換了" : "") +
+                "不會寫回 Excel（先到 Excel 分頁按「從 Excel 更新」再換）");
             if (notes.length) msg += "；" + notes.join("；");
             return '{"ok":true,"msg":"' + esc(msg) + '","total":' + total + ',"counts":[' + counts.join(",") +
                 '],"frames":' + nFrames + ',"names":' + nNames + ',"failed":' + failed + "}";

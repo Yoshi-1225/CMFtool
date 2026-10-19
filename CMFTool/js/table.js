@@ -674,6 +674,59 @@ module.exports = function (XLSX) {
     return isFinite(v) ? v : null;
   }
 
+  /* ---------- 日期 ----------
+   * Excel 顯示的日期跟這裡讀到的文字不一定一樣：內建的日期格式（例如「簡短日期」）在 Excel 裡照 Windows 的地區設定顯示
+   * （台灣是 2026/10/15），這裡讀到的是 10/15/26。所以日期格比的是日期本身，寫回時直接寫日期的數值 */
+
+  // 文字裡的日期 → { y（沒寫年份 = null）, m, d }；不是日期 = null
+  function dateParts(text) {
+    var t = halfWidth(text).replace(/\s+/g, ''), m, a, b;
+    m = /^(\d{4})[\/.\-年](\d{1,2})[\/.\-月](\d{1,2})日?$/.exec(t);
+    if (m) return validParts(+m[1], +m[2], +m[3]);
+    m = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})$/.exec(t);        // 月/日/年；第一個大於 12 = 日/月/年
+    if (m) { a = +m[1]; b = +m[2]; return a > 12 ? validParts(+m[3], b, a) : validParts(+m[3], a, b); }
+    m = /^(\d{1,2})(?:\/|月)(\d{1,2})日?$/.exec(t);
+    if (m) { a = +m[1]; b = +m[2]; return a > 12 ? validParts(null, b, a) : validParts(null, a, b); }
+    return null;
+  }
+
+  function validParts(y, m, d) {
+    if (y !== null && y < 100) y += 2000;
+    return m >= 1 && m <= 12 && d >= 1 && d <= 31 ? { y: y, m: m, d: d } : null;
+  }
+
+  function isDateCell(c) {
+    return !!(c && c.t === 'n' && c.z && XLSX.SSF && XLSX.SSF.is_date(c.z));
+  }
+
+  // 文字跟日期格的值是同一天（沒寫年份時只比月日）
+  function sameDate(text, c) {
+    var p = dateParts(text), dc = XLSX.SSF.parse_date_code(c.v);
+    return !!(p && dc && p.m === dc.m && p.d === dc.d && (p.y === null || p.y === dc.y));
+  }
+
+  function date1904(wb) { return !!(wb && wb.Workbook && wb.Workbook.WBProps && wb.Workbook.WBProps.date1904); }
+
+  // 文字 → 日期格的新數值：時間沿用原本的；沒寫年份 = 今年（跟在 Excel 裡打 10/19 一樣）
+  function dateSerial(text, c, wb) {
+    var p = dateParts(text);
+    if (!p) return null;
+    var y = p.y !== null ? p.y : new Date().getFullYear();
+    var days = (Date.UTC(y, p.m - 1, p.d) - Date.UTC(1899, 11, 30)) / 864e5 - (date1904(wb) ? 1462 : 0);
+    var check = new Date(Date.UTC(y, p.m - 1, p.d));
+    if (check.getUTCMonth() !== p.m - 1) return null;                   // 2/30 之類
+    var time = c && typeof c.v === 'number' ? c.v - Math.floor(c.v) : 0;
+    return days + time;
+  }
+
+  // 日期格的 [年, 月, 日]（給 es_bindTable 比對貼上的字）；不是日期 = null
+  function cellDate(ws, addr) {
+    var c = cellOf(ws, addr);
+    if (!isDateCell(c)) return null;
+    var dc = XLSX.SSF.parse_date_code(c.v);
+    return dc ? [dc.y, dc.m, dc.d] : null;
+  }
+
   // 要怎麼寫回（excel.jsx 的 es_edited 列出來的文字）。
   //   items：[{ ref, text, base }]，base = 上次從 Excel 更新（或綁定）時的內容，null = 沒有記錄；{ ref, multi } = 同一格的文字改得不一樣
   //   force：「現在寫回」：Excel 也改過、沒有記錄的，也用 Illustrator 的
@@ -693,11 +746,13 @@ module.exports = function (XLSX) {
       var addr = mergedAddr(ws, XLSX.utils.encode_cell(p.s)), c = ws[addr];   // 合併儲存格：寫進左上角那格
       var text = nl(it.text), excel = nl(cellText(ws, addr)), base = it.base == null ? null : nl(it.base);
       if (isFormula(ws, addr)) { out.formula.push(it.ref); return; }
-      if (excel === text) { (base === null ? out.keep : out.same).push(it.ref); return; }
+      var isDate = isDateCell(c);
+      if (excel === text || (isDate && sameDate(text, c))) { (base === null ? out.keep : out.same).push(it.ref); return; }
       if (!force && base === null) { out.unknown.push({ ref: it.ref, excel: excel }); return; }
-      if (!force && excel !== base) { out.conflict.push({ ref: it.ref, excel: excel }); return; }
+      if (!force && excel !== base && !(isDate && sameDate(base, c))) { out.conflict.push({ ref: it.ref, excel: excel }); return; }
       var t = c && c.v != null ? c.t : 'z';                    // z = 空的
-      var num = t === 'n' || t === 'z' ? editedNumber(text, t === 'n' ? excel : '', c && c.z) : null;
+      var num = isDate ? dateSerial(text, c, wb)
+        : t === 'n' || t === 'z' ? editedNumber(text, t === 'n' ? excel : '', c && c.z) : null;
       var kind = num !== null ? 'num' : t === 'n' || t === 'b' ? 'typed' : 'text';
       if (kind === 'typed' && /^[=+\-@]/.test(text.trim())) kind = 'text';   // 不能讓 Excel 當成公式
       var w = { ref: it.ref, sheet: name, cell: addr, value: num !== null ? num : text, kind: kind, text: text, raw: t === 'z' ? null : c.v };
@@ -715,6 +770,8 @@ module.exports = function (XLSX) {
     isFormula: isFormula,
     editedNumber: editedNumber,
     writeBackPlan: writeBackPlan,
+    cellDate: cellDate,
+    dateParts: dateParts,
     savedSelection: savedSelection,
     buildTable: buildTable,
     normName: normName,

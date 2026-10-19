@@ -70,6 +70,20 @@
     // 20261001
     m = /(?:^|\D)((\d{4})(\d{2})(\d{2}))(?!\d)/.exec(text);
     if (m && validDate(+m[2], +m[3], +m[4])) return text.replace(m[1], Y + pad(M, 2) + pad(D, 2));
+    // 兩位數年份：10/15/26（月/日/年）
+    m = /(?:^|[^\d.\/\-])((\d{1,2})\/(\d{1,2})\/(\d{2}))(?![\d\/])/.exec(text);
+    if (m) {
+      var sy = +m[2] > 12, ym = sy ? +m[3] : +m[2], yd = sy ? +m[2] : +m[3];
+      if (validDate(Y, ym, yd)) return text.replace(m[1], pad(sy ? D : M, m[2].length) + '/' + pad(sy ? M : D, m[3].length) + '/' + pad(Y % 100, 2));
+    }
+    // 沒有年份：10/15（月/日；第一個數字大於 12 時當成 日/月）、10月15日。只認斜線，1.2、1-2 是版本號、料號
+    m = /(?:^|[^\d.\/\-])((\d{1,2})\/(\d{1,2}))(?![\d\/])/.exec(text);
+    if (m) {
+      var sw = +m[2] > 12, mm = sw ? +m[3] : +m[2], dd = sw ? +m[2] : +m[3];
+      if (validDate(Y, mm, dd)) return text.replace(m[1], pad(sw ? D : M, m[2].length) + '/' + pad(sw ? M : D, m[3].length));
+    }
+    m = /(\d{1,2})(\s*月\s*)(\d{1,2})(\s*日)/.exec(text);
+    if (m && validDate(Y, +m[1], +m[3])) return text.replace(m[0], pad(M, m[1].length) + m[2] + pad(D, m[3].length) + m[4]);
     // 版本號：最後一段數字加一（V1.2 → V1.3、R09 → R10）
     m = /(\d+)(?!.*\d)/.exec(text);
     if (m) return text.slice(0, m.index) + pad(Number(m[1]) + 1, m[1].length) + text.slice(m.index + m[1].length);

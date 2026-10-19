@@ -690,7 +690,24 @@ function _sameText(a, b) {
     return a === b || a.replace(/\s+/g, " ") === b.replace(/\s+/g, " ");
 }
 
-/* tableJson = { width, height, cells: [{ ref, text, x, y, w, h }] }（js/table.js 的 buildTable 算的，單位 pt、從左上角起算）
+/* 文字是不是 dt = [年, 月, 日] 那一天（沒寫年份時只比月日）。js/table.js 的 dateParts 的 ES3 版本 */
+function _sameDate(text, dt) {
+    var t = String(text).replace(/\s+/g, ""), m, y = null, mo, d, a, b;
+    if ((m = /^(\d{4})[\/.\-\u5E74](\d{1,2})[\/.\-\u6708](\d{1,2})\u65E5?$/.exec(t))) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+    else if ((m = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})$/.exec(t))) {
+        a = +m[1]; b = +m[2]; y = +m[3];
+        mo = a > 12 ? b : a; d = a > 12 ? a : b;
+    }
+    else if ((m = /^(\d{1,2})(?:\/|\u6708)(\d{1,2})\u65E5?$/.exec(t))) {
+        a = +m[1]; b = +m[2];
+        mo = a > 12 ? b : a; d = a > 12 ? a : b;
+    }
+    else return false;
+    if (y !== null && y < 100) y += 2000;
+    return mo === dt[1] && d === dt[2] && (y === null || y === dt[0]);
+}
+
+/* tableJson = { width, height, cells: [{ ref, text, x, y, w, h, dt 日期格的 [年, 月, 日] }] }（js/table.js 的 buildTable 算的，單位 pt、從左上角起算）
  * 貼上的表格等比對應到這個大小；文字物件跟哪一格重疊、內容又跟那一格一樣，就綁定到那一格。
  * 已經綁定的不動（同一個範圍的其他表格，可能有還沒寫回的修改）；
  * 對不到的（例如自動換行被拆成好幾段的字）不綁定，不會寫回 */
@@ -716,7 +733,7 @@ function es_bindTable(label, tableJson) {
             for (k = 0; k < t.cells.length; k++) {
                 var c = t.cells[k];
                 if (c.x >= x1 || c.x + c.w <= x0 || c.y >= y1 || c.y + c.h <= y0) continue;   // 沒有重疊
-                if (!_sameText(text, c.text)) continue;
+                if (!_sameText(text, c.text) && !(c.dt && _sameDate(text, c.dt))) continue;
                 var dx = Math.max(c.x - cx, 0, cx - c.x - c.w), dy = Math.max(c.y - cy, 0, cy - c.y - c.h);
                 if (!best || dx * dx + dy * dy < bestD) { best = c; bestD = dx * dx + dy * dy; }
             }

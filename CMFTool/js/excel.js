@@ -645,10 +645,16 @@
         opts.plan = plan;
         opts.numCol = Table.cmfConfig(t.cmf, rangeWidth(sel)).num;
       }
-      var b = Table.buildTable(wb, sel, opts);
+      var b = Table.buildTable(wb, sel, opts), ws = wb.Sheets[sel.sheet || wb.SheetNames[0]];
+      // dt：日期格的年月日。Excel 顯示的日期格式可能跟這裡讀到的不一樣，日期改比日期本身
       shape = {
         width: b.width, height: b.height,
-        cells: b.cells.map(function (c) { return { ref: c.ref, text: c.text, x: c.x, y: c.y, w: c.w, h: c.h }; })
+        cells: b.cells.map(function (c) {
+          var o = { ref: c.ref, text: c.text, x: c.x, y: c.y, w: c.w, h: c.h };
+          var dt = ws ? Table.cellDate(ws, c.ref.slice(c.ref.lastIndexOf('!') + 1)) : null;
+          if (dt) o.dt = dt;
+          return o;
+        })
       };
     } catch (e) { return Promise.resolve(null); }   // 對不到就不綁定：這個表格的字不會寫回，其他照常
     return host('es_bindTable', [t.label, JSON.stringify(shape)]).catch(function () { return null; });
