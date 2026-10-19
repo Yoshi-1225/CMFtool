@@ -10,7 +10,7 @@
   var STYLE = ['dimFontSize', 'dimTextColor', 'dimFontName', 'dimTextAlign', 'dimTextPos', 'dimTextGap', 'dimBreakGap', 'dimTextBg', 'dimTextBgColor',
     'dimLineWidth', 'dimLineColor', 'dimEndStyle', 'dimEndSize', 'dimArrowPos', 'dimExtLine', 'dimExtGap', 'dimExtOver',
     'dimUnit', 'dimDecimals', 'dimShowUnit', 'dimRatio', 'dimDiaSym', 'dimCount', 'dimPrefix', 'dimSuffix',
-    'dimRadMode', 'dimLeader', 'dimShelf', 'dimCenterMark', 'dimAuto', 'dimAutoBase'];
+    'dimRadMode', 'dimLeader', 'dimShelf', 'dimCenterMark', 'dimLenEnds', 'dimLenSide', 'dimAuto', 'dimAutoBase'];
   // 要標的類型（可以多選）和寬高的位置（上下左右，可以多選）
   var TYPES = ['dimTypeSel', 'dimTypeEach', 'dimTypeDia', 'dimTypeRad'];
   var POS = ['dimPosTop', 'dimPosBottom', 'dimPosLeft', 'dimPosRight'];
@@ -74,7 +74,11 @@
   function load() {
     var o = null;
     try { o = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+    // 線條的預設顏色改成深灰：存著的還是舊的預設（黑色）就換掉，只做一次（沒有存過設定的也記下來，之後選的黑色不會被換掉）
+    var firstFix = false;
+    try { firstFix = !localStorage.getItem('cmftool:dimDefaults2'); localStorage.setItem('cmftool:dimDefaults2', '1'); } catch (e) {}
     if (!o) return;
+    if (firstFix && String(o.dimLineColor || '').toLowerCase() === '#000000') o.dimLineColor = '#404040';
     // 舊版是「寬在上／下」「高在右／左」兩個選單和「每個物件分別標寬高」
     if (o.dimPosTop === undefined && o.dimWSide !== undefined) {
       o.dimPosTop = o.dimWSide !== 'bottom';
@@ -251,19 +255,91 @@
     if (!cep) setBusy(false);
   }
 
+  /* ---------- 兩點距離 ---------- */
+  // 按「兩點距離」切到鋼筆，點起點、點終點就標一個（host.jsx 的 dimLenPoll），標好就結束、切回選取工具；
+  // 點第二下之前再按一次或 Esc 取消。
+  // 跟「新增標註」都用鋼筆，開始一個時會結束另一個（App 的 'pen' 事件）
+  var lenOn = false, lenTimer = null, lenPolling = false, lenIdle = 0;
+  var LEN_IDLE = 60000;   // 閒置太久自動結束，避免把之後畫的線當成兩點距離
+
+  function lenButton(on) {
+    $('btnDimLen').classList.toggle('active', on);
+    $('btnDimLen').setAttribute('aria-pressed', String(on));
+  }
+
+  function startLen() {
+    if (!cep) { App.setStatus('請在 Illustrator 中開啟此面板', true); return; }
+    if (!(ratioOf($('dimRatio').value) > 0)) { App.setStatus('比例請寫成 1:2 這樣的格式', true); return; }
+    App.emit('pen', 'dim');
+    call('dimLenBegin', null, function (r) {
+      if (!r.ok) { App.setStatus(r.msg, true); return; }
+      lenOn = true;
+      App.busy.dimLen = true;
+      lenIdle = Date.now();
+      lenButton(true);
+      if (figMode !== 'len') setFigMode('len');   // 示範框換成兩點距離，看得到現在的樣式
+      App.setStatus(r.msg || ($('dimLenEnds').value === 'one' ? '點起點（箭頭指的地方）→ 點終點' : '點起點 → 點終點') +
+        '，按住 Shift 鎖水平、垂直。Esc 取消');
+      lenTimer = setInterval(pollLen, 200);
+    });
+  }
+
+  // msg：結束的原因（省略 = 「已結束兩點距離」）；keepTool：不切回選取工具
+  function stopLen(keepTool, msg) {
+    if (!lenOn) return;
+    clearInterval(lenTimer);
+    lenTimer = null;
+    lenOn = false;
+    App.busy.dimLen = false;
+    lenButton(false);
+    call('dimLenEnd', { keepTool: !!keepTool }, function (r) { if (msg !== false) App.setStatus(msg || r.msg, !r.ok); });
+  }
+
+  function pollLen() {
+    if (lenPolling || !lenOn) return;
+    lenPolling = true;
+    call('dimLenPoll', readStyle(), function (r) {
+      lenPolling = false;
+      if (!lenOn) return;
+      if (r.state === 'drawing') { lenIdle = Date.now(); if (!r.ok) App.setStatus(r.msg, true); return; }
+      if (r.state === 'done') { stopLen(false, r.msg); return; }   // 標好一個就結束，切回選取工具
+      if (r.state === 'other') { stopLen(true, r.msg); return; }   // 選了其他物件：取消，工具維持使用者選的
+      if (r.state !== 'idle') { App.setStatus(r.msg, true); stopLen(true, false); return; }
+      if (Date.now() - lenIdle > LEN_IDLE) stopLen(true, '閒置過久，已結束兩點距離');
+    });
+  }
+
+  // 每個部位的設定（樣式的名稱）：示範框上選著一個部位時，「同步全部」、「套用選取」、自動套用、「吸取樣式」只處理這些
+  var PART_FIELDS = {
+    text: ['fontSize', 'textColor', 'fontName', 'textAlign', 'textPos', 'textGap', 'breakGap', 'textBg', 'textBgColor',
+      'unit', 'decimals', 'showUnit', 'ratio', 'diaSym', 'count', 'prefix', 'suffix'],
+    line: ['lineWidth', 'lineColor', 'offset', 'radMode', 'leader', 'shelf', 'centerMark', 'lenSide'],
+    end: ['endStyle', 'endSize', 'arrowPos', 'lenEnds'],
+    ext: ['extLine', 'extGap', 'extOver']
+  };
+
+  // 送給 host.jsx 的樣式：選著一個部位時帶上 only（那個部位的欄位），其他設定每個尺寸維持原樣
+  function syncStyle() {
+    var o = readStyle(), part = fc.current();
+    if (part && PART_FIELDS[part]) { o.only = PART_FIELDS[part]; o.onlyName = partName(part); }
+    return o;
+  }
+
   function restyle(fn) {
     if (!(ratioOf($('dimRatio').value) > 0)) { App.setStatus('比例請寫成 1:2 這樣的格式', true); return; }
-    call(fn, readStyle(), function (r) { App.setStatus(r.msg, !r.ok); });
+    call(fn, syncStyle(), function (r) { App.setStatus(r.msg, !r.ok); });
   }
 
   // 「修改時自動套用到選取的尺寸」：停手一下才套用；沒有選取尺寸時不提示
   var applyTimer = null;
-  function scheduleApply() {
+  // full：不管選著的部位，整份樣式（「重設」大小一次改好幾個部位）
+  function scheduleApply(full) {
     if (!$('dimAutoApply').checked || !cep) return;
     clearTimeout(applyTimer);
+    var st = full ? readStyle() : syncStyle();
     applyTimer = setTimeout(function () {
       if (!(ratioOf($('dimRatio').value) > 0)) return;
-      call('dimRestyle', readStyle(), function (r) { if (r.ok) App.setStatus(r.msg); });
+      call('dimRestyle', st, function (r) { if (r.ok) App.setStatus(r.msg); });
     }, 600);
   }
 
@@ -274,14 +350,17 @@
   var PICK_DEFAULT = { textColor: '#000000', fontName: '', textAlign: 'aligned', textPos: 'above', textBg: 'none',
     textBgColor: '#ffffff', lineColor: '#000000', endStyle: 'arrow', arrowPos: 'auto', extLine: 'same', unit: 'doc',
     showUnit: false, ratio: '1:1', diaSym: 'slash', count: 'none', prefix: '', suffix: '', radMode: 'auto', shelf: 'over',
-    centerMark: true };
+    centerMark: true, lenEnds: 'both', lenSide: 'a' };
 
   // r = CMF.pickStyle()：{ dim, dimGeom, dimName, dims }
+  // 示範框上選著一個部位時，只吸取那個部位的設定
   function applyPicked(r) {
-    var st = r.dim, gm = r.dimGeom || {}, lin = gm.t === 'lin';
+    var st = r.dim, gm = r.dimGeom || {}, lin = gm.t === 'lin' && !gm.free;   // 兩點距離沒有「距離」
+    var part = fc.current(), keys = part && PART_FIELDS[part], want = function (k) { return !keys || keys.indexOf(k) >= 0; };
     STYLE.forEach(function (id) {
       if (id === 'dimAuto' || id === 'dimAutoBase') return;   // 自動調整是新增時的做法，不算樣式；基準在下面
       var key = id.charAt(3).toLowerCase() + id.slice(4), v = st[key];
+      if (!want(key)) return;
       if (key === 'breakGap' && v === undefined) v = st.textGap;   // 舊的樣式沒有「斷開留空」，用「文字離線」
       // 舊版的直徑、半徑沒有「引線」，長度記在幾何的 off（同心圓的內圈多拉了一段，不算）
       if (key === 'leader' && v === undefined && !lin && gm.x === undefined && !gm.out) v = gm.off;
@@ -289,11 +368,12 @@
       if (!App.setField($(id), v) && PICK_DEFAULT[key] !== undefined) App.setField($(id), PICK_DEFAULT[key]);
     });
     // 寬高的「距離」；依物件大小自動調整時，基準改成這個尺寸量的物件大小：一樣大的物件標出來就跟它一樣
-    if (lin) App.setField($('dimOffset'), gm.off);
-    if ($('dimAuto').checked && gm.z > 0) App.setField($('dimAutoBase'), gm.z / UNIT_PT.mm);
+    if (lin && want('offset')) App.setField($('dimOffset'), gm.off);
+    if (gm.free && gm.side && want('lenSide')) App.setField($('dimLenSide'), gm.side);   // 兩點距離：文字實際在哪一側
+    if ($('dimAuto').checked && gm.z > 0 && !keys) App.setField($('dimAutoBase'), gm.z / UNIT_PT.mm);
     syncFontSelects();
     changed();
-    var msg = '已吸取' + (r.dimName ? '「' + r.dimName + '」' : '尺寸') + '的樣式';
+    var msg = '已吸取' + (r.dimName ? '「' + r.dimName + '」' : '尺寸') + '的' + (keys ? partName(part) : '樣式');
     if (r.dims > 1) msg += '（選了 ' + r.dims + ' 個尺寸，吸取的是這一個）';
     if (st.fontName && Object.keys(fontIndex).length && !fontIndex[st.fontName]) msg += '；字體清單裡沒有「' + st.fontName + '」';
     App.setStatus(msg);
@@ -309,13 +389,14 @@
 
   /* ---------- 樣式的示範框 ---------- */
   // 照目前的樣式畫一個尺寸，畫法跟 host.jsx 的 buildLinear、buildRadial 一樣（座標 y 朝上，輸出時翻過來）。
-  // 左上角切換：矩形 = 上面標寬度、右邊標高度；圓 = 標直徑（標法、角度、引線照卡片裡的設定）。
+  // 左上角切換：矩形 = 上面標寬度、右邊標高度；圓 = 標直徑（標法、角度、引線照卡片裡的設定）；
+  // 兩點距離 = 兩塊物件中間的空隙標一個箭頭（沒有延伸線，箭頭只畫一端時畫在左邊的起點）。
   // 點文字、尺寸線（引線）、端點、延伸線，打開那個部位的設定卡片（js/figcard.js，跟標註的圖一樣）；
   // 在部位上按住左右拖曳改大小：文字 = 字級、線 = 線寬、端點 = 大小、延伸線 = 留空（js/numfield.js 的拖曳把手）。
   // 圖上的大小 = pt × 2，太小、太大的畫成看得到、放得下的大小；物件自動縮小、置中，整個尺寸放得進框裡。
-  // 標的數字是示範用的大小（寬 42.5、高 30、直徑 24 mm），照面板的單位、比例、小數、符號和前後綴顯示
+  // 標的數字是示範用的大小（寬 42.5、高 30、直徑 24、兩點距離 12 mm），照面板的單位、比例、小數、符號和前後綴顯示
   var FIG = 240, K = 2, BAND = 30;           // BAND：上面留給左上角的切換按鈕和提示
-  var SAMPLE = { w: 42.5, h: 30, d: 24 };
+  var SAMPLE = { w: 42.5, h: 30, d: 24, len: 12 };
   var FIG_KEY = 'cmftool:dimFig';
   var PART_NAMES = { text: '文字', line: '尺寸線', end: '端點', ext: '延伸線' };
   var ZOOM_C = [10 + (FIG - 20) / 2, FIG - 10 - (FIG - BAND - 10) / 2];   // 整張圖縮小時（f.zoom）的中心
@@ -339,17 +420,20 @@
   }
 
   // 圖上用的樣式（圖上的單位）
+  // 太大時字、線、端點、間距全部用同一個倍率 z 縮小，比例才跟實際標出來的一樣；太小的才各自放大到看得到
   function figStyle() {
-    var st = readStyle(), lw = clamp(st.lineWidth * K, 0.6, 6), gap = clamp(st.textGap * K, 0, 20);
-    var mode = st.radMode;
+    var st = readStyle(), mode = st.radMode;
+    var z = Math.min(1, 40 / (st.fontSize * K), 24 / Math.max(st.endSize * K, 1e-6), 6 / (st.lineWidth * K),
+      20 / Math.max(st.textGap * K, st.breakGap * K, st.extGap * K, st.extOver * K, 1e-6));
+    var k = K * z, lw = Math.max(0.6, st.lineWidth * k), gap = st.textGap * k;
     return {
-      st: st, lw: lw, col: st.lineColor, fs: clamp(st.fontSize * K, 8, 40), L: clamp(st.endSize * K, 3, 24), end: st.endStyle,
-      textGap: gap, besideGap: gap + lw / 2, breakGap: clamp(st.breakGap * K, 0, 20),
-      extGap: clamp(st.extGap * K, 0, 20), extOver: clamp(st.extOver * K, 0, 20), extLine: st.extLine,
+      st: st, lw: lw, col: st.lineColor, fs: Math.max(8, st.fontSize * k), L: Math.max(3, st.endSize * k), end: st.endStyle,
+      textGap: gap, besideGap: gap + lw / 2, breakGap: st.breakGap * k,
+      extGap: st.extGap * k, extOver: st.extOver * k, extLine: st.extLine,
       arrowPos: st.arrowPos, aligned: st.textAlign !== 'horizontal', textPos: st.textPos,
-      leader: clamp(st.leader * K, 0, 60), shelf: st.shelf === 'end' || st.shelf === 'none' ? st.shelf : 'over',
+      leader: clamp(st.leader * k, 0, 60), shelf: st.shelf === 'end' || st.shelf === 'none' ? st.shelf : 'over',
       radMode: mode === 'leader' || mode === 'through' || mode === 'inside' ? mode : 'auto',
-      off: clamp(num('dimOffset', 12) * K, 6, 60), angle: num('dimAngle', 45, -1e9),
+      off: clamp(num('dimOffset', 12) * k, 6, 60), angle: num('dimAngle', 45, -1e9), lenEnds: st.lenEnds,
       font: App.previewFont ? App.previewFont(st.fontName) : { family: 'sans-serif', weight: 400, italic: false }
     };
   }
@@ -385,10 +469,10 @@
 
   function newFig() { return { line: [], end: [], ext: [], text: [], shape: null }; }
 
-  // 寬度、高度（host.jsx 的 buildLinear）
+  // 寬度、高度和兩點距離（gm.free：距離 0、沒有延伸線）（host.jsx 的 buildLinear）
   function linDim(f, gm, s, label) {
     var a = gm.a, n = gm.n, L = s.L, kind = s.end, tr = kind === 'arrow' ? L * 0.9 : 0;
-    var level = Math.max(vdot(gm.p1, n), vdot(gm.p2, n)) + s.off, P = [gm.p1, gm.p2], Q = [], i;
+    var level = Math.max(vdot(gm.p1, n), vdot(gm.p2, n)) + (gm.free ? 0 : s.off), P = [gm.p1, gm.p2], Q = [], i;
     for (i = 0; i < 2; i++) {
       var dist = level - vdot(P[i], n);
       Q.push(along(P[i], n, dist));
@@ -396,8 +480,10 @@
     }
     if (vdot(vsub(Q[1], Q[0]), a) < 0) Q.reverse();
     var Q1 = Q[0], Q2 = Q[1], len = vlen(vsub(Q2, Q1)), arrowLike = kind === 'arrow' || kind === 'open';
-    var inside = s.arrowPos === 'inside' ? true : s.arrowPos === 'outside' ? false : len >= L * 2.6, pts;
-    if (arrowLike) pts = inside ? [along(Q1, a, tr), along(Q2, a, -tr)] : [along(Q1, a, -L * 2.2), along(Q2, a, L * 2.2)];
+    var one = gm.free && s.lenEnds === 'one';   // 兩點距離、箭頭只畫起點 Q1
+    var inside = one || (s.arrowPos === 'inside' ? true : s.arrowPos === 'outside' ? false : len >= L * 2.6), pts;
+    if (one) pts = [arrowLike ? along(Q1, a, tr) : Q1, Q2];
+    else if (arrowLike) pts = inside ? [along(Q1, a, tr), along(Q2, a, -tr)] : [along(Q1, a, -L * 2.2), along(Q2, a, L * 2.2)];
     else if (kind === 'tick') pts = [along(Q1, a, -L * 0.6), along(Q2, a, L * 0.6)];
     else pts = [Q1, Q2];
     var tx = measure(label, s), mid = [(Q1[0] + Q2[0]) / 2, (Q1[1] + Q2[1]) / 2], split = null;
@@ -405,7 +491,8 @@
       split = splitPts(pts[0], pts[1], a, mid, textAlong(tx, a, s.aligned) + s.breakGap, Math.max(L, 2 * K));
     }
     f.line.push.apply(f.line, split || [pts]);
-    if (kind === 'tick') f.end.push({ tip: Q1, u: a }, { tip: Q2, u: a });
+    if (one) f.end.push({ tip: Q1, u: kind === 'tick' ? a : [-a[0], -a[1]] });
+    else if (kind === 'tick') f.end.push({ tip: Q1, u: a }, { tip: Q2, u: a });
     else {
       var sg = arrowLike && !inside ? 1 : -1;
       f.end.push({ tip: Q1, u: [a[0] * sg, a[1] * sg] }, { tip: Q2, u: [-a[0] * sg, -a[1] * sg] });
@@ -460,9 +547,10 @@
       var w = t.tx.hw * cs + t.tx.hh * sn + 2, h = t.tx.hw * sn + t.tx.hh * cs + 2;
       add([t.c[0] - w, t.c[1] - h]); add([t.c[0] + w, t.c[1] + h]);
     });
-    var sh = f.shape;
-    if (sh.r) { add([sh.c[0] - sh.r, sh.c[1] - sh.r]); add([sh.c[0] + sh.r, sh.c[1] + sh.r]); }
-    else { add([sh.x, sh.y]); add([sh.x + sh.w, sh.y + sh.h]); }
+    (f.shape.blocks || [f.shape]).forEach(function (sh) {
+      if (sh.r) { add([sh.c[0] - sh.r, sh.c[1] - sh.r]); add([sh.c[0] + sh.r, sh.c[1] + sh.r]); }
+      else { add([sh.x, sh.y]); add([sh.x + sh.w, sh.y + sh.h]); }
+    });
     return b;
   }
 
@@ -514,6 +602,16 @@
     }, 100, 18, function (r, ox, oy) { return r - Math.max(ox, oy) * 0.55 - 0.5; }, s);
   }
 
+  // 兩點距離：size = 整張圖的寬，兩塊物件（各寬 30%、高 45%）中間的空隙標一個箭頭
+  function lenFigure(s) {
+    return fitFigure(function (W, dx, dy) {
+      var f = newFig(), bw = W * 0.3, H = W * 0.45, y = dy + H / 2;
+      f.shape = { blocks: [{ x: dx, y: dy, w: bw, h: H }, { x: dx + W - bw, y: dy, w: bw, h: H }] };
+      linDim(f, { p1: [dx + bw, y], p2: [dx + W - bw, y], a: [1, 0], n: [0, s.st.lenSide === 'b' ? -1 : 1], free: true }, s, sampleLabel(SAMPLE.len));
+      return f;
+    }, 220, 60, function (W, ox, oy) { return W - Math.max(ox, oy / 0.45) - 0.5; }, s);
+  }
+
   function esc2(t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   function P(p) { return p[0].toFixed(2) + ',' + (FIG - p[1]).toFixed(2); }
   function X(v) { return v.toFixed(2); }
@@ -539,7 +637,7 @@
 
   // 選到的線：沿著線的一條寬的淡色線（.hl.glow；寬度寫在 style 才蓋得過 css 的 .hl 線寬）
   function dimFigure() {
-    var s = figStyle(), f = figMode === 'circle' ? circleFigure(s) : rectFigure(s), out = [], sh = f.shape;
+    var s = figStyle(), f = figMode === 'circle' ? circleFigure(s) : (figMode === 'len' ? lenFigure(s) : rectFigure(s)), out = [];
     drawn = f;
     drawnRad = f.mode || null;
     // 拖曳改哪個欄位：[欄位 id, 顯示的名稱, 單位]；端點「無」、不畫延伸線時不能拖
@@ -557,8 +655,10 @@
     };
     var poly = function (pts) { return pts.map(P).join(' '); };
 
-    out.push(sh.r ? '<circle class="prod" cx="' + X(sh.c[0]) + '" cy="' + X(FIG - sh.c[1]) + '" r="' + X(sh.r) + '"/>'
-      : '<rect class="prod" x="' + X(sh.x) + '" y="' + X(FIG - sh.y - sh.h) + '" width="' + X(sh.w) + '" height="' + X(sh.h) + '" rx="' + X(Math.min(sh.w, sh.h) * 0.12) + '"/>');
+    out.push((f.shape.blocks || [f.shape]).map(function (sh) {
+      return sh.r ? '<circle class="prod" cx="' + X(sh.c[0]) + '" cy="' + X(FIG - sh.c[1]) + '" r="' + X(sh.r) + '"/>'
+        : '<rect class="prod" x="' + X(sh.x) + '" y="' + X(FIG - sh.y - sh.h) + '" width="' + X(sh.w) + '" height="' + X(sh.h) + '" rx="' + X(Math.min(sh.w, sh.h) * 0.12) + '"/>';
+    }).join(''));
 
     if (f.ext.length) {
       var ghost = s.extLine === 'none';
@@ -615,7 +715,7 @@
         '<rect class="hit" ' + box(4) + '/>';
     }).join('')));
     // 提示在左上角的切換和右上角的「重設」中間，不跟著縮放
-    var hint = fc.hint() ? '<text class="fig-hint" x="206" y="20" text-anchor="end">點部位調整，左右拖曳改大小</text>' : '';
+    var hint = fc.hint() ? '<text class="fig-hint" x="206" y="20" text-anchor="end">點部位調整，拖曳改大小</text>' : '';
     if (f.faint) out = [out[0], '<g opacity=".35">' + out.slice(1).join('') + '</g>'];
     if (!f.zoom) return hint + out.join('');
     var z = f.zoom;
@@ -626,7 +726,7 @@
   // 矩形四邊的圓點（選寬高標在哪一邊）放在畫出來的矩形每一邊的中間；標圓時不顯示
   function placeDots() {
     var pad = $('dimPad'), sh = drawn && drawn.shape, z = drawn && drawn.zoom;
-    pad.hidden = figMode === 'circle' || !sh;
+    pad.hidden = figMode !== 'rect' || !sh;
     if (pad.hidden) return;
     var mx = sh.x + sh.w / 2, my = sh.y + sh.h / 2;
     [['dimPosTop', mx, sh.y + sh.h], ['dimPosBottom', mx, sh.y], ['dimPosLeft', sh.x, my], ['dimPosRight', sh.x + sh.w, my]].forEach(function (d) {
@@ -644,15 +744,18 @@
     fc.update();
   }
 
-  function setFigMode(m) {
-    figMode = m === 'circle' ? 'circle' : 'rect';
-    $('dimFigRect').checked = figMode === 'rect';
-    $('dimFigCircle').checked = figMode === 'circle';
+  var FIG_MODES = { rect: 'dimFigRect', circle: 'dimFigCircle', len: 'dimFigLen' };
+  function showFigMode() {
+    Object.keys(FIG_MODES).forEach(function (m) { $(FIG_MODES[m]).checked = figMode === m; });
     $('dimPop').setAttribute('data-mode', figMode);
+  }
+  function setFigMode(m) {
+    figMode = FIG_MODES[m] ? m : 'rect';
+    showFigMode();
     try { localStorage.setItem(FIG_KEY, figMode); } catch (e) {}
     renderFigure();
   }
-  ['dimFigRect', 'dimFigCircle'].forEach(function (id) {
+  ['dimFigRect', 'dimFigCircle', 'dimFigLen'].forEach(function (id) {
     $(id).addEventListener('change', function () { if ($(id).checked) setFigMode($(id).value); });
   });
 
@@ -689,7 +792,12 @@
   $('dimFontStyle').addEventListener('change', function () { setFontName($('dimFontStyle').value); });
   $('btnDimFonts').addEventListener('click', function () { if (App.reloadFonts) App.reloadFonts(); });
 
-  $('btnDimAdd').addEventListener('click', addAll);
+  $('btnDimAdd').addEventListener('click', function () { if (lenOn) stopLen(false, false); addAll(); });
+  $('btnDimLen').addEventListener('click', function () { if (lenOn) stopLen(false); else startLen(); });
+  App.on('pen', function (who) { if (who !== 'dim') stopLen(true, false); });   // 開始新增標註
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && lenOn && document.activeElement.tagName !== 'INPUT') stopLen(false);
+  });
   $('btnDimSync').addEventListener('click', function () { restyle('dimSync'); });
   $('btnDimRestyle').addEventListener('click', function () { restyle('dimRestyle'); });
   $('btnDimPickStyle').addEventListener('click', pickStyle);
@@ -697,12 +805,6 @@
   $('btnDimSelectAll').addEventListener('click', function () { call('dimSelectAll', null, function (r) { App.setStatus(r.msg, !r.ok); }); });
   $('btnDimToggle').addEventListener('click', function () { call('dimToggle', null, function (r) { App.setStatus(r.msg, !r.ok); }); });
   $('btnDimRefresh').addEventListener('click', refresh);
-  // 工具列的 ⋯：打開、收起其他的工具
-  $('btnDimMore').addEventListener('click', function () {
-    var more = $('dimMore');
-    more.hidden = !more.hidden;
-    $('btnDimMore').setAttribute('aria-expanded', String(!more.hidden));
-  });
 
   // 在 Illustrator 裡換了選取之後，滑鼠移回面板時更新
   App.on('tab', function (name) { if (name === 'dim') refresh(); });
@@ -714,12 +816,15 @@
 
   // 示範框右上角的「重設」：這些大小改回預設值（index.html 寫的值），顏色、字體、數字格式、標法不動。
   // 跟改其他樣式一樣：存起來，勾了「修改時自動套用到選取的尺寸」就套用到選取的尺寸
+  // 預設值依目前工作區的大小等比放大縮小（App.artboardFactor：A4 = 預設值；自動調整的基準也一起）
   function resetSizes() {
-    SIZE_FIELDS.forEach(function (id) { var el = $(id); el.value = el.defaultValue; });
-    changed();
-    scheduleApply();
-    App.setStatus('大小改回預設：字級 ' + $('dimFontSize').value + '、線寬 ' + $('dimLineWidth').value + '、端點 ' + $('dimEndSize').value +
-      '、距離 ' + $('dimOffset').value + ' pt');
+    App.artboardFactor(function (k, note) {
+      SIZE_FIELDS.forEach(function (id) { var el = $(id); el.value = App.scaledDefault(el, k); });
+      changed();
+      scheduleApply(true);
+      App.setStatus('大小改回預設' + (note ? '（' + note + '）' : '') + '：字級 ' + $('dimFontSize').value + '、線寬 ' + $('dimLineWidth').value +
+        '、端點 ' + $('dimEndSize').value + '、距離 ' + $('dimOffset').value + ' pt');
+    });
   }
   $('btnDimReset').addEventListener('click', resetSizes);
   function scaleSize(s) {
@@ -739,10 +844,9 @@
   }
 
   load();
-  try { figMode = localStorage.getItem(FIG_KEY) === 'circle' ? 'circle' : 'rect'; } catch (e) {}
-  $('dimFigRect').checked = figMode === 'rect';
-  $('dimFigCircle').checked = figMode === 'circle';
-  $('dimPop').setAttribute('data-mode', figMode);
+  try { figMode = localStorage.getItem(FIG_KEY) || 'rect'; } catch (e) {}
+  if (!FIG_MODES[figMode]) figMode = 'rect';
+  showFigMode();
   if (App.fontList) setFonts(App.fontList);
   changed();
   refresh();

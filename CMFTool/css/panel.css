@@ -135,7 +135,7 @@ input::placeholder { color: var(--muted); }
 .mt { margin-top: 6px; }
 
 /* 工具列：圖示按鈕（.ibtn），開關（.tgl-in + label.tbtn，開 = 藍色），說明在滑鼠停上去的泡泡裡 */
-.tools { display: flex; align-items: center; gap: 4px; margin: 10px 0 4px; }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 10px 0 4px; }
 .tools-more { margin-top: 0; }
 .tools-sep { width: 1px; height: 18px; margin: 0 3px; background: var(--line-soft); }
 .tools .sp { flex: 1; }
@@ -173,6 +173,30 @@ input::placeholder { color: var(--muted); }
 @keyframes tip-in { from { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .tip { animation: none; } }
 
+/* 標註分頁：新增哪一種（編號、色號），選到的浮起來 */
+.seg { display: flex; gap: 2px; padding: 2px; margin: 2px 0 8px; background: var(--field); border-radius: 10px; }
+.sg {
+  flex: 1; display: grid; place-items: center; height: 28px; border-radius: var(--r-ctl);
+  color: var(--muted); cursor: pointer; transition: background-color .15s, color .15s;
+}
+.sg svg { width: 19px; height: 19px; }
+.sg:hover { color: var(--fg); }
+.tgl-in:checked + .sg { color: var(--fg); font-weight: 600; background: var(--raise); box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
+.tgl-in:focus-visible + .sg { box-shadow: 0 0 0 2px var(--ring); }
+.light .seg { background: rgba(0, 0, 0, .06); }
+/* 色號：色塊顏色（含滴管）+ 文字 */
+.swrow { display: grid; grid-template-columns: auto 70px 1fr; gap: 6px; align-items: center; margin: 0 0 8px; }
+/* 文字說明：可以好幾行 */
+.noterow { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: start; margin: 0 0 8px; }
+.noterow textarea:disabled { opacity: .45; }
+.noterow textarea {
+  display: block; width: 100%; min-height: 44px; padding: 4px 7px; resize: vertical;
+  background: var(--field); color: var(--fg); border: 1px solid var(--line-soft); border-radius: var(--r-field);
+  font: inherit; line-height: 1.4; user-select: text;
+}
+.noterow textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--ring); }
+.noterow textarea::placeholder { color: var(--muted); }
+
 /* 主要按鈕 */
 .add {
   width: 100%; height: 34px;
@@ -200,6 +224,7 @@ input::placeholder { color: var(--muted); }
 .sect-meta.warn { color: var(--warn); }
 
 details { border-top: 1px solid var(--line-soft); padding: 9px 0; }
+.tools + details { margin-top: 10px; }   /* 工具列下面接收合區塊（尺寸分頁的「其他」）：分隔線不要貼著按鈕 */
 summary {
   display: flex; align-items: center; gap: 4px;
   cursor: pointer; list-style: none; font-weight: 600; padding: 1px 0;
@@ -279,7 +304,9 @@ summary .count { font-weight: 400; color: var(--muted); }
 }
 .pop-head { display: flex; align-items: center; justify-content: space-between; margin: -2px -4px 2px 0; }
 .pop-title { color: var(--fg); font-size: 11px; font-weight: 600; }
-.pop[data-mode=rect] .only-circle, .pop[data-mode=circle] .only-rect { display: none; }
+.pop[data-mode=rect] .only-circle, .pop[data-mode=circle] .only-rect,
+.pop[data-mode=rect] .only-len, .pop[data-mode=circle] .only-len,
+.pop[data-mode=len] .only-circle, .pop[data-mode=len] .only-rect:not(.and-len) { display: none; }
 .pane > .check:first-child { margin-top: 2px; }
 .addopts { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; margin-top: 6px; }
 .addopts .check { margin: 0; }
@@ -408,7 +435,7 @@ input.invalid { border-color: var(--error); }
    （.pad 蓋在示範框上，圓點的位置由 js/dimension.js 照畫出來的矩形放，left、top 是 %） */
 .tgl-in { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
-.dim-bar { display: flex; align-items: center; gap: 8px; margin: 2px 0 0; }
+.dim-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 6px; margin: 2px 0 0; }
 /* 類型：一條分段，選到的浮起來（可以多選） */
 .types { display: flex; gap: 2px; padding: 2px; background: var(--field); border-radius: 10px; }
 .ticon {
@@ -432,6 +459,11 @@ input.invalid { border-color: var(--error); }
 .go:active { transform: translateY(1px); }
 .go:disabled { opacity: .55; cursor: default; filter: none; }
 .go:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+/* 兩點距離：外框按鈕；標的時候（.active）填滿、閃動，跟「新增標註」一樣 */
+.go.alt { width: 40px; background: transparent; color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.go.alt.active { background: var(--accent); color: var(--accent-fg); animation: pulse-go 1.4s ease-in-out infinite; }
+@keyframes pulse-go { 50% { box-shadow: 0 0 0 3px rgba(38, 128, 235, .35); } }
+@media (prefers-reduced-motion: reduce) { .go.alt.active { animation: none; } }
 
 .pad { position: absolute; top: 0; right: 0; bottom: 0; left: 0; pointer-events: none; }
 .pad[hidden] { display: none; }

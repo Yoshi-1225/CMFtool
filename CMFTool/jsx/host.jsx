@@ -7,10 +7,18 @@
  * 每個標註是一個群組，備註（note）存著：CMF_CALLOUT|編號|k=對應的物件名稱|樣式 JSON
  * 「k=」那一段只有對應過 Excel 清單的物件才有，名稱用 encodeURIComponent 編碼。
  * 尺寸也是群組，備註存著：CMF_DIM|幾何 JSON|樣式 JSON（見「尺寸標註」）
+ * 色號標註（色塊 + 一行文字）也是標註的群組，備註存著：CMF_SWATCH|#色碼|t=文字|s=色票名稱|樣式 JSON
+ * （文字、色票名稱用 encodeURIComponent 編碼）。它沒有編號，不在編號表裡，不會被重新編號，也不會影響 Excel 的排序。
+ * 文字說明（箭頭 + 一段文字，可以好幾行）跟色號標註同一種做法，只是沒有色塊、端點用樣式裡的 noteEnd：
+ *   CMF_NOTE|#000000|t=文字|s=|樣式 JSON；只畫箭頭（沒有文字）的多一段 a=1：CMF_NOTE|#000000|t=|s=|a=1|樣式 JSON
+ * 沒有箭頭的色號（只有色塊 + 文字）多一段 n=1。它也有 CMF_Line（看不見的 1 pt 短線，從點的位置往左），
+ * 重建、同步、對齊才能照一般的標註處理；標籤從點的位置往右排
  */
 $.global.CMF = (function () {
     var LAYER_NAME = "CMF Callouts";
     var TAG = "CMF_CALLOUT";
+    var TAG_SW = "CMF_SWATCH";
+    var TAG_NOTE = "CMF_NOTE";
     var SETTINGS_DIR = Folder.userData + "/CMFCallout";
     var SETTINGS_FILE = SETTINGS_DIR + "/settings.json";
 
@@ -88,6 +96,47 @@ $.global.CMF = (function () {
         return it && it.typename === "GroupItem" && it.note && String(it.note).indexOf(TAG + "|") === 0;
     }
 
+    // 色號標註或文字說明
+    function isSwatch(it) {
+        if (!(it && it.typename === "GroupItem" && it.note)) return false;
+        var n = String(it.note);
+        return n.indexOf(TAG_SW + "|") === 0 || n.indexOf(TAG_NOTE + "|") === 0;
+    }
+
+    // 標註、色號標註或文字說明（樣式、同步、重新排版共用）
+    function isLabel(it) { return isCallout(it) || isSwatch(it); }
+
+    // 色號標註：{ hex, text, spot 色票名稱（沒有 = 空字串）, note 是文字說明, arrow 只畫箭頭（文字說明沒有文字）,
+    //   noLine 沒有箭頭（色號只有色塊 + 文字）, style }
+    function swParts(g) {
+        var p = String(g.note).split("|"), out = { hex: p[1] || "#000000", text: "", spot: "", note: p[0] === TAG_NOTE }, i = 2;
+        for (; i < p.length && /^[tsan]=/.test(p[i]); i++) {
+            var v = "", c = p[i].charAt(0);
+            try { v = decodeURIComponent(p[i].substring(2)); } catch (e) { v = ""; }
+            if (c === "t") out.text = v; else if (c === "s") out.spot = v;
+            else if (c === "a") out.arrow = v === "1"; else out.noLine = v === "1";
+        }
+        out.style = p.slice(i).join("|");
+        return out;
+    }
+
+    function swNote(sw, styleStr) {
+        return (sw.note ? TAG_NOTE : TAG_SW) + "|" + sw.hex + "|t=" + encodeURIComponent(sw.text || "") + "|s=" + encodeURIComponent(sw.spot || "") + "|" +
+            (sw.arrow ? "a=1|" : "") + (sw.noLine ? "n=1|" : "") + styleStr;
+    }
+
+    // 沒寫文字時標色票名稱，再沒有就標色碼；文字說明沒寫 =「說明」
+    function swLabel(sw) {
+        if (sw.note) return sw.text || "說明";
+        return sw.text || sw.spot || String(sw.hex).toUpperCase();
+    }
+
+    // 圖層面板上的名稱：色號 PANTONE 186 C、說明 第一行
+    function swName(sw) {
+        if (sw.arrow) return "箭頭";
+        return sw.note ? "說明 " + swLabel(sw).split("\n")[0] : "色號 " + swLabel(sw);
+    }
+
     function noteParts(g) {
         var p = String(g.note).split("|"), rest = p.slice(2), key = "";
         if (rest.length > 1 && rest[0].indexOf("k=") === 0) {
@@ -123,6 +172,12 @@ $.global.CMF = (function () {
     function calloutsWithNumber(d, n) {
         var cs = allCallouts(d), out = [];
         for (var i = 0; i < cs.length; i++) if (noteParts(cs[i]).num === n) out.push(cs[i]);
+        return out;
+    }
+
+    function allLabels(d) {
+        var out = [], gs = d.groupItems;
+        for (var i = 0; i < gs.length; i++) if (isLabel(gs[i])) out.push(gs[i]);
         return out;
     }
 
@@ -207,16 +262,19 @@ $.global.CMF = (function () {
     // line：開放路徑，第一個錨點 = 編號端，最後一個錨點 = 指向產品端
     // （使用者畫的方向相反，呼叫前會先 reversePath）
     // key：對應的物件名稱（可省略）
-    function buildCallout(d, line, num, styleStr, container, key) {
+    // sw：{ hex, text, spot } = 色號標註：編號的位置改成色塊 + 一行文字（num、key 不用）
+    function buildCallout(d, line, num, styleStr, container, key, sw) {
         var o = parse(styleStr);
+        if (sw && sw.note) o.endStyle = o.noteEnd || "arrow"; // 文字說明的端點另外設定（預設箭頭）
+        if (sw && sw.noLine) o.endStyle = "none";             // 沒有箭頭的色號：沒有端點、線看不見
         var pts = line.pathPoints, n = pts.length;
         var S = pts[0].anchor, S1 = pts[1].anchor;
         var E = pts[n - 1].anchor, E1 = pts[n - 2].anchor;
         var lineColor = hexToColor(o.lineColor, d);
 
         var g = container.groupItems.add();
-        g.name = groupName(num, key);
-        g.note = makeNote(num, key, styleStr);
+        g.name = sw ? swName(sw) : groupName(num, key);
+        g.note = sw ? swNote(sw, styleStr) : makeNote(num, key, styleStr);
 
         line.move(g, ElementPlacement.PLACEATEND);
         line.name = "CMF_Line";
@@ -226,6 +284,7 @@ $.global.CMF = (function () {
         line.strokeWidth = Number(o.lineWidth);
         line.strokeDashes = [];
         line.strokeJoin = StrokeJoin.ROUNDENDJOIN;
+        if (sw && sw.noLine) line.stroked = false;
 
         // 端點
         var size = Number(o.endSize);
@@ -260,6 +319,8 @@ $.global.CMF = (function () {
                 finally { for (var pi = 0; pi < prefs.length; pi++) { try { app.preferences.setBooleanPreference(prefs[pi][0], prefs[pi][1]); } catch (eP) {} } }
             }
         }
+
+        if (sw) { swatchLabel(d, g, o, S, S1, sw); setRef(g); return g; }
 
         // 編號文字
         var t = g.textFrames.add();
@@ -307,12 +368,127 @@ $.global.CMF = (function () {
             }
             circ.move(t, ElementPlacement.PLACEAFTER);
         }
+        setRef(g);
         return g;
     }
 
-    // 拆掉舊標註，用同一條線重建；沒指定 key 時保留原本對應的物件
-    function rebuild(d, g, num, styleStr, key) {
-        if (key === undefined) key = noteParts(g).key;
+    // ---------- 標註被放大縮小 ----------
+    // 在 Illustrator 裡直接放大縮小標註（群組）時，記錄的樣式（字級、線寬⋯）也要跟著乘同一個倍率，
+    // 之後「重新排版」、只同步一個部位、對齊、吸取樣式才會用放大後的大小。
+    // 建立時在樣式裡記一個參考大小 _ref（"種類:大小"），重建時量現在的大小，比一比就知道放大了幾倍：
+    //   e 端點（箭頭底邊、圓點直徑）、c 色塊邊長、b 圓圈直徑、t 文字高度。
+    //   都是轉向、移動錨點、改文字也不會變的大小（箭頭用底邊、圓用對角的兩個錨點）
+    function ptDist(a, b) { var x = a[0] - b[0], y = a[1] - b[1]; return Math.sqrt(x * x + y * y); }
+
+    function labelRef(g) {
+        var it = findChild(g, "CMF_End"), pp;
+        if (it && it.typename === "PathItem") {
+            pp = it.pathPoints;
+            if (pp.length === 3) return ["e", ptDist(pp[1].anchor, pp[2].anchor)];
+            if (pp.length === 4) return ["e", ptDist(pp[0].anchor, pp[2].anchor)];
+        }
+        it = findChild(g, "CMF_Chip");
+        if (it && it.typename === "PathItem" && it.pathPoints.length === 4) return ["c", ptDist(it.pathPoints[0].anchor, it.pathPoints[1].anchor)];
+        it = findChild(g, "CMF_Badge");
+        if (it && it.typename === "PathItem" && it.pathPoints.length === 4) return ["b", ptDist(it.pathPoints[0].anchor, it.pathPoints[2].anchor)];
+        it = findChild(g, "CMF_Label");
+        if (it && it.typename === "TextFrame") { var b = it.geometricBounds; return ["t", b[1] - b[3]]; }
+        return null;
+    }
+
+    var REF_RE = /,?\s*"_ref"\s*:\s*"(\w):([0-9.eE+-]+)"/;
+
+    // 量好參考大小，寫進備註的樣式裡（樣式在備註的最後面）
+    function setRef(g) {
+        try {
+            var r = labelRef(g);
+            if (!r || !(r[1] > 0)) return;
+            var n = String(g.note).replace(REF_RE, ""), i = n.lastIndexOf("}");
+            if (i < 0) return;
+            var head = n.substring(0, i).replace(/\s+$/, "");
+            g.note = head + (head.charAt(head.length - 1) === "{" ? "" : ",") + '"_ref":"' + r[0] + ":" + jsonNum(roundTo(r[1], 4)) + '"' + n.substring(i);
+        } catch (e) {}
+    }
+
+    // 樣式裡跟大小有關的數值（和 _ref）乘 s
+    var LABEL_SIZE_RE = /"(fontSize|badgePadding|badgeStrokeWidth|lineWidth|endSize|styleScale|gap|chipSize|chipBorder)"\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)/g;
+    function scaleLabelStyle(style, s) {
+        style = style.replace(LABEL_SIZE_RE, function (m, k, v) { return '"' + k + '":' + roundTo(Number(v) * s, 3); });
+        // 舊的標註沒有 styleScale（= 100%）：補上，之後重新產生時繪圖樣式的線寬才會維持縮放後的大小
+        if (!/"styleScale"\s*:/.test(style)) style = style.replace(/\}\s*$/, ',"styleScale":' + roundTo(100 * s, 3) + "}");
+        return style.replace(REF_RE, function (m, k, v) { return (m.charAt(0) === "," ? "," : "") + '"_ref":"' + k + ":" + jsonNum(roundTo(Number(v) * s, 4)) + '"'; });
+    }
+
+    // 標註自己記錄的樣式，算進它被放大縮小的倍率
+    function ownStyle(g, style) {
+        var m = REF_RE.exec(style);
+        if (!m) return style;
+        var r = labelRef(g);
+        if (!r || r[0] !== m[1]) return style;
+        var k = r[1] / Number(m[2]);
+        if (!(k > 0) || Math.abs(k - 1) < 0.01) return style;
+        return scaleLabelStyle(style, k);
+    }
+
+    // 色號標註的標籤：[色塊][文字] 一行，色塊在左、文字在右，跟編號一樣沿著線的第一段往外推，
+    // 靠線的那一邊離線頭「間距」。色塊的大小 chipSize (pt)，邊框 chipBorder (pt，0 = 無) 和 chipBorderColor；
+    // 有色票名稱、文件裡也有這個色票時，色塊直接用色票（特別色印刷時才會對）
+    // 文字說明：沒有色塊，好幾行時照線的方向對齊（往右靠左、往左靠右、上下置中），整段跟色號一樣往外推
+    function swatchLabel(d, g, o, S, S1, sw) {
+        if (sw.arrow) return; // 只畫箭頭：沒有文字
+        var dir = norm(S[0] - S1[0], S[1] - S1[1], -1, 0);
+        var t = g.textFrames.add();
+        t.name = "CMF_Label";
+        t.contents = swLabel(sw).replace(/\n/g, "\r");
+        var ca = t.textRange.characterAttributes;
+        ca.size = Number(o.fontSize);
+        if (o.fontName) {
+            try { ca.textFont = app.textFonts.getByName(o.fontName); } catch (e) { /* 找不到字體就用預設 */ }
+        }
+        ca.fillColor = hexToColor(o.textColor, d);
+        if (sw.note) {
+            t.textRange.paragraphAttributes.justification = Math.abs(dir[0]) < 0.3 ? Justification.CENTER
+                : (dir[0] > 0 ? Justification.LEFT : Justification.RIGHT);
+        }
+        var b = glyphBounds(t), tw = b[2] - b[0], th = b[1] - b[3];
+        if (sw.note) {
+            var nhw = tw / 2, nhh = th / 2;
+            var nex = Math.abs(dir[0]) > 0.0001 ? nhw / Math.abs(dir[0]) : 1e9;
+            var ney = Math.abs(dir[1]) > 0.0001 ? nhh / Math.abs(dir[1]) : 1e9;
+            var nd = Number(o.gap) + Math.min(nex, ney);
+            t.translate(S[0] + dir[0] * nd - (b[0] + b[2]) / 2, S[1] + dir[1] * nd - (b[1] + b[3]) / 2);
+            return;
+        }
+
+        var cs = Number(o.chipSize) > 0 ? Number(o.chipSize) : Number(o.fontSize);
+        var bw = Number(o.chipBorder) > 0 ? Number(o.chipBorder) : 0;
+        var outer = cs + bw, cg = Math.max(cs * 0.4, Number(o.fontSize) * 0.3); // 色塊跟文字之間
+        var hw = (outer + cg + tw) / 2, hh = Math.max(outer, th) / 2;
+        var ex = Math.abs(dir[0]) > 0.0001 ? hw / Math.abs(dir[0]) : 1e9;
+        var ey = Math.abs(dir[1]) > 0.0001 ? hh / Math.abs(dir[1]) : 1e9;
+        var ext = Math.min(ex, ey), gap = Number(o.gap);
+        var C = [S[0] + dir[0] * (gap + ext), S[1] + dir[1] * (gap + ext)], left = C[0] - hw;
+
+        var chip = g.pathItems.rectangle(C[1] + cs / 2, left + bw / 2, cs, cs);
+        chip.name = "CMF_Chip";
+        chip.filled = true;
+        // sw.color：重建時沿用色塊原本的填色（在 Illustrator 裡自己改過的顏色）
+        var col = sw.color || null;
+        if (!col && sw.spot) { try { col = d.swatches.getByName(sw.spot).color; } catch (eS) { col = null; } }
+        chip.fillColor = col || hexToColor(sw.hex, d);
+        if (bw > 0) {
+            chip.stroked = true;
+            chip.strokeWidth = bw;
+            chip.strokeColor = hexToColor(o.chipBorderColor || "#808080", d);
+            chip.strokeDashes = [];
+        } else {
+            chip.stroked = false;
+        }
+        t.translate(left + outer + cg + tw / 2 - (b[0] + b[2]) / 2, C[1] - (b[1] + b[3]) / 2);
+    }
+
+    // 拆掉標註，把線拿出來（箭頭的線頭還原到尖端），回傳 [線, 原本的圖層或群組]；沒有線 = null
+    function takeLine(g) {
         var line = findChild(g, "CMF_Line");
         if (!line) return null;
         var end = findChild(g, "CMF_End");
@@ -321,23 +497,62 @@ $.global.CMF = (function () {
             var last = line.pathPoints[line.pathPoints.length - 1];
             last.anchor = tip; last.leftDirection = tip; last.rightDirection = tip;
         }
+        var container = g.parent; // 留在原本的圖層或群組裡
+        line.move(g, ElementPlacement.PLACEBEFORE);
+        g.remove();
+        return [line, container];
+    }
+
+    // 拆掉舊標註，用同一條線重建；沒指定 key 時保留原本對應的物件
+    function rebuild(d, g, num, styleStr, key) {
+        if (key === undefined) key = noteParts(g).key;
+        if (!findChild(g, "CMF_Line")) return null;
         var locked = g.locked, hidden = g.hidden, saved = openAncestors(g);
         try {
-            var container = g.parent; // 留在原本的圖層或群組裡
-            line.move(g, ElementPlacement.PLACEBEFORE);
-            g.remove();
-            var ng = buildCallout(d, line, num, styleStr, container, key);
+            var lc = takeLine(g), ng = buildCallout(d, lc[0], num, styleStr, lc[1], key);
             keepState(ng, locked, hidden);
             return ng;
         } finally { restoreTemp(saved); }
     }
 
-    // 一個一個重建，有一個失敗也繼續做下一個；styleOf(note) 回傳要用的樣式
+    // 色號標註、文字說明用同一條線、同一個顏色和文字重建；文字在 Illustrator 裡直接改過時，用改過的文字
+    // （文字說明保留換行）。色塊的填色自己改過時也沿用，記錄的色碼、色票名稱一起改成新的顏色
+    function rebuildSwatch(d, g, styleStr) {
+        if (!findChild(g, "CMF_Line")) return null;
+        var sw = swParts(g), lb = findChild(g, "CMF_Label"), locked = g.locked, hidden = g.hidden, saved = openAncestors(g);
+        var chip = findChild(g, "CMF_Chip");
+        if (chip && chip.typename === "PathItem" && chip.filled) {
+            try {
+                var c = chip.fillColor, hex = colorToHex(c);
+                if (hex) {
+                    sw.color = c;
+                    sw.hex = hex;
+                    sw.spot = "";
+                    if (c.typename === "SpotColor") { try { sw.spot = c.tint < 99.5 ? "" : c.spot.name; } catch (eN) {} }
+                }
+            } catch (eC) {}
+        }
+        if (lb && lb.typename === "TextFrame") {
+            var now = String(lb.contents);
+            now = sw.note ? cleanNote(now) : now.replace(/[\r\n\t\u0003]+/g, " ").replace(/^\s+|\s+$/g, "");
+            if (now && now !== swLabel(sw)) sw.text = now;
+        }
+        try {
+            var lc = takeLine(g), ng = buildCallout(d, lc[0], 0, styleStr, lc[1], "", sw);
+            keepState(ng, locked, hidden);
+            return ng;
+        } finally { restoreTemp(saved); }
+    }
+
+    // 一個一個重建（標註和色號標註），有一個失敗也繼續做下一個；styleOf(note) 回傳要用的樣式（note.style = 原本的樣式）
     function rebuildMany(d, cs, styleOf) {
         var r = { made: [], failed: 0, why: "" };
         for (var i = 0; i < cs.length; i++) {
             try {
-                var p = noteParts(cs[i]), ng = rebuild(d, cs[i], p.num, styleOf(p));
+                var ng;
+                // p.style：標註自己的樣式，算進它在 Illustrator 裡被放大縮小的倍率
+                if (isSwatch(cs[i])) { var q = swParts(cs[i]); q.style = ownStyle(cs[i], q.style); ng = rebuildSwatch(d, cs[i], styleOf(q)); }
+                else { var p = noteParts(cs[i]); p.style = ownStyle(cs[i], p.style); ng = rebuild(d, cs[i], p.num, styleOf(p)); }
                 if (ng) r.made.push(ng); else r.failed++;
             } catch (e) { r.failed++; if (!r.why) r.why = e.message; }
         }
@@ -381,65 +596,126 @@ $.global.CMF = (function () {
         if (sel && sel.length) for (i = 0; i < sel.length; i++) if (matchFP(sel[i])) return sel[i];
         try {
             var items = pendingFP.layer.pathItems, n = Math.min(items.length, 60);
-            for (i = 0; i < n; i++) if (matchFP(items[i]) && !isCallout(items[i].parent)) return items[i];
+            for (i = 0; i < n; i++) if (matchFP(items[i]) && !isLabel(items[i].parent)) return items[i];
         } catch (e) {}
         return null;
     }
 
+    // 文字說明的文字：換行一律 \n（Illustrator 的換行是 \r），去掉每行頭尾和最前、最後的空白行
+    function cleanNote(t) {
+        var lines = String(t || "").replace(/\r\n?|\u0003/g, "\n").split("\n"), out = [];
+        for (var i = 0; i < lines.length; i++) out.push(lines[i].replace(/^[ \t]+|[ \t]+$/g, ""));
+        return out.join("\n").replace(/^\n+|\n+$/g, "");
+    }
+
+    // 面板的設定 kind = "swatch" 時新增色號標註（swColor、swText、swSpot），"note" 時新增文字說明（noteText），
+    // 否則新增編號的標註
+    function swOf(o) {
+        if (o.kind === "note") {
+            if (o.noteArrowOnly) return { hex: "#000000", text: "", spot: "", note: true, arrow: true };
+            return { hex: "#000000", text: cleanNote(o.noteText), spot: "", note: true };
+        }
+        if (o.kind !== "swatch") return null;
+        var hex = /^#[0-9a-fA-F]{6}$/.test(String(o.swColor)) ? String(o.swColor) : "#808080";
+        return { hex: hex, text: String(o.swText || "").replace(/[\r\n\t]+/g, " ").replace(/^\s+|\s+$/g, ""), spot: String(o.swSpot || ""),
+            noLine: !!o.swNoLine };
+    }
+
+    // 回傳 { msg, next }：next = 下一個編號（色號標註沒有）
     function finalize(d, path, styleStr) {
-        var o = parse(styleStr);
-        reversePath(path); // 鋼筆第一點是目標點，buildCallout 需要第一點是編號端
+        var o = parse(styleStr), sw = swOf(o);
+        if (sw && sw.noLine) {
+            // 沒有箭頭的色號：點的位置 S，線往左 1 pt（看不見），標籤從 S 往右排
+            var a = path.pathPoints[0].anchor;
+            path.setEntirePath([[a[0], a[1]], [a[0] - 1, a[1]]]);
+        } else reversePath(path); // 鋼筆第一點是目標點，buildCallout 需要第一點是編號端
+        if (sw) {
+            buildCallout(d, path, 0, styleStr, getLayer(d, true), "", sw);
+            d.selection = null;
+            return { msg: "已新增" + (sw.arrow ? "箭頭" : (sw.note ? "文字說明" : "色號 " + swLabel(sw))), next: null };
+        }
         var num = nextNumber(d, o);
         buildCallout(d, path, num, styleStr, getLayer(d, true));
         d.selection = null; // 取消選取，鋼筆下一次點擊會開始新路徑
-        return num;
+        return { msg: "已新增標註 " + num, next: num + 1 };
     }
 
-    function doneRes(num) { return res(true, "已新增標註 " + num, num + 1, "done"); }
+    function doneRes(r) { return res(true, r.msg, r.next, "done"); }
 
     function beginAdd() {
         try {
             var d = getDoc();
             pendingFP = null;
+            penSeen = null;
             d.selection = null; // 清空選取，之後出現的選取路徑就一定是新畫的
             var ok = selectToolSafe("Adobe Pen Tool");
             return res(true, ok ? "" : "請按 P 切換到鋼筆工具", null, "ready");
         } catch (e) { return res(false, e.message); }
     }
 
+    // 鋼筆第一下的位置：看過只有 1 個錨點的新線，才算是正在畫的線。
+    // 選到原本就有的線（2 個錨點以上、沒看過它只有 1 個錨點）不會被拿去當引線，而是當成「選了其他物件」
+    var penSeen = null;
+
+    function firstAnchor(it) { var a = it.pathPoints[0].anchor; return [a[0], a[1]]; }
+    function sameSeen(seen, it) {
+        if (!seen) return false;
+        var a = it.pathPoints[0].anchor;
+        return Math.abs(a[0] - seen[0]) < 0.01 && Math.abs(a[1] - seen[1]) < 0.01;
+    }
+
+    // 新增中選了其他物件（選取工具點了別的東西、選到既有的線、文字、群組、標註、尺寸）：面板結束新增
+    function otherRes() { penSeen = null; pendingFP = null; return res(true, "選了其他物件，已結束新增", null, "other"); }
+
     function pollAdd(styleStr) {
         try {
-            if (app.documents.length === 0) { pendingFP = null; return res(true, "", null, "idle"); }
+            if (app.documents.length === 0) { pendingFP = null; penSeen = null; return res(true, "", null, "idle"); }
             var d = app.activeDocument, o = parse(styleStr), mode = o.lineMode || "straight";
-            var sel = d.selection;
+            var sel = d.selection, isText = !!sel && sel.typename === "TextRange";
+
+            // 沒有箭頭的色號：點一下就放（只接受鋼筆剛點下去、只有 1 個錨點的線）
+            if (o.kind === "swatch" && o.swNoLine) {
+                pendingFP = null;
+                if (isText) return otherRes();
+                if (!sel || sel.length === 0) return res(true, "", null, "idle");
+                var one = sel[0];
+                if (sel.length > 1 || one.typename !== "PathItem" || one.closed || ownerOf(one, isLabel) || ownerOf(one, isDim) ||
+                    one.pathPoints.length !== 1) return otherRes();
+                return doneRes(finalize(d, one, styleStr));
+            }
 
             if (mode === "free" && pendingFP) {
                 // 還選取著同一條線 = 還在畫
-                if (sel && sel.length === 1 && matchFP(sel[0])) return res(true, "", null, "drawing");
+                if (sel && !isText && sel.length === 1 && matchFP(sel[0])) return res(true, "", null, "drawing");
                 // 不再被選取 = Ctrl/⌘ + 點空白處結束了
                 var p = findPending(d);
                 pendingFP = null;
+                penSeen = null;
                 if (p && p.pathPoints.length >= 2) return doneRes(finalize(d, p, styleStr));
                 return res(true, "", null, "idle");
             }
 
-            if (!sel || sel.length !== 1) return res(true, "", null, "idle");
+            if (isText) return otherRes();
+            if (!sel || sel.length === 0) return res(true, "", null, "idle");
+            if (sel.length > 1) return otherRes();
             var it = sel[0];
-            if (it.typename !== "PathItem" || it.closed || isCallout(it.parent)) return res(true, "", null, "idle");
+            if (it.typename !== "PathItem" || it.closed || ownerOf(it, isLabel) || ownerOf(it, isDim)) return otherRes();
             var cnt = it.pathPoints.length;
+            if (cnt === 1) { penSeen = firstAnchor(it); return res(true, "", null, "drawing"); }
+            if (!sameSeen(penSeen, it)) return otherRes();
 
             if (mode === "free") {
-                if (cnt >= 2) {
-                    var a = it.pathPoints[0].anchor;
-                    pendingFP = { x: a[0], y: a[1], layer: it.layer };
-                }
+                var a = it.pathPoints[0].anchor;
+                pendingFP = { x: a[0], y: a[1], layer: it.layer };
                 return res(true, "", null, "drawing");
             }
 
             var need = mode === "elbow" ? 3 : 2;
             if (cnt < need) return res(true, "", null, "drawing");
+            if (cnt > need) return otherRes();
+            penSeen = null;
             return doneRes(finalize(d, it, styleStr));
-        } catch (e) { pendingFP = null; return res(false, e.message, null, "error"); }
+        } catch (e) { pendingFP = null; penSeen = null; return res(false, e.message, null, "error"); }
     }
 
     // 自由折線：「完成這條線」按鈕 / 快捷鍵
@@ -448,7 +724,7 @@ $.global.CMF = (function () {
             var d = getDoc(), p = findPending(d), sel = d.selection;
             pendingFP = null;
             // 輪詢還沒抓到指紋時，直接用目前選取的線
-            if (!p && sel && sel.length === 1 && sel[0].typename === "PathItem" && !sel[0].closed && !isCallout(sel[0].parent)) p = sel[0];
+            if (!p && sel && sel.length === 1 && sel[0].typename === "PathItem" && !sel[0].closed && !isLabel(sel[0].parent)) p = sel[0];
             if (!p) return res(false, "沒有正在畫的線", null, "idle");
             if (p.pathPoints.length < 2) return res(false, "至少要點 2 個點", null, "drawing");
             return doneRes(finalize(d, p, styleStr));
@@ -462,9 +738,9 @@ $.global.CMF = (function () {
             if (app.documents.length > 0) {
                 var d = app.activeDocument, p = findPending(d);
                 if (p && p.pathPoints.length >= 2 && styleStr) {
-                    var num = finalize(d, p, styleStr);
-                    msg = "已新增標註 " + num + "，結束新增";
-                    next = num + 1;
+                    var fr = finalize(d, p, styleStr);
+                    msg = fr.msg + "，結束新增";
+                    next = fr.next;
                 } else {
                     var sel = d.selection;
                     // 只點了第一下就結束時，刪掉留下的單一錨點
@@ -484,7 +760,7 @@ $.global.CMF = (function () {
             if (!sel || sel.length === 0) return res(false, "請先選取要轉換的線段");
             for (i = 0; i < sel.length; i++) {
                 var it = sel[i];
-                if (it.typename === "PathItem" && !it.closed && it.pathPoints.length >= 2 && !isCallout(it.parent)) lines.push(it);
+                if (it.typename === "PathItem" && !it.closed && it.pathPoints.length >= 2 && !isLabel(it.parent)) lines.push(it);
             }
             if (lines.length === 0) return res(false, "選取中沒有可用的開放路徑（請用鋼筆或線段工具畫線）");
 
@@ -493,8 +769,14 @@ $.global.CMF = (function () {
             for (i = 0; i < lines.length; i++) reversePath(lines[i]);
             lines = sortByMode(lines, function (l) { return l.pathPoints[0].anchor; }, o.sortMode);
 
+            var layer = getLayer(d, true), made = [], sw = swOf(o);
+            if (sw) sw.noLine = false; // 轉換線段一律有線
+            if (sw) {
+                for (i = 0; i < lines.length; i++) made.push(buildCallout(d, lines[i], 0, styleStr, layer, "", sw));
+                d.selection = made;
+                return res(true, "已建立 " + made.length + " 個" + (sw.arrow ? "箭頭" : (sw.note ? "文字說明" : "色號標註「" + swLabel(sw) + "」")));
+            }
             var start = nextNumber(d, o);
-            var layer = getLayer(d, true), made = [];
             for (i = 0; i < lines.length; i++) {
                 made.push(buildCallout(d, lines[i], o.sameNumber ? start : start + i, styleStr, layer));
             }
@@ -668,34 +950,179 @@ $.global.CMF = (function () {
     function outsideNote(n) { return n ? "（工作區外面的 " + n + " 個沒有同步）" : ""; }
 
     // 同步全部：工作區裡的標註套用目前樣式
+    // 編號、色號、文字說明各自有一套樣式：「同步全部」、「套用選取」只改面板目前那一種（樣式裡的 kind，沒有 = 編號）
+    var KIND_NAMES = { number: "編號標註", swatch: "色號標註", note: "文字說明" };
+
+    function labelKind(g) {
+        if (isCallout(g)) return "number";
+        return swParts(g).note ? "note" : "swatch";
+    }
+
+    function styleKind(styleStr) {
+        var m = /"kind"\s*:\s*"(\w+)"/.exec(styleStr || "");
+        return m && KIND_NAMES[m[1]] ? m[1] : "number";
+    }
+
+    function ofKind(gs, kind) {
+        var out = [];
+        for (var i = 0; i < gs.length; i++) if (labelKind(gs[i]) === kind) out.push(gs[i]);
+        return out;
+    }
+
+    // 面板的「樣式」圖上選著一個部位時，樣式裡帶 only（那個部位的欄位）和 onlyName（部位的名稱）：
+    // 每個標註、尺寸維持自己的樣式，只把這些欄位改成面板的。沒有 only = 整份換成面板的樣式
+    function onlyOf(styleStr) {
+        var o = parse(styleStr);
+        return o.only && o.only.length ? { keys: o.only, name: String(o.onlyName || "") } : null;
+    }
+
+    function mergeStyle(own, panel, keys) {
+        var a = parse(own), b = parse(panel);
+        for (var i = 0; i < keys.length; i++) if (b[keys[i]] !== undefined) a[keys[i]] = b[keys[i]];
+        return flatJson(a);
+    }
+
+    // 回傳 styleOf(note)：rebuildMany 用
+    function styleFor(styleStr) {
+        var only = onlyOf(styleStr);
+        if (!only) return function () { return styleStr; };
+        return function (p) { return mergeStyle(p.style, styleStr, only.keys); };
+    }
+
+    function onlyNote(styleStr) {
+        var only = onlyOf(styleStr);
+        return only && only.name ? "（只改" + only.name + "）" : "";
+    }
+
     function syncAll(styleStr) {
         try {
-            var d = getDoc(), all = allCallouts(d);
-            if (all.length === 0) return res(true, "文件中沒有標註");
+            var kind = styleKind(styleStr), name = KIND_NAMES[kind];
+            var d = getDoc(), all = ofKind(allLabels(d), kind);
+            if (all.length === 0) return res(true, "文件中沒有" + name);
             var on = onArtboards(d, all);
-            if (!on.inside.length) return res(true, "標註都在工作區外面，沒有同步（要改它們，選取後按「套用選取」）");
-            var sel = selectedCallouts(d);
-            var r = rebuildMany(d, on.inside, function () { return styleStr; });
+            if (!on.inside.length) return res(true, name + "都在工作區外面，沒有同步（要改它們，選取後按「套用選取」）");
+            var sel = selectedOwners(d, isLabel);
+            var r = rebuildMany(d, on.inside, styleFor(styleStr));
             if (sel.length === 0) d.selection = null;
-            return res(r.made.length > 0, "已同步 " + r.made.length + " 個標註的樣式" + failNote(r) + outsideNote(on.outside));
+            return res(r.made.length > 0, "已同步 " + r.made.length + " 個" + name + "的樣式" + onlyNote(styleStr) + failNote(r) + outsideNote(on.outside));
         } catch (e) { return res(false, e.message); }
     }
 
-    // 套用到選取的標註
+    // 套用到選取的標註（只改跟面板同一種的）
     function restyle(styleStr) {
         try {
-            var d = getDoc(), cs = selectedCallouts(d);
-            if (cs.length === 0) return res(false, "請先選取標註");
-            var r = rebuildMany(d, cs, function () { return styleStr; });
+            var kind = styleKind(styleStr), name = KIND_NAMES[kind];
+            var d = getDoc(), sel = selectedOwners(d, isLabel), cs = ofKind(sel, kind);
+            if (sel.length === 0) return res(false, "請先選取標註");
+            if (cs.length === 0) return res(false, "選取的不是" + name + "（面板上方切到那一種再套用）");
+            var r = rebuildMany(d, cs, styleFor(styleStr));
             d.selection = r.made;
-            return res(r.made.length > 0, "已更新 " + r.made.length + " 個標註的樣式" + failNote(r));
+            var skip = sel.length - cs.length;
+            return res(r.made.length > 0, "已更新 " + r.made.length + " 個" + name + "的樣式" + onlyNote(styleStr) + failNote(r) +
+                (skip ? "（其他種類的 " + skip + " 個沒有改）" : ""));
+        } catch (e) { return res(false, e.message); }
+    }
+
+    // ---------- 對齊標籤 ----------
+    // 選取兩個以上的標註（編號、色號、文字說明都可以），標籤排整齊；線指著產品的那一端不動，只移動標籤那一端。
+    // o.dir："row" 排成一橫排（標籤的中線對齊）、"col" 排成一直列（標籤在線的右邊 = 左緣對齊，在左邊 = 右緣對齊）；
+    // 省略 = 自動：標籤左右散開排成一橫排，上下散開排成一直列。
+    // 對齊到離產品最遠的那個：標籤大多在線頭的下面（或右邊）就對齊最下面（最右邊）的，反之最上面（最左邊）。
+    // 標籤的位置跟線的方向有關，所以移動、重建之後再量一次，最多修正 3 次
+
+    // 標籤（編號、圓圈、色塊、文字）的外框 [左, 上, 右, 下]
+    function labelBox(g) {
+        var b = null;
+        for (var i = 0; i < g.pageItems.length; i++) {
+            var it = g.pageItems[i];
+            if (it.name !== "CMF_Label" && it.name !== "CMF_Badge" && it.name !== "CMF_Chip") continue;
+            var q = it.geometricBounds;
+            b = b ? [Math.min(b[0], q[0]), Math.max(b[1], q[1]), Math.max(b[2], q[2]), Math.min(b[3], q[3])] : [q[0], q[1], q[2], q[3]];
+        }
+        if (!b) {
+            // 只畫箭頭（沒有標籤）：用線的尾端
+            var line = findChild(g, "CMF_Line");
+            if (line) { var S = line.pathPoints[0].anchor; b = [S[0], S[1], S[0], S[1]]; }
+        }
+        return b;
+    }
+
+    // 線頭（標籤那一端）移動 delta；線的第二段跟對齊的方向垂直（折線的橫線、直線）時，轉折點一起移，橫線才會維持水平
+    function shiftLabelEnd(g, axis, delta) {
+        var line = findChild(g, "CMF_Line");
+        if (!line) return false;
+        var pts = line.pathPoints, n = pts.length, k = axis === "y" ? 1 : 0;
+        var move = function (p) {
+            var a = [p.anchor[0], p.anchor[1]];
+            a[k] += delta;
+            p.anchor = a; p.leftDirection = a; p.rightDirection = a;
+        };
+        var S = pts[0].anchor, S1 = pts[1].anchor;
+        if (isSwatch(g) && swParts(g).noLine) { for (var i = 0; i < n; i++) move(pts[i]); return true; }   // 沒有箭頭：整個移
+        if (n > 2 && Math.abs(S[k] - S1[k]) < 0.5) move(pts[1]);
+        move(pts[0]);
+        return true;
+    }
+
+    function alignLabels(optStr) {
+        try {
+            var o = optStr ? parse(optStr) : {};
+            var d = getDoc(), gs = selectedOwners(d, isLabel), i, pass;
+            if (gs.length < 2) return res(false, "請選取兩個以上的標註");
+            var boxes = [], tips = [], minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9;
+            for (i = 0; i < gs.length; i++) {
+                var b = labelBox(gs[i]), line = findChild(gs[i], "CMF_Line");
+                if (!b || !line) return res(false, "「" + gs[i].name + "」找不到標籤或引線");
+                var c = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+                boxes.push(b);
+                tips.push(line.pathPoints[line.pathPoints.length - 1].anchor);
+                minx = Math.min(minx, c[0]); maxx = Math.max(maxx, c[0]);
+                miny = Math.min(miny, c[1]); maxy = Math.max(maxy, c[1]);
+            }
+            var row = o.dir === "row" ? true : (o.dir === "col" ? false : maxx - minx >= maxy - miny), below = 0, right = 0;
+            for (i = 0; i < gs.length; i++) {
+                var cc = [(boxes[i][0] + boxes[i][2]) / 2, (boxes[i][1] + boxes[i][3]) / 2];
+                below += cc[1] < tips[i][1] ? 1 : -1;
+                right += cc[0] > tips[i][0] ? 1 : -1;
+            }
+            // 對齊用的值：橫排 = 中線的 y；直列 = 左緣（標籤在右邊）或右緣的 x
+            var useLeft = right >= 0;
+            var valueOf = function (b) { return row ? (b[1] + b[3]) / 2 : (useLeft ? b[0] : b[2]); };
+            var target = null;
+            for (i = 0; i < gs.length; i++) {
+                var v = valueOf(boxes[i]);
+                if (target === null) target = v;
+                else if (row) target = below >= 0 ? Math.min(target, v) : Math.max(target, v);
+                else target = useLeft ? Math.max(target, v) : Math.min(target, v);
+            }
+            var failed = 0, why = "";
+            for (pass = 0; pass < 3; pass++) {
+                var moved = false;
+                for (i = 0; i < gs.length; i++) {
+                    if (!gs[i]) continue;
+                    var bx = labelBox(gs[i]), delta = bx ? target - valueOf(bx) : 0;
+                    if (Math.abs(delta) < 0.05) continue;
+                    var saved = openAncestors(gs[i]);
+                    try { shiftLabelEnd(gs[i], row ? "y" : "x", delta); } finally { restoreTemp(saved); }
+                    var r = rebuildMany(d, [gs[i]], function (p) { return p.style; });
+                    if (r.made.length) gs[i] = r.made[0];
+                    else { gs[i] = null; failed++; if (!why) why = r.why; }
+                    moved = true;
+                }
+                if (!moved) break;
+            }
+            var made = [];
+            for (i = 0; i < gs.length; i++) if (gs[i]) made.push(gs[i]);
+            d.selection = made;
+            return res(made.length > 0, "已把 " + made.length + " 個標註" + (row ? "排成一橫排" : "排成一直列") +
+                failNote({ failed: failed, why: why }));
         } catch (e) { return res(false, e.message); }
     }
 
     // 移動過線條錨點後，用原本樣式重新排版
     function relayout() {
         try {
-            var d = getDoc(), cs = selectedCallouts(d);
+            var d = getDoc(), cs = selectedOwners(d, isLabel);
             if (cs.length === 0) return res(false, "請先選取要重新排版的標註");
             var r = rebuildMany(d, cs, function (p) { return p.style; });
             d.selection = r.made;
@@ -705,7 +1132,7 @@ $.global.CMF = (function () {
 
     function selectAll() {
         try {
-            var d = getDoc(), cs = allCallouts(d);
+            var d = getDoc(), cs = allLabels(d);
             if (cs.length === 0) return res(false, "文件中沒有標註");
             d.selection = cs;
             return res(true, "已選取 " + cs.length + " 個標註");
@@ -748,23 +1175,34 @@ $.global.CMF = (function () {
         return null; // 無色、圖樣
     }
 
-    // prefer："fill" 或 "stroke"，找不到時改用另一個
-    function itemColor(it, prefer) {
+    // 物件的顏色（Illustrator 的 Color）；prefer："fill" 或 "stroke"，找不到時改用另一個。無色、圖樣 = null
+    function itemColorObj(it, prefer) {
         var t = it.typename, i, c;
         if (t === "TextFrame" || t === "TextRange") {
             var tr = t === "TextFrame" ? it.textRange : it;
-            try { return colorToHex(tr.characterAttributes.fillColor); } catch (e) { return null; }
+            try { c = tr.characterAttributes.fillColor; return colorToHex(c) ? c : null; } catch (e) { return null; }
         }
         if (t === "PathItem") {
-            var f = it.filled ? colorToHex(it.fillColor) : null;
-            var s = it.stroked ? colorToHex(it.strokeColor) : null;
+            var f = it.filled && colorToHex(it.fillColor) ? it.fillColor : null;
+            var s = it.stroked && colorToHex(it.strokeColor) ? it.strokeColor : null;
             return prefer === "stroke" ? (s || f) : (f || s);
         }
-        if (t === "CompoundPathItem" && it.pathItems.length) return itemColor(it.pathItems[0], prefer);
+        if (t === "CompoundPathItem" && it.pathItems.length) return itemColorObj(it.pathItems[0], prefer);
         if (t === "GroupItem") {
-            for (i = 0; i < it.pageItems.length; i++) { c = itemColor(it.pageItems[i], prefer); if (c) return c; }
+            for (i = 0; i < it.pageItems.length; i++) { c = itemColorObj(it.pageItems[i], prefer); if (c) return c; }
         }
         return null;
+    }
+
+    function itemColor(it, prefer) { return colorToHex(itemColorObj(it, prefer)); }
+
+    // 特別色、全域色票的名稱（例如 PANTONE 186 C）；網點不是 100% 時加上 %。一般的顏色 = 空字串
+    function spotName(c) {
+        if (!c || c.typename !== "SpotColor") return "";
+        var n = "";
+        try { n = c.spot.name; } catch (e) { return ""; }
+        if (!n || n === "[Registration]" || n === "[拼版標記]") return "";
+        return n + (c.tint < 99.5 ? " " + Math.round(c.tint) + "%" : "");
     }
 
     function beginPick() {
@@ -784,10 +1222,11 @@ $.global.CMF = (function () {
             var isText = sel.typename === "TextRange"; // 用文字工具選取文字時，selection 是 TextRange 而不是陣列
             if (!isText && sel.length === 0) return res(true, "", null, "idle");
             var it = isText ? sel : sel[0];
-            var hex = itemColor(it, o.prefer);
+            var c = itemColorObj(it, o.prefer), hex = colorToHex(c), spot = spotName(c);
             d.selection = null;
             if (!hex) return res(false, "這個物件沒有可取用的顏色（無色或圖樣）", null, "done");
-            return '{"ok":true,"msg":"已取色 ' + hex + '","hex":"' + hex + '","state":"done"}';
+            return '{"ok":true,"msg":"已取色 ' + esc(spot ? spot + "（" + hex + "）" : hex) + '","hex":"' + hex + '","spot":"' + esc(spot) +
+                '","state":"done"}';
         } catch (e) { return res(false, e.message, null, "done"); }
     }
 
@@ -960,14 +1399,9 @@ $.global.CMF = (function () {
 
     // 標註備註裡跟尺寸有關的樣式也跟著縮放，之後重新編號、重新排版才會維持縮放後的大小
     function scaleNote(g, s) {
-        var p = noteParts(g);
-        var re = /"(fontSize|badgePadding|badgeStrokeWidth|lineWidth|endSize|styleScale|gap)"\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)/g;
-        var style = p.style.replace(re, function (m, k, v) {
-            return '"' + k + '":' + roundTo(Number(v) * s, 3);
-        });
-        // 舊的標註沒有 styleScale（= 100%）：補上，之後重新產生時繪圖樣式的線寬才會維持縮放後的大小
-        if (!/"styleScale"\s*:/.test(style)) style = style.replace(/\}\s*$/, ',"styleScale":' + roundTo(100 * s, 3) + "}");
-        if (style !== p.style) g.note = makeNote(p.num, p.key, style);
+        var sw = isSwatch(g), p = sw ? swParts(g) : noteParts(g);
+        var style = scaleLabelStyle(p.style, s);   // 參考大小 _ref 也一起乘，之後比對才不會再算一次
+        if (style !== p.style) g.note = sw ? swNote(p, style) : makeNote(p.num, p.key, style);
     }
 
     function jsonNum(v) { return isFinite(v) ? String(v) : "0"; }
@@ -1079,7 +1513,7 @@ $.global.CMF = (function () {
                 units = keep;
             }
             // 先判斷標註、尺寸在不在範圍內（縮放後位置就變了）
-            var callouts = allCallouts(d), scaledCallouts = [];
+            var callouts = allLabels(d), scaledCallouts = [];
             for (i = 0; i < callouts.length; i++) if (inScope(topItem(callouts[i]))) scaledCallouts.push(callouts[i]);
             var dims = allDims(d), scaledDims = [];
             for (i = 0; i < dims.length; i++) if (inScope(topItem(dims[i]))) scaledDims.push(dims[i]);
@@ -1190,6 +1624,7 @@ $.global.CMF = (function () {
     // 選取物件後標寬度、高度（外框尺寸），或圓的直徑 Ø、圓弧和圓角的半徑 R。
     // 每個尺寸是一個群組，放在「CMF Dimensions」圖層，備註存著：CMF_DIM|幾何 JSON|樣式 JSON
     //   寬高：{ t:"lin", p1, p2 量測點（延伸線起點）, a 量測方向, n 尺寸線在哪一側, off 尺寸線離量測點的距離 }
+    //     兩點距離也是 lin，多一個 free = 1：p1 起點（第一下）、p2 終點，off = 0、沒有延伸線，「同步全部」不改距離
     //   直徑、半徑：{ t:"dia" | "rad", c 圓心, r 半徑, u 標註方向（圓心 → 箭頭指的點）, out = 1 一律用引線,
     //     x 引線比樣式的「引線」多拉的長度（同心圓的內圈）, q 同樣大小的圓有幾個 }
     //     舊版的尺寸沒有 x，引線長度記在 off
@@ -1240,7 +1675,7 @@ $.global.CMF = (function () {
     function measuredItems(d) {
         var out = [], items = selectedItems(d);
         for (var i = 0; i < items.length; i++) {
-            if (!ownerOf(items[i], isDim) && !ownerOf(items[i], isCallout)) out.push(items[i]);
+            if (!ownerOf(items[i], isDim) && !ownerOf(items[i], isLabel)) out.push(items[i]);
         }
         return out;
     }
@@ -1429,10 +1864,13 @@ $.global.CMF = (function () {
         }
         if (vdot(vsub(Q[1], Q[0]), a) < 0) Q.reverse();
         var Q1 = Q[0], Q2 = Q[1], len = vlen(vsub(Q2, Q1));
+        // 兩點距離、箭頭只畫一端：端點只畫在起點 Q1（第一下點的地方），另一端什麼都不畫
+        var one = !!gm.free && st.lenEnds === "one";
 
         // 箭頭放在延伸線內側往外指，或外側往內指；自動 = 放不下時放外側
-        var inside = st.arrowPos === "inside" ? true : (st.arrowPos === "outside" ? false : len >= L * 2.6), pts;
-        if (arrowLike(kind)) pts = inside ? [along(Q1, a, tr), along(Q2, a, -tr)] : [along(Q1, a, -L * 2.2), along(Q2, a, L * 2.2)];
+        var inside = one ? true : (st.arrowPos === "inside" ? true : (st.arrowPos === "outside" ? false : len >= L * 2.6)), pts;
+        if (one) pts = [arrowLike(kind) ? along(Q1, a, tr) : Q1, Q2];
+        else if (arrowLike(kind)) pts = inside ? [along(Q1, a, tr), along(Q2, a, -tr)] : [along(Q1, a, -L * 2.2), along(Q2, a, L * 2.2)];
         else if (kind === "tick") pts = [along(Q1, a, -L * 0.6), along(Q2, a, L * 0.6)];
         else pts = [Q1, Q2];
 
@@ -1444,7 +1882,8 @@ $.global.CMF = (function () {
         }
         var split = !!line;
         if (!line) line = dimPath(g, pts, st, col, "DIM_Line");
-        if (kind === "tick") {
+        if (one) dimEnd(g, Q1, kind === "tick" ? a : [-a[0], -a[1]], st, col, kind);
+        else if (kind === "tick") {
             dimEnd(g, Q1, a, st, col, kind);
             dimEnd(g, Q2, a, st, col, kind);
         } else {
@@ -1537,7 +1976,8 @@ $.global.CMF = (function () {
 
     function geomStr(gm) {
         var s = '{"t":"' + gm.t + '"';
-        if (gm.t === "lin") s += ',"p1":' + ptStr(gm.p1) + ',"p2":' + ptStr(gm.p2) + ',"a":' + ptStr(gm.a) + ',"n":' + ptStr(gm.n);
+        if (gm.t === "lin") s += ',"p1":' + ptStr(gm.p1) + ',"p2":' + ptStr(gm.p2) + ',"a":' + ptStr(gm.a) + ',"n":' + ptStr(gm.n) +
+            (gm.free ? ',"free":1' : "");
         else s += ',"c":' + ptStr(gm.c) + ',"r":' + jsonNum(gm.r) + ',"u":' + ptStr(gm.u) + (gm.out ? ',"out":1' : "") +
             (gm.x !== undefined ? ',"x":' + jsonNum(gm.x) : "") + (gm.q > 1 ? ',"q":' + gm.q : "");
         if (gm.z > 0) s += ',"z":' + jsonNum(gm.z);
@@ -1576,12 +2016,20 @@ $.global.CMF = (function () {
         var o = { t: gm.t, off: gm.off * T.s };
         if (gm.t === "lin") {
             o.p1 = simPt(T, gm.p1); o.p2 = simPt(T, gm.p2); o.a = simDir(T, gm.a); o.n = simDir(T, gm.n);
+            if (gm.free) o.free = 1;
         } else {
             o.c = simPt(T, gm.c); o.r = gm.r * T.s; o.u = simDir(T, gm.u); o.out = gm.out; o.q = gm.q;
             if (gm.x !== undefined) o.x = gm.x * T.s;
         }
         if (gm.z > 0) o.z = gm.z * T.s;
+        o._s = T.s;   // 尺寸被放大縮小的倍率（記錄的樣式要乘這個，見 dimOwnStyle）
         return o;
+    }
+
+    // 尺寸自己記錄的樣式，算進它在 Illustrator 裡被放大縮小的倍率（gm = dimGeomNow 的結果）
+    function dimOwnStyle(style, gm) {
+        var k = gm && gm._s;
+        return k > 0 && Math.abs(k - 1) >= 0.01 ? scaleDimStyle(style, k) : style;
     }
 
     // 尺寸現在的幾何：記錄的點加上建立之後被移動、等比縮放、旋轉的量。找不到 DIM_Line 或沒有 ref = null
@@ -1596,17 +2044,19 @@ $.global.CMF = (function () {
     // 用尺寸自己的記錄重建；styleStr 省略 = 原本的樣式。「同步全部」、「套用選取」一律照面板的樣式，
     // 不再依物件大小調整（自動調整只在新增時作用），所有尺寸的字級、線寬才會一致。
     // withOffset（同步全部、套用選取）：寬高的尺寸線離物件的距離也改成面板的「距離」（樣式裡的 offset）；
-    // 從尺寸自己的記錄重建（例如縮放文件後）時距離不變
-    function rebuildDim(d, g, styleStr, withOffset) {
+    // 從尺寸自己的記錄重建（例如縮放文件後）時距離不變；兩點距離的箭頭就在點的位置，沒有距離
+    // withSide（套用選取）：兩點距離的文字改放到樣式的 lenSide 那一側；「同步全部」不改，每個尺寸維持自己選的那一側
+    function rebuildDim(d, g, styleStr, withOffset, withSide) {
         var p = dimNote(g), gm = dimGeomNow(g, p);
         if (!gm) return null;
-        if (withOffset && gm.t === "lin") {
+        if (withSide && gm.free) gm.n = freeNormal(gm.a, lenSideOf(styleStr));
+        if (withOffset && gm.t === "lin" && !gm.free) {
             var off = /"offset"\s*:\s*([0-9.eE+-]+)/.exec(styleStr || "");
             if (off && Number(off[1]) >= 0) gm.off = Number(off[1]);
         }
         var locked = g.locked, hidden = g.hidden, saved = openAncestors(g);
         try {
-            var ng = buildDim(d, g.layer, gm, styleStr || p.style);
+            var ng = buildDim(d, g.layer, gm, styleStr || dimOwnStyle(p.style, gm));
             ng.move(g, ElementPlacement.PLACEBEFORE); // 留在原本的位置（圖層、群組、上下順序）
             g.remove();
             keepState(ng, locked, hidden);
@@ -1914,6 +2364,80 @@ $.global.CMF = (function () {
         } catch (e) { return res(false, e.message); }
     }
 
+    // ---- 兩點距離 ----
+    // 面板按「兩點距離」後切到鋼筆，點兩下（起點 → 終點）標一個尺寸：箭頭畫在兩點之間，數字在中間。
+    // 跟新增標註一樣，面板每 200ms 呼叫 dimLenPoll，選取的線有 2 個錨點時換成尺寸、刪掉那條線。
+    // 按住 Shift 點第二下，鋼筆會鎖在水平、垂直或 45°
+    // 文字放在線的哪一側（樣式的 lenSide）：線轉成由左往右（直的由下往上）讀的方向 r，
+    // "a" = r 的左手邊（橫的在上面、直的在左邊），"b" = 右手邊（橫的在下面、直的在右邊）
+    function freeNormal(a, side) {
+        var deg = Math.atan2(a[1], a[0]) * 180 / Math.PI;
+        var r = deg > 90.01 || deg <= -89.99 ? [-a[0], -a[1]] : a;
+        return side === "b" ? [r[1], -r[0]] : [-r[1], r[0]];
+    }
+
+    function lenSideOf(styleStr) {
+        var m = /"lenSide"\s*:\s*"(\w+)"/.exec(styleStr || "");
+        return m ? m[1] : "a";
+    }
+
+    function freeGeom(p1, p2, side) {
+        var v = vsub(p2, p1), l = vlen(v);
+        if (l < 0.01) return null;
+        var a = [v[0] / l, v[1] / l];
+        return { t: "lin", p1: [p1[0], p1[1]], p2: [p2[0], p2[1]], a: a, n: freeNormal(a, side), off: 0, free: 1 };
+    }
+
+    // 跟新增標註一樣：選了其他物件（或原本就有的線）= "other"，面板取消兩點距離
+    var lenSeen = null;
+
+    function dimLenBegin() {
+        try {
+            var d = getDoc();
+            lenSeen = null;
+            d.selection = null; // 清空選取，之後出現的選取路徑就一定是新畫的
+            var ok = selectToolSafe("Adobe Pen Tool");
+            return res(true, ok ? "" : "請按 P 切換到鋼筆工具", null, "ready");
+        } catch (e) { return res(false, e.message); }
+    }
+
+    function dimLenPoll(styleStr) {
+        try {
+            if (app.documents.length === 0) return res(true, "", null, "idle");
+            var d = app.activeDocument, sel = d.selection;
+            var other = function () { lenSeen = null; return res(true, "選了其他物件，已取消兩點距離", null, "other"); };
+            if (sel && sel.typename === "TextRange") return other();
+            if (!sel || sel.length === 0) return res(true, "", null, "idle");
+            if (sel.length > 1) return other();
+            var it = sel[0];
+            if (it.typename !== "PathItem" || it.closed || ownerOf(it, isDim) || ownerOf(it, isLabel)) return other();
+            var pts = it.pathPoints;
+            if (pts.length < 2) { lenSeen = firstAnchor(it); return res(true, "", null, "drawing"); }
+            if (pts.length > 2 || !sameSeen(lenSeen, it)) return other();
+            lenSeen = null;
+            var gm = freeGeom(pts[0].anchor, pts[pts.length - 1].anchor, lenSideOf(styleStr));
+            it.remove();
+            d.selection = null; // 鋼筆下一次點擊會開始新的線
+            if (!gm) return res(false, "兩個點在同一個位置，沒有標", null, "drawing");
+            var g = buildDim(d, getLayer(d, true, DIM_LAYER), gm, styleStr);
+            return res(true, "已標註 " + findChild(g, "DIM_Text").contents, null, "done");
+        } catch (e) { return res(false, e.message, null, "error"); }
+    }
+
+    // o.keepTool：不切回選取工具。只點了第一下就結束時，刪掉留下的單一錨點
+    function dimLenEnd(optStr) {
+        try {
+            var keepTool = !!(optStr && parse(optStr).keepTool);
+            if (app.documents.length > 0) {
+                var sel = app.activeDocument.selection;
+                if (sel && sel.length === 1 && sel[0].typename === "PathItem" && sel[0].pathPoints.length < 2 &&
+                    !ownerOf(sel[0], isDim) && !ownerOf(sel[0], isLabel)) sel[0].remove();
+            }
+            if (!keepTool) selectToolSafe("Adobe Select Tool");
+            return res(true, "已結束兩點距離", null, "idle");
+        } catch (e) { return res(false, e.message); }
+    }
+
     // 面板顯示用：選取物件合起來的寬高（pt）、文件單位；o.visible = 含線寬
     function dimInfo(optStr) {
         try {
@@ -1929,11 +2453,19 @@ $.global.CMF = (function () {
         } catch (e) { return res(false, e.message); }
     }
 
-    function rebuildDims(d, gs, styleStr) {
-        var r = { made: [], failed: 0, why: "" };
+    // 選著一個部位（only）時，每個尺寸維持自己的樣式、只改那個部位的欄位；
+    // 「距離」、兩點距離的那一側也只在那個部位有它們時才改
+    function rebuildDims(d, gs, styleStr, withSide) {
+        var r = { made: [], failed: 0, why: "" }, only = onlyOf(styleStr);
+        var withOffset = !only || contains(only.keys, "offset");
+        withSide = withSide && (!only || contains(only.keys, "lenSide"));
         for (var i = 0; i < gs.length; i++) {
             var ng = null;
-            try { ng = rebuildDim(d, gs[i], styleStr, true); } catch (e) { if (!r.why) r.why = e.message; }
+            try {
+                var dn = only ? dimNote(gs[i]) : null;
+                var st = only ? mergeStyle(dimOwnStyle(dn.style, dimGeomNow(gs[i], dn)), styleStr, only.keys) : styleStr;
+                ng = rebuildDim(d, gs[i], st, withOffset, withSide);
+            } catch (e) { if (!r.why) r.why = e.message; }
             if (ng) r.made.push(ng); else r.failed++;
         }
         return r;
@@ -1947,7 +2479,7 @@ $.global.CMF = (function () {
             var on = onArtboards(d, all);
             if (!on.inside.length) return res(true, "尺寸都在工作區外面，沒有同步（要改它們，選取後按「套用選取」）");
             var r = rebuildDims(d, on.inside, styleStr);
-            return res(r.made.length > 0, "已同步 " + r.made.length + " 個尺寸的樣式" + failNote(r) + outsideNote(on.outside));
+            return res(r.made.length > 0, "已同步 " + r.made.length + " 個尺寸的樣式" + onlyNote(styleStr) + failNote(r) + outsideNote(on.outside));
         } catch (e) { return res(false, e.message); }
     }
 
@@ -1955,9 +2487,9 @@ $.global.CMF = (function () {
         try {
             var d = getDoc(), gs = selectedDims(d);
             if (gs.length === 0) return res(false, "請先選取尺寸");
-            var r = rebuildDims(d, gs, styleStr);
+            var r = rebuildDims(d, gs, styleStr, true);
             d.selection = r.made;
-            return res(r.made.length > 0, "已更新 " + r.made.length + " 個尺寸的樣式" + failNote(r));
+            return res(r.made.length > 0, "已更新 " + r.made.length + " 個尺寸的樣式" + onlyNote(styleStr) + failNote(r));
         } catch (e) { return res(false, e.message); }
     }
 
@@ -1987,20 +2519,23 @@ $.global.CMF = (function () {
     // 兩種都選了就都回傳，面板用自己分頁的那一種
     function pickStyle() {
         try {
-            var d = getDoc(), dims = selectedOwners(d, isDim), cs = selectedOwners(d, isCallout), out = '{"ok":true';
+            var d = getDoc(), dims = selectedOwners(d, isDim), cs = selectedOwners(d, isLabel), out = '{"ok":true';
             if (!dims.length && !cs.length) return res(false, "請先選取要吸取樣式的尺寸或標註");
             if (dims.length) {
                 var g = dims[0], p = dimNote(g), gm, st;
-                try { gm = dimGeomNow(g, p) || parse(p.geom); st = flatJson(parse(p.style)); }
+                try { gm = dimGeomNow(g, p) || parse(p.geom); st = flatJson(parse(dimOwnStyle(p.style, gm))); }
                 catch (eD) { return res(false, "「" + (g.name || "尺寸") + "」的樣式記錄讀不到（" + eD.message + "）"); }
-                out += ',"dim":' + st + ',"dimGeom":' + flatJson({ t: gm.t, off: Number(gm.off), x: gm.x, out: gm.out, z: gm.z * docScaleFactor(d) }) +
+                out += ',"dim":' + st + ',"dimGeom":' + flatJson({ t: gm.t, free: gm.free, side: gm.free ? (vdot(gm.n, freeNormal(gm.a, "a")) >= 0 ? "a" : "b") : undefined, off: Number(gm.off), x: gm.x, out: gm.out, z: gm.z * docScaleFactor(d) }) +
                     ',"dimName":"' + esc(g.name) + '","dims":' + dims.length;
             }
             if (cs.length) {
-                var q = noteParts(cs[0]), cst;
-                try { cst = flatJson(parse(q.style)); }
-                catch (eC) { return res(false, "標註 " + q.num + " 的樣式記錄讀不到（" + eC.message + "）"); }
-                out += ',"callout":' + cst + ',"num":' + jsonNum(q.num) + ',"callouts":' + cs.length;
+                // 色號標註沒有編號，回傳 name（色號 PANTONE 186 C）
+                var isSw = isSwatch(cs[0]), q = isSw ? swParts(cs[0]) : noteParts(cs[0]), cst;
+                var label = isSw ? "「" + cs[0].name + "」" : "標註 " + q.num;
+                try { cst = flatJson(parse(ownStyle(cs[0], q.style))); }
+                catch (eC) { return res(false, label + "的樣式記錄讀不到（" + eC.message + "）"); }
+                out += ',"callout":' + cst + ',"label":"' + esc(label) + '","kind":"' + labelKind(cs[0]) + '","callouts":' + cs.length;
+                if (!isSw) out += ',"num":' + jsonNum(q.num);
             }
             return out + "}";
         } catch (e) { return res(false, e.message); }
@@ -2176,6 +2711,119 @@ $.global.CMF = (function () {
         finally { restoreCoords(coords); }
     }
 
+    // ---------- 目前的工作區大小 ----------
+    // 「重設大小」用：預設值是給 A4 大的工作區用的，面板照工作區較長的一邊等比放大縮小。
+    // w、h 是腳本座標（樣式的大小也是腳本座標，大型畫布不用另外換算）；mm 是實際大小（給狀態列顯示）
+    function artboardSize() {
+        try {
+            if (app.documents.length === 0) return res(false, "沒有開啟的文件");
+            var d = app.activeDocument, i = d.artboards.getActiveArtboardIndex(), A = d.artboards[i], r = A.artboardRect;
+            var w = Math.abs(r[2] - r[0]), h = Math.abs(r[1] - r[3]), f = docScaleFactor(d) * 25.4 / 72;
+            return '{"ok":true,"w":' + jsonNum(w) + ',"h":' + jsonNum(h) + ',"wmm":' + jsonNum(w * f) + ',"hmm":' + jsonNum(h * f) +
+                ',"name":"' + esc(A.name) + '"}';
+        } catch (e) { return res(false, e.message); }
+    }
+
+    // ---------- CMF 圖層只放標註和尺寸 ----------
+    // 面板每 1.5 秒呼叫一次（面板「其他」裡可以關掉）：
+    //   1. CMF Callouts、CMF Dimensions 圖層裡不是標註、尺寸的東西（使用者在這兩個圖層畫的），沒有選取著的時候，
+    //      搬到「備用圖層」的最上面。選取著的（正在畫、正在編輯的）先不動，取消選取後再搬
+    //   2. 沒有選取任何東西、作用中的圖層是這兩個時，切回備用圖層，之後畫的東西直接落在那裡
+    //   3. 標註搬到（或複製貼上到）CMF Callouts 以外的圖層、尺寸搬到 CMF Dimensions 以外的圖層：變成一般的群組
+    //      （拿掉備註裡的記錄），之後同步、編號、縮放都不再管它
+    // CMF Tables（Excel 匯入的表格，jsx/excel.jsx）也一樣只放表格：別的東西搬出去。
+    // 表格搬到別的圖層不會變成一般物件（舊版的表格本來就在一般圖層裡）
+    // 備用圖層：上次作用中的一般圖層（記名稱），沒有就用最上面沒鎖定、看得到的一般圖層，再沒有就新增「圖層 1」放到最下面
+    var lastUserLayer = null; // { doc, name }
+
+    var TABLE_LAYER = "CMF Tables", TABLE_PREFIX = "xltable:"; // 跟 jsx/excel.jsx 的 XL_LAYER、XL_TABLE 一樣
+
+    function isToolLayer(L) {
+        return !!L && L.typename === "Layer" && (L.name === LAYER_NAME || L.name === DIM_LAYER || L.name === TABLE_LAYER);
+    }
+
+    function isTable(it) { return !!it && it.typename === "GroupItem" && String(it.name).indexOf(TABLE_PREFIX) === 0; }
+
+    function usableLayer(L) { return !!L && !isToolLayer(L) && !L.locked && L.visible; }
+
+    function fallbackLayer(d) {
+        var i, L;
+        if (lastUserLayer && lastUserLayer.doc === docKey(d)) {
+            try { L = d.layers.getByName(lastUserLayer.name); } catch (e) { L = null; }
+            if (usableLayer(L)) return L;
+        }
+        for (i = 0; i < d.layers.length; i++) if (usableLayer(d.layers[i])) return d.layers[i];
+        L = d.layers.add();
+        L.name = "圖層 1";
+        try { L.zOrder(ZOrderMethod.SENDTOBACK); } catch (e2) {}
+        return L;
+    }
+
+    // 最上層的圖層（子圖層、群組裡的東西也算到它所在的最上層圖層）
+    function topLayerOf(it) {
+        var p = it.parent, L = null;
+        while (p && p.typename !== "Document") { if (p.typename === "Layer") L = p; p = p.parent; }
+        return L;
+    }
+
+    // 不在自己圖層裡的標註、尺寸 → 一般群組；回傳幾個
+    function detachOutside(d) {
+        var gs = d.groupItems, out = [], i, n = 0;
+        for (i = 0; i < gs.length; i++) {
+            var g = gs[i];
+            try {
+                var dim = isDim(g);
+                if (!dim && !isLabel(g)) continue;
+                var top = topLayerOf(g);
+                if (!top || top.name !== (dim ? DIM_LAYER : LAYER_NAME)) out.push(g);
+            } catch (e) {}
+        }
+        for (i = 0; i < out.length; i++) {
+            var saved = openAncestors(out[i]);
+            try { out[i].note = ""; n++; } catch (eN) {} finally { restoreTemp(saved); }
+        }
+        return n;
+    }
+
+    function guardLayers() {
+        try {
+            if (app.documents.length === 0) return '{"ok":true,"moved":0}';
+            var d = app.activeDocument, tools = [], i, j, act = null;
+            try { act = d.activeLayer; } catch (e) { act = null; }
+            if (act && !isToolLayer(act)) lastUserLayer = { doc: docKey(d), name: act.name };
+            var sel0 = d.selection;
+            var detached = sel0 && sel0.typename === "TextRange" ? 0 : detachOutside(d);
+            for (i = 0; i < d.layers.length; i++) if (isToolLayer(d.layers[i])) tools.push(d.layers[i]);
+            if (!tools.length) return '{"ok":true,"moved":0,"detached":' + detached + '}';
+            var sel = d.selection;
+            if (sel && sel.typename === "TextRange") return '{"ok":true,"moved":0,"detached":' + detached + '}'; // 正在打字
+            var stray = [];
+            for (i = 0; i < tools.length; i++) {
+                var items = tools[i].pageItems;
+                for (j = 0; j < items.length; j++) {
+                    var it = items[j];
+                    try {
+                        if (it.parent.typename !== "Layer") continue;   // 只看圖層最上層的東西
+                        if (isLabel(it) || isDim(it) || isTable(it) || it.selected) continue;
+                        stray.push(it);
+                    } catch (eI) {}
+                }
+            }
+            var target = null, moved = 0;
+            for (i = 0; i < stray.length; i++) {
+                if (!target) target = fallbackLayer(d);
+                try { stray[i].move(target, ElementPlacement.PLACEATBEGINNING); moved++; } catch (eM) {}
+            }
+            var switched = false;
+            if ((!sel || !sel.length) && act && isToolLayer(act)) {
+                if (!target) target = fallbackLayer(d);
+                try { d.activeLayer = target; switched = true; } catch (eA) {}
+            }
+            return '{"ok":true,"moved":' + moved + ',"detached":' + detached + ',"switched":' + (switched ? "true" : "false") +
+                ',"layer":"' + esc(target ? target.name : "") + '"}';
+        } catch (e) { return res(false, e.message); }
+    }
+
     // ---------- 設定檔（給快捷鍵腳本使用） ----------
     // 面板第一次開啟（還沒有自己的設定）時，沿用快捷鍵腳本用的設定檔
     function loadSettings() {
@@ -2216,6 +2864,7 @@ $.global.CMF = (function () {
         syncAll: syncAll,
         restyle: restyle,
         relayout: relayout,
+        alignLabels: alignLabels,
         selectAll: selectAll,
         toggleLayer: toggleLayer,
         listFonts: listFonts,
@@ -2229,12 +2878,17 @@ $.global.CMF = (function () {
         swapItems: swapItems,
         replaceText: replaceText,
         dimAdd: dimAdd,
+        dimLenBegin: dimLenBegin,
+        dimLenPoll: dimLenPoll,
+        dimLenEnd: dimLenEnd,
         dimInfo: dimInfo,
         dimSync: dimSync,
         dimRestyle: dimRestyle,
         dimSelectAll: dimSelectAll,
         dimToggle: dimToggle,
         pickStyle: pickStyle,
+        guardLayers: guardLayers,
+        artboardSize: artboardSize,
         loadSettings: loadSettings,
         saveSettings: saveSettings
     };

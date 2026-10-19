@@ -10,6 +10,8 @@
  *     names：{ 部位: 卡片標題 } 或 function (部位) → 標題；key、hintKey：localStorage 記住選的部位、看過提示了；
  *     first：沒有記錄（或記錄的部位不在圖上）時選的部位
  *   fc.marked(部位)：圖上要不要框起來；fc.hint()：還要不要畫提示；fc.update()：圖重畫之後呼叫
+ *   fc.current()：選著的部位（卡片開著時），沒有 = null。「同步全部」、「套用選取」、「吸取樣式」只處理這個部位的設定
+ * 點圖上的空白處（不是部位）取消選取、關掉卡片
  */
 (function () {
   'use strict';
@@ -90,14 +92,21 @@
 
     function partOf(e) { return e.target.closest && e.target.closest('[data-part]'); }
 
+    // downOnPart：按下去的地方是部位。從部位拖曳到空白處放開時，click 落在圖上，不算點空白處
+    var downOnPart = false;
     o.svg.addEventListener('click', function (e) {
       var g = partOf(e);
-      if (!g) return;
+      if (!g) {
+        // 點空白處：取消選取（圖上的按鈕、圓點不算）
+        if (!downOnPart && !(e.target.closest && e.target.closest('button, label, input'))) close(false);
+        return;
+      }
       openPart(g.getAttribute('data-part'), false);
       dropHint();
     });
     // 卡片開著時，按下去就換：拖曳改大小時，卡片裡的欄位跟著變
     o.svg.addEventListener('pointerdown', function (e) {
+      downOnPart = !!partOf(e);
       var g = open && e.button === 0 && partOf(e);
       if (g && g.getAttribute('data-part') !== part) { setPart(g.getAttribute('data-part')); place(); }
     });
@@ -122,6 +131,7 @@
     return {
       place: place,
       marked: function (p) { return open && part === p; },
+      current: function () { return open ? part : null; },
       hint: function () { return hint; },
       update: function () {
         var has = function (p) { return !!p && !!partEl(p); };

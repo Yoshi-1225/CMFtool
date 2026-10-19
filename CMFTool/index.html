@@ -23,6 +23,28 @@
 
 <!-- ==================== 標註 ==================== -->
 <section class="page" id="page-callout" role="tabpanel">
+  <!-- 新增哪一種：編號（圓圈或數字）、色號（色塊 + 一行文字）或文字說明（箭頭 + 一段文字）。
+       三種共用下面的線條模式和「樣式」（文字說明的端點另外設定） -->
+  <div class="seg" role="radiogroup" aria-label="新增哪一種標註">
+    <input type="radio" class="tgl-in" name="kindSel" id="kindNumber" value="number" checked>
+    <label class="sg" for="kindNumber" title="編號：圓圈或數字，對應 CMF 清單" aria-label="編號"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r="4"/><path d="M13 4.9l1-.6v4.4"/><path d="M10.6 9.4 4.6 15.4"/><circle cx="4.2" cy="15.8" r="1.4" fill="currentColor" stroke="none"/></svg></label>
+    <input type="radio" class="tgl-in" name="kindSel" id="kindSwatch" value="swatch">
+    <label class="sg" for="kindSwatch" title="色號：色塊 + 一行文字（例如 PANTONE 186 C），不編號" aria-label="色號"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6.5" width="7" height="7" rx="1.3" fill="currentColor" stroke="none"/><path d="M12 8.2h5.5M12 11.8h4"/></svg></label>
+    <input type="radio" class="tgl-in" name="kindSel" id="kindNote" value="note">
+    <label class="sg" for="kindNote" title="文字說明：箭頭 + 一段文字（可以好幾行），不編號" aria-label="文字說明"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 4.5h7M10.5 7.5h7M10.5 10.5h4.5"/><path d="M8.5 9.5 3 15M3 11.2V15h3.8"/></svg></label>
+  </div>
+  <input type="hidden" id="kind" value="number">
+  <div class="swrow" id="swRow" hidden>
+    <input type="checkbox" class="tgl-in" id="swNoLine"><label class="ibtn tbtn" for="swNoLine" title="沒有箭頭：只有色塊 + 文字，在畫布上點一下就放在那裡（色塊的左邊）。再按一次回到有引線的色號" aria-label="沒有箭頭"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6.5" width="7" height="7" rx="1.3" fill="currentColor" stroke="none"/><path d="M12 8.2h5.5M12 11.8h4"/><path d="M3 3l14 14" stroke-width="1.3" opacity=".75"/></svg></label>
+    <input type="color" id="swColor" value="#2b7bd6" title="色塊的顏色：按滴管點畫布上的物件取色（特別色、全域色票會一起帶入名稱）">
+    <input type="text" id="swText" value="Pantone" placeholder="色號，例如 PANTONE 186 C" spellcheck="false" autocomplete="off"
+           title="色塊旁邊的文字（一行）；空白 = 色票名稱或色碼">
+    <input type="hidden" id="swSpot">
+  </div>
+  <div class="noterow" id="noteRow" hidden>
+    <input type="checkbox" class="tgl-in" id="noteArrowOnly"><label class="ibtn tbtn" for="noteArrowOnly" title="只畫箭頭：新增的文字說明只有箭頭，沒有文字（再按一次回到箭頭 + 文字）" aria-label="只畫箭頭"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 4 4.5 15.5M4.5 10.5v5h5"/></svg></label>
+    <textarea id="noteText" rows="2" placeholder="文字說明（Enter 換行）" spellcheck="false" title="箭頭旁邊的文字，可以好幾行"></textarea>
+  </div>
   <button class="add" id="btnAdd">新增標註</button>
   <div class="addopts">
     <select id="lineMode" aria-label="線條模式" title="直線：點 2 下　折線：點 3 下　自由折線：按「完成這條線」結束">
@@ -35,7 +57,8 @@
   </div>
   <button class="btn strong hidden" id="btnFinish">完成這條線</button>
 
-  <div class="sect">
+  <!-- 編號表：只有新增編號時顯示（色號、文字說明沒有編號） -->
+  <div class="sect" id="numSect">
     <div class="sect-head">
       <span class="sect-title">編號</span>
       <span class="sect-meta" id="tableInfo"></span>
@@ -63,7 +86,7 @@
     <div class="fig-wrap">
       <div class="cfig">
         <svg id="preview" viewBox="0 0 240 240" role="group" aria-label="標註的樣式：點圖上的編號、圓圈、引線或端點，打開它的設定"></svg>
-        <button class="fig-reset" id="btnReset" type="button" title="重設大小：字級、圓圈內距和邊框、線寬、端點大小、繪圖樣式的 %、間距改回預設值（顏色、字體、圓圈底開關、端點樣式不變）" aria-label="重設大小"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3.2 8.6A4.9 4.9 0 1 0 4.6 4.4"/><path d="M4.4 1.9v2.7h2.7"/></svg></button>
+        <button class="fig-reset" id="btnReset" type="button" title="重設大小：字級、圓圈內距和邊框、色塊、線寬、端點大小、繪圖樣式的 %、間距改回預設值，依目前工作區的大小等比放大縮小（A4 = 字級 10、線寬 0.75；A3 × 1.41）（顏色、字體、圓圈底開關、端點樣式不變）" aria-label="重設大小"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3.2 8.6A4.9 4.9 0 1 0 4.6 4.4"/><path d="M4.4 1.9v2.7h2.7"/></svg></button>
       </div>
       <div class="pop" id="stylePop" role="dialog" aria-labelledby="popTitle" hidden>
         <div class="pop-head"><span class="pop-title" id="popTitle">文字</span><button class="icon-btn pop-close" title="關閉（Esc）" aria-label="關閉"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
@@ -74,7 +97,7 @@
             <div class="pair">
               <input type="number" id="fontSize" min="1" step="0.5" value="10" title="字級 (pt)">
               <input type="color" id="textColor" value="#000000" title="編號的顏色">
-              <input type="color" id="badgeTextColor" value="#ffffff" title="圓圈裡的數字顏色">
+              <input type="color" id="badgeTextColor" value="#000000" title="圓圈裡的數字顏色">
             </div>
           </div>
           <div class="row">
@@ -94,22 +117,36 @@
         </div>
 
         <div class="pane" data-pane="badge" hidden>
-          <label class="check"><input type="checkbox" id="badge">圓圈底</label>
+          <label class="check"><input type="checkbox" id="badge" checked>圓圈底</label>
           <div id="badgeRows">
             <div class="row">
               <label for="badgeColor">顏色</label>
-              <input type="color" id="badgeColor" value="#2b7bd6" title="圓圈顏色">
+              <input type="color" id="badgeColor" value="#ffffff" title="圓圈顏色">
             </div>
             <div class="row">
               <label for="badgePadding">內距</label>
-              <input type="number" id="badgePadding" min="0" step="0.5" value="2" title="數字到圓圈邊緣的距離 (pt)">
+              <input type="number" id="badgePadding" min="0" step="0.5" value="3" title="數字到圓圈邊緣的距離 (pt)">
             </div>
             <div class="row">
               <label for="badgeStrokeWidth">邊框</label>
               <div class="pair">
-                <input type="number" id="badgeStrokeWidth" min="0" step="0.25" value="0" title="邊框粗細 (pt)，0 = 無邊框">
-                <input type="color" id="badgeStrokeColor" value="#000000" title="邊框顏色">
+                <input type="number" id="badgeStrokeWidth" min="0" step="0.25" value="0.5" title="邊框粗細 (pt)，0 = 無邊框">
+                <input type="color" id="badgeStrokeColor" value="#404040" title="邊框顏色">
               </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane" data-pane="chip" hidden>
+          <div class="row">
+            <label for="chipSize">大小</label>
+            <input type="number" id="chipSize" min="1" step="0.5" value="10" title="色塊的邊長 (pt)">
+          </div>
+          <div class="row">
+            <label for="chipBorder">邊框</label>
+            <div class="pair">
+              <input type="number" id="chipBorder" min="0" step="0.25" value="0" title="色塊的邊框粗細 (pt)，0 = 無邊框（淺色的色塊加邊框才看得清楚）">
+              <input type="color" id="chipBorderColor" value="#808080" title="色塊的邊框顏色">
             </div>
           </div>
         </div>
@@ -119,7 +156,7 @@
             <label for="lineWidth">線寬</label>
             <div class="pair">
               <input type="number" id="lineWidth" min="0.1" step="0.25" value="0.75" title="線寬 (pt)">
-              <input type="color" id="lineColor" value="#2b7bd6" title="線條顏色">
+              <input type="color" id="lineColor" value="#404040" title="線條顏色">
             </div>
           </div>
           <div class="row">
@@ -154,13 +191,23 @@
         </div>
       </div>
     </div>
-    <!-- 工具列（滑鼠停上去有說明）：同步全部、套用選取、吸取樣式、重新排版、修改樣式時自動同步全部 -->
+    <!-- 工具列（滑鼠停上去有說明）：同步全部、套用選取、修改樣式時自動套用到選取的標註｜靠右：重新排版、吸取樣式 -->
     <div class="tools" role="toolbar" aria-label="標註的樣式工具">
-      <button class="ibtn" id="btnSync" title="同步全部：工作區裡的標註都套用目前的樣式；工作區外面的不動（要改就選取後按「套用選取」）" aria-label="同步全部"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5a6 6 0 0 1 10.4-3.8M16 10.5a6 6 0 0 1-10.4 3.8M14.8 3v3h-3M5.2 17v-3h3"/><rect x="8" y="8" width="4" height="4" rx="1"/></svg></button>
-      <button class="ibtn" id="btnRestyle" title="套用選取：只把選取的標註改成目前的樣式" aria-label="套用選取"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3.5l9.5 4.8-4.2 1.3-1.6 4.3z"/><path d="M14.5 11.5l.8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8z"/></svg></button>
-      <button class="ibtn" id="btnPickStyle" title="吸取樣式：選取一個標註後按這裡：下面的樣式改成跟它一樣，之後新增的標註就用這個樣式（要改其他標註，再按「同步全部」或「套用選取」）" aria-label="吸取樣式"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.6 3.6a1.9 1.9 0 0 1 2.7 0l1.1 1.1a1.9 1.9 0 0 1 0 2.7l-1.6 1.6-3.8-3.8z"/><path d="M11 5.2 4.4 11.8 3.5 16.5l4.7-.9 6.6-6.6"/></svg></button>
+      <button class="ibtn" id="btnSync" title="同步全部：工作區裡跟上面選的同一種（編號、色號或文字說明）的標註都套用目前的樣式，其他種類不動；工作區外面的也不動（要改就選取後按「套用選取」）" aria-label="同步全部"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5a6 6 0 0 1 10.4-3.8M16 10.5a6 6 0 0 1-10.4 3.8M14.8 3v3h-3M5.2 17v-3h3"/><rect x="8" y="8" width="4" height="4" rx="1"/></svg></button>
+      <button class="ibtn" id="btnRestyle" title="套用選取：只把選取的標註改成目前的樣式（只改跟上面選的同一種的）" aria-label="套用選取"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3.5l9.5 4.8-4.2 1.3-1.6 4.3z"/><path d="M14.5 11.5l.8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8z"/></svg></button>
+      <input type="checkbox" class="tgl-in" id="autoSync"><label class="ibtn tbtn" for="autoSync" title="修改樣式時自動套用到選取的標註：選取標註之後改樣式，選取的標註馬上跟著改（只改跟上面選的同一種的；樣式圖選著一個部位時只改那個部位）" aria-label="修改樣式時自動套用到選取的標註"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2.5 5 11h4.2l-1 6.5 6-8.6H10z"/></svg></label>
+      <span class="sp"></span>
       <button class="ibtn" id="btnRelayout" title="重新排版：用直接選取工具移動線條錨點後，讓編號重新對齊" aria-label="重新排版"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="14" cy="6.5" r="3.2"/><path d="M11.2 8.2 4.8 15.5"/><circle cx="4.5" cy="15.8" r="1.3" fill="currentColor" stroke="none"/><path d="M2.5 6.5h6" stroke-dasharray="1.6 1.8"/></svg></button>
-      <input type="checkbox" class="tgl-in" id="autoSync"><label class="ibtn tbtn" for="autoSync" title="修改樣式時自動同步全部：改了樣式，工作區裡的標註馬上跟著改" aria-label="修改樣式時自動同步全部"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2.5 5 11h4.2l-1 6.5 6-8.6H10z"/></svg></label>
+      <button class="ibtn" id="btnPickStyle" title="吸取樣式：選取一個標註後按這裡：下面的樣式改成跟它一樣，之後新增的標註就用這個樣式（要改其他標註，再按「同步全部」或「套用選取」）" aria-label="吸取樣式"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.6 3.6a1.9 1.9 0 0 1 2.7 0l1.1 1.1a1.9 1.9 0 0 1 0 2.7l-1.6 1.6-3.8-3.8z"/><path d="M11 5.2 4.4 11.8 3.5 16.5l4.7-.9 6.6-6.6"/></svg></button>
+    </div>
+  </details>
+
+  <!-- 對齊標籤：選取兩個以上的標註，標籤排成一橫排或一直列（host.jsx 的 alignLabels） -->
+  <details data-key="align" open>
+    <summary>對齊</summary>
+    <div class="tools" role="toolbar" aria-label="對齊標籤">
+      <button class="ibtn" id="btnAlignRow" title="排成一橫排：選取兩個以上的標註（編號、色號、文字說明都可以），標籤的中線對齊成一橫排。箭頭指的位置不變，只移動線的標籤那一端；對齊到離產品最遠的那個" aria-label="排成一橫排"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12h16" stroke-dasharray="1.6 1.7"/><rect x="3.5" y="9" width="5" height="6" rx="1"/><rect x="11.5" y="9" width="5" height="6" rx="1"/><path d="M6 9V3M14 9V4.5"/></svg></button>
+      <button class="ibtn" id="btnAlignCol" title="排成一直列：選取兩個以上的標註，標籤靠線的那一邊對齊成一直列（標籤在線的右邊 = 左緣對齊，在左邊 = 右緣對齊）。箭頭指的位置不變，只移動線的標籤那一端；對齊到離產品最遠的那個" aria-label="排成一直列"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2v16" stroke-dasharray="1.6 1.7"/><rect x="10" y="3.5" width="6.5" height="4.5" rx="1"/><rect x="10" y="12" width="5" height="4.5" rx="1"/><path d="M10 5.7H3M10 14.2H4.5"/></svg></button>
     </div>
   </details>
 
@@ -188,6 +235,7 @@
       <button class="btn" id="btnSelectAll">選取全部標註</button>
       <button class="btn" id="btnToggle">顯示 / 隱藏圖層</button>
     </div>
+    <label class="check" title="CMF Callouts、CMF Dimensions、CMF Tables 圖層只給工具用：在這兩個圖層畫的其他東西，取消選取後自動搬到你上次用的圖層；沒選取東西時，作用中的圖層也自動切回去。標註、尺寸搬到（或複製貼上到）其他圖層，就變成一般物件，不再同步（標註分頁、尺寸分頁共用這個設定）"><input type="checkbox" id="guardLayers" checked>CMF 圖層只放標註、尺寸和表格</label>
   </details>
 </section>
 
@@ -215,6 +263,7 @@
       <label class="ticon" for="dimTypeRad" title="圓弧、圓角的半徑；同樣大小的圓角標一個" aria-label="半徑"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M4 17v-7a6 6 0 0 1 6-6h7"/><path d="M10 10 6 6"/><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/></svg></label>
     </div>
     <span class="sp"></span>
+    <button class="go alt" id="btnDimLen" type="button" aria-pressed="false" title="兩點距離：切到鋼筆，點起點、點終點，標一個箭頭和中間的距離（不用選物件）。箭頭只畫一端時畫在起點。按住 Shift 鎖水平、垂直；標好一個就切回選取工具（再按一次或 Esc 取消）" aria-label="兩點距離"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12.5h14M5.6 10.3 3 12.5l2.6 2.2M14.4 10.3l2.6 2.2-2.6 2.2"/><path d="M7.5 7h5" stroke-width="1.3"/></svg></button>
     <button class="go" id="btnDimAdd" title="標尺寸：照選好的類型和位置，標註選取的物件" aria-label="標尺寸"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="11" width="16" height="16" rx="1.5"/><path d="M5 6h16M5 4v4M21 4v4M26 11v16M24 11h4M24 27h4"/></svg></button>
   </div>
   <!-- 示範框：照目前的樣式畫一個尺寸，左上角切換標矩形（寬、高）或標圓（直徑）。點文字、尺寸線、端點、延伸線，
@@ -228,6 +277,8 @@
         <label class="fm" for="dimFigRect" title="示範標矩形：寬度、高度"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="2.5" y="5.5" width="11" height="8" rx=".8"/><path d="M2.5 2.5h11M2.5 1.5v2M13.5 1.5v2"/></svg></label>
         <input type="radio" class="tgl-in" name="dimFig" id="dimFigCircle" value="circle">
         <label class="fm" for="dimFigCircle" title="示範標圓：直徑"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="6.5" cy="9.5" r="5"/><path d="M10 6 12.5 3.5H15.5"/></svg></label>
+        <input type="radio" class="tgl-in" name="dimFig" id="dimFigLen" value="len">
+        <label class="fm" for="dimFigLen" title="示範兩點距離：箭頭和中間的距離（上面的「兩點距離」按鈕標）"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 4v9M14.5 4v9M2 8.5h12M4 7l-2 1.5L4 10M12 7l2 1.5-2 1.5"/></svg></label>
       </div>
       <div class="pad" id="dimPad" role="group" aria-label="寬高標在哪一邊（可以多選）">
         <input type="checkbox" class="tgl-in" id="dimPosTop" checked>
@@ -239,7 +290,7 @@
         <input type="checkbox" class="tgl-in" id="dimPosBottom">
         <label class="dot down" for="dimPosBottom" title="寬度標在下方" aria-label="下"></label>
       </div>
-      <button class="fig-reset" id="btnDimReset" type="button" title="重設大小：字級、線寬、端點、文字離線、斷開留空、延伸線、引線、距離和自動調整的基準改回預設值（顏色、字體、數字格式、標法不變）" aria-label="重設大小"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3.2 8.6A4.9 4.9 0 1 0 4.6 4.4"/><path d="M4.4 1.9v2.7h2.7"/></svg></button>
+      <button class="fig-reset" id="btnDimReset" type="button" title="重設大小：字級、線寬、端點、文字離線、斷開留空、延伸線、引線、距離和自動調整的基準改回預設值，依目前工作區的大小等比放大縮小（A4 = 字級 8、線寬 0.5；A3 × 1.41）（顏色、字體、數字格式、標法不變）" aria-label="重設大小"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3.2 8.6A4.9 4.9 0 1 0 4.6 4.4"/><path d="M4.4 1.9v2.7h2.7"/></svg></button>
     </div>
     <div class="pop" id="dimPop" role="dialog" aria-labelledby="dimPopTitle" hidden>
       <div class="pop-head"><span class="pop-title" id="dimPopTitle">文字</span><button class="icon-btn pop-close" title="關閉（Esc）" aria-label="關閉"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
@@ -355,8 +406,15 @@
           <label for="dimLineWidth">線寬</label>
           <div class="pair">
             <input type="number" id="dimLineWidth" min="0.1" step="0.25" value="0.5" title="線寬 (pt)">
-            <input type="color" id="dimLineColor" value="#000000" title="線條和箭頭的顏色">
+            <input type="color" id="dimLineColor" value="#404040" title="線條和箭頭的顏色">
           </div>
+        </div>
+        <div class="row only-len">
+          <label for="dimLenSide">文字在</label>
+          <select id="dimLenSide" title="兩點距離的文字放在線的哪一側：橫的線是上面或下面，直的線是左邊或右邊。新增時用這個；已經標好的，選取後按「套用選取」改（「同步全部」不改）">
+            <option value="a">上方／左側</option>
+            <option value="b">下方／右側</option>
+          </select>
         </div>
         <div class="row only-rect">
           <label for="dimOffset">距離</label>
@@ -406,7 +464,14 @@
             <input type="number" id="dimEndSize" min="0.5" step="0.5" value="4" title="端點大小：箭頭、斜線的長度 (pt)">
           </div>
         </div>
-        <div class="row only-rect">
+        <div class="row only-len">
+          <label for="dimLenEnds">兩點距離</label>
+          <select id="dimLenEnds" title="兩點距離的箭頭：兩端都畫，或只畫在起點（第一下點的地方），另一端留給文字說明">
+            <option value="both">兩端</option>
+            <option value="one">只畫起點（單向）</option>
+          </select>
+        </div>
+        <div class="row only-rect and-len">
           <label for="dimArrowPos">箭頭位置</label>
           <select id="dimArrowPos" title="寬高的箭頭（開放箭頭）放在延伸線內側往外指，或放在外側往內指">
             <option value="auto">自動（放不下時放外側）</option>
@@ -436,30 +501,34 @@
     </div>
   </div>
 
-  <!-- 工具列（滑鼠停上去有說明）：量法的兩個開關 | 樣式：同步全部、套用選取、吸取樣式、修改時自動套用 | ⋯ 其他 -->
-  <div class="tools" role="toolbar" aria-label="尺寸的工具">
-    <input type="checkbox" class="tgl-in" id="dimVisible"><label class="ibtn tbtn" for="dimVisible" title="含線寬：量到線條的外緣：寬高跟「變形」面板勾「使用預視邊界」一樣，圓的直徑、圓角的半徑也加上線寬；不勾 = 只量形狀（線條中間）" aria-label="含線寬"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="4.5" width="11" height="11" rx="2.5" stroke-width="3"/><rect x="1.8" y="1.8" width="16.4" height="16.4" rx="4" stroke-width=".9" stroke-dasharray="1.5 1.6"/></svg></label>
-    <input type="checkbox" class="tgl-in" id="dimAuto"><label class="ibtn tbtn" for="dimAuto" title="依物件大小自動調整樣式：字級、線寬、箭頭、間距、引線和距離跟著量的物件大小等比調整：示範框裡的樣式數值是給「基準」大小的物件用的，物件比較大就放大、比較小就縮小（最多縮到一半）。只在新增尺寸時作用；「同步全部」、「套用選取」會把尺寸都改成面板上的樣式" aria-label="依物件大小自動調整樣式"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="11" width="6" height="6" rx="1.2"/><rect x="2.5" y="2.5" width="15" height="15" rx="3" stroke-dasharray="1.6 1.8"/><path d="M10 10l4.5-4.5M11 5.5h3.5V9"/></svg></label>
-    <span class="tools-sep"></span>
+  <!-- 樣式的工具列（滑鼠停上去有說明）：同步全部、套用選取、修改時自動套用｜靠右：吸取樣式 -->
+  <div class="tools" role="toolbar" aria-label="尺寸的樣式工具">
     <button class="ibtn" id="btnDimSync" title="同步全部：工作區裡的尺寸都改成面板上的樣式（字級、線寬一樣大）、數字格式和直徑半徑的標法，位置不變；工作區外面的不動（要改就選取後按「套用選取」）" aria-label="同步全部"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5a6 6 0 0 1 10.4-3.8M16 10.5a6 6 0 0 1-10.4 3.8M14.8 3v3h-3M5.2 17v-3h3"/><rect x="8" y="8" width="4" height="4" rx="1"/></svg></button>
     <button class="ibtn" id="btnDimRestyle" title="套用選取：只把選取的尺寸改成面板上的樣式" aria-label="套用選取"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3.5l9.5 4.8-4.2 1.3-1.6 4.3z"/><path d="M14.5 11.5l.8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8z"/></svg></button>
-    <button class="ibtn" id="btnDimPickStyle" title="吸取樣式：選取一個尺寸後按這裡：樣式和數字的設定改成跟它一樣，之後新增的尺寸就用這個樣式（要改其他尺寸，再按「同步全部」或「套用選取」）" aria-label="吸取樣式"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.6 3.6a1.9 1.9 0 0 1 2.7 0l1.1 1.1a1.9 1.9 0 0 1 0 2.7l-1.6 1.6-3.8-3.8z"/><path d="M11 5.2 4.4 11.8 3.5 16.5l4.7-.9 6.6-6.6"/></svg></button>
     <input type="checkbox" class="tgl-in" id="dimAutoApply"><label class="ibtn tbtn" for="dimAutoApply" title="修改時自動套用到選取的尺寸：選取尺寸之後修改樣式、數字或標法，選取的尺寸馬上跟著改" aria-label="修改時自動套用到選取的尺寸"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 2.5 5 11h4.2l-1 6.5 6-8.6H10z"/></svg></label>
     <span class="sp"></span>
-    <button class="ibtn" id="btnDimMore" title="其他" aria-label="其他" aria-expanded="false" aria-controls="dimMore"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="10" r="1.3" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1.3" fill="currentColor" stroke="none"/></svg></button>
+    <button class="ibtn" id="btnDimPickStyle" title="吸取樣式：選取一個尺寸後按這裡：樣式和數字的設定改成跟它一樣，之後新增的尺寸就用這個樣式（要改其他尺寸，再按「同步全部」或「套用選取」）" aria-label="吸取樣式"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.6 3.6a1.9 1.9 0 0 1 2.7 0l1.1 1.1a1.9 1.9 0 0 1 0 2.7l-1.6 1.6-3.8-3.8z"/><path d="M11 5.2 4.4 11.8 3.5 16.5l4.7-.9 6.6-6.6"/></svg></button>
   </div>
-  <div class="tools tools-more" id="dimMore" hidden>
-    <button class="ibtn" id="btnDimSelectAll" title="選取全部尺寸：選取文件裡所有用 CMF Tool 標的尺寸" aria-label="選取全部尺寸"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="15" height="15" rx="3.5" stroke-dasharray="1.8 1.9"/><path d="M6.5 10h7M6.5 8.3v3.4M13.5 8.3v3.4"/></svg></button>
-    <button class="ibtn" id="btnDimToggle" title="顯示 / 隱藏尺寸圖層：切換尺寸所在圖層的顯示" aria-label="顯示 / 隱藏尺寸圖層"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10z"/><circle cx="10" cy="10" r="2.3"/></svg></button>
-  </div>
-  <div class="row" id="dimAutoRow">
-    <label for="dimAutoBase">基準</label>
-    <div class="unit-field">
-      <input type="number" id="dimAutoBase" min="1" step="10" value="100" title="「樣式」的字級、線寬等適合多大的物件：物件較長的一邊等於這個大小時，照樣式原樣標">
-      <span class="unit">mm</span>
+
+  <!-- 其他：量法的兩個開關（含線寬、依物件大小自動調整）｜選取全部尺寸、顯示 / 隱藏圖層 -->
+  <details data-key="dimMore" open>
+    <summary>其他</summary>
+    <div class="tools" role="toolbar" aria-label="尺寸的其他工具">
+      <input type="checkbox" class="tgl-in" id="dimVisible"><label class="ibtn tbtn" for="dimVisible" title="含線寬：量到線條的外緣：寬高跟「變形」面板勾「使用預視邊界」一樣，圓的直徑、圓角的半徑也加上線寬；不勾 = 只量形狀（線條中間）" aria-label="含線寬"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="4.5" width="11" height="11" rx="2.5" stroke-width="3"/><rect x="1.8" y="1.8" width="16.4" height="16.4" rx="4" stroke-width=".9" stroke-dasharray="1.5 1.6"/></svg></label>
+      <input type="checkbox" class="tgl-in" id="dimAuto"><label class="ibtn tbtn" for="dimAuto" title="依物件大小自動調整樣式：字級、線寬、箭頭、間距、引線和距離跟著量的物件大小等比調整：示範框裡的樣式數值是給「基準」大小的物件用的，物件比較大就放大、比較小就縮小（最多縮到一半）。只在新增尺寸時作用；「同步全部」、「套用選取」會把尺寸都改成面板上的樣式" aria-label="依物件大小自動調整樣式"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="11" width="6" height="6" rx="1.2"/><rect x="2.5" y="2.5" width="15" height="15" rx="3" stroke-dasharray="1.6 1.8"/><path d="M10 10l4.5-4.5M11 5.5h3.5V9"/></svg></label>
+      <span class="tools-sep"></span>
+      <button class="ibtn" id="btnDimSelectAll" title="選取全部尺寸：選取文件裡所有用 CMF Tool 標的尺寸" aria-label="選取全部尺寸"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="15" height="15" rx="3.5" stroke-dasharray="1.8 1.9"/><path d="M6.5 10h7M6.5 8.3v3.4M13.5 8.3v3.4"/></svg></button>
+      <button class="ibtn" id="btnDimToggle" title="顯示 / 隱藏尺寸圖層：切換尺寸所在圖層的顯示" aria-label="顯示 / 隱藏尺寸圖層"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10z"/><circle cx="10" cy="10" r="2.3"/></svg></button>
     </div>
-  </div>
-  <div class="hint" id="dimAutoHint"></div>
+  <div class="row" id="dimAutoRow">
+      <label for="dimAutoBase">基準</label>
+      <div class="unit-field">
+        <input type="number" id="dimAutoBase" min="1" step="10" value="100" title="「樣式」的字級、線寬等適合多大的物件：物件較長的一邊等於這個大小時，照樣式原樣標">
+        <span class="unit">mm</span>
+      </div>
+    </div>
+    <div class="hint" id="dimAutoHint"></div>
+  </details>
 
 </section>
 
