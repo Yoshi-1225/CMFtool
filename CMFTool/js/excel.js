@@ -633,6 +633,47 @@
     else if (status) lines.push(['warn', 'Excel 檔案沒有修改（' + psMessage(status.replace(/^error:/, '')) + '）']);
   }
 
+  /* ---------- 表格裡的字寫回 Excel ---------- */
+
+  // 從 Excel 複製貼上的表格：依 Excel 的欄寬、列高算出每一格的位置，把貼上的字綁定到儲存格（es_bindTable）
+  // plan：Illustrator 裡依標註排過（Excel 檔沒排）時的排序，算出每一列是 Excel 的哪一列
+  function bindTable(wb, t, plan) {
+    var shape;
+    try {
+      var sel = Table.parseRange(t.label), opts = {};
+      if (plan && plan.changed && t.cmf) {
+        opts.plan = plan;
+        opts.numCol = Table.cmfConfig(t.cmf, rangeWidth(sel)).num;
+      }
+      var b = Table.buildTable(wb, sel, opts);
+      shape = {
+        width: b.width, height: b.height,
+        cells: b.cells.map(function (c) { return { ref: c.ref, text: c.text, x: c.x, y: c.y, w: c.w, h: c.h }; })
+      };
+    } catch (e) { return Promise.resolve(null); }   // 對不到就不綁定：這個表格的字不會寫回，其他照常
+    return host('es_bindTable', [t.label, JSON.stringify(shape)]).catch(function () { return null; });
+  }
+
+  // 表格換成 Excel 的新內容之後：Illustrator 裡改過、還沒寫回的字放回去，存檔時寫回（跟表格外的綁定文字一樣）。
+  // Excel 那格也改了、是公式，或表格重新排序後那一格換了內容，就用 Excel 的
+  function keepTableEdits(wb, labels, edits, lines) {
+    if (!IS_WIN || !ui.chkWriteBack.checked) return Promise.resolve();
+    var kept = [], lost = [];
+    return labels.reduce(function (p, label) {
+      var e = edits[label];
+      if (!e) return p;
+      var items = Object.keys(e).map(function (ref) { return { ref: ref, text: e[ref].text, base: e[ref].base }; });
+      var plan = Table.writeBackPlan(wb, items, false), keep = {};
+      plan.write.forEach(function (w) { keep[w.ref] = e[w.ref]; kept.push(w.ref); });
+      plan.conflict.concat(plan.formula, plan.unknown).forEach(function (x) { lost.push(typeof x === 'string' ? x : x.ref); });
+      if (!Object.keys(keep).length) return p;
+      return p.then(function () { return host('es_keepTableEdits', [label, JSON.stringify(keep)]); });
+    }, Promise.resolve()).then(function () {
+      if (kept.length) lines.push(['warn', '表格裡在 Illustrator 改過、還沒寫回的字留著，存 .ai 時寫回 Excel：' + refList(kept)]);
+      if (lost.length) lines.push(['warn', '表格裡在 Illustrator 改過的字換成 Excel 的（Excel 那格也改了，或表格重新排序了）：' + refList(lost)]);
+    });
+  }
+
   /* ---------- 從 Excel 更新 ---------- */
 
   // only：只更新一個表格，不動綁定的文字。true = CMF 清單（標註編號改變時），或指定表格範圍
@@ -651,8 +692,8 @@
     ui.btnUpdate.disabled = true;
     var file = state.excelPath;
 
-    return Promise.all([host('es_refs'), host('CMF.listNumbers')]).then(function (res) {
-      var r = res[0], links = linksOf(res[1]);
+    return Promise.all([host('es_refs'), host('CMF.listNumbers'), host('es_tableEdits')]).then(function (res) {
+      var r = res[0], links = linksOf(res[1]), tableEdits = res[2] || {};
       if (!r.doc) throw new Error('請先開啟 Illustrator 文件');
       // 自動更新時，若使用者切到別的文件，就不要動它
       if (auto && r.doc !== state.docKey) return null;
@@ -674,7 +715,9 @@
         return (plans[t.label] = Table.cmfPlan(rows, Table.cmfConfig(t.cmf, rangeWidth(sel)), links));
       };
 
-      return readWorkbook(file, builtTables.length > 0).then(function (wb) {
+      // 要欄寬、列高：重畫內建方式的表格，和對出貼上的表格裡每個字是哪一格（寫回 Excel 用）
+      return readWorkbook(file, tables.length > 0).then(function (wb) {
+        var wbNow = wb;    // Excel 檔依標註排序存檔後，重新讀的
         var lines = [['time', new Date().toLocaleTimeString() + (auto ? '（自動）' : '')]];
         var fonts = {};
         var addFonts = function (list) { (list || []).forEach(function (f) { fonts[f] = true; }); };
@@ -705,6 +748,7 @@
             });
             var replaced = 0, failedLabels = [], planError = {};
             var synced = {};       // Excel 檔已經依標註排好：Illustrator 裡照 Excel 原樣複製，不另外排
+            var fileSaved = {}, fileUnsaved = {};   // Excel 檔排序後存檔了／還沒存檔
             excelStep = excelCopy(file, items, function (i, msg) {
               var t = excelTables[i];
               [].concat(msg.warn || []).forEach(function (w) {
@@ -738,6 +782,8 @@
                 state.selfSave = Date.now();
                 writeReport(msg.write, lines);
                 if (msg.write === 'saved' || msg.write === 'unsaved') synced[i] = true;
+                if (msg.write === 'saved') fileSaved[i] = true;
+                if (msg.write === 'unsaved') fileUnsaved[i] = true;
               }
               if (synced[i]) {
                 try { planFor(t, rows); } catch (e) {}      // 只為了結果欄的說明
@@ -781,7 +827,21 @@
             tableData[t.label] = Table.buildTable(wb, sel, opts);
           } catch (e) { tableErrors.push(t.label + '：' + e.message); }
         };
-        var step = excelStep.then(function () {
+        // 0b. 貼上的表格：每個字對到儲存格，之後在 Illustrator 裡改的才能寫回 Excel
+        //     Excel 檔排好但還沒存檔時，檔案裡的順序跟表格不一樣，不綁定
+        var bindStep = excelStep.then(function () {
+          var todo = excelTables.map(function (t, i) { return { t: t, i: i }; })
+            .filter(function (x) { return done[x.t.label] && !fileUnsaved[x.i]; });
+          if (!todo.length) return null;
+          var fresh = todo.some(function (x) { return fileSaved[x.i]; });
+          return (fresh ? readWorkbook(file, true) : Promise.resolve(wb)).then(function (bw) {
+            wbNow = bw;
+            return todo.reduce(function (p, x) {
+              return p.then(function () { return bindTable(bw, x.t, synced[x.i] ? null : plans[x.t.label]); });
+            }, Promise.resolve());
+          });
+        });
+        var step = bindStep.then(function () {
           builtTables.forEach(addBuilt);
           return Object.keys(tableData).length ? host('es_rebuildTables', [JSON.stringify(tableData)]) : null;
         });
@@ -797,7 +857,10 @@
           tableErrors.forEach(function (m) { lines.push(['error', m]); });
           // CMF 清單：表格真的換成新的才回報排序結果
           tables.forEach(function (t) { if (t.cmf && done[t.label] && plans[t.label]) cmfReport(plans[t.label], lines); });
-
+          var labels = tables.map(function (t) { return t.label; })
+            .filter(function (l, i, a) { return done[l] && a.indexOf(l) === i; });
+          return keepTableEdits(wbNow, labels, tableEdits, lines);
+        }).then(function () {
           // 2. 個別綁定的文字：只換內容。會寫回 Excel 時，Illustrator 裡改過、還沒寫回的文字留著（見 es_apply）
           if (!refs.length) return null;
           var report = collectValues(wb, refs);
@@ -971,7 +1034,7 @@
           ui.rangeRef.value = label;
           ui.result.hidden = true;
           App.setStatus('已匯入 ' + label + (res.live ? '（Excel 目前開啟的內容）' : ''));
-          return refreshContext();
+          return bindTable(wb, { label: label }, null).then(refreshContext);
         }
         // 不改用內建方式畫：外觀會跟 Excel 不一樣
         throw new Error('無法透過 Excel 匯入：' + psMessage(res.errors[0] || res.fatal || '未知的錯誤'));
@@ -1002,7 +1065,7 @@
   }
 
   /* ---------- 寫回 Excel：Illustrator 裡改過的綁定文字（Windows 透過 Excel） ---------- */
-  // Illustrator 存檔後（勾「存 .ai 時寫回 Excel」）或按「現在寫回」：綁定的文字（表格外）內容跟上次從 Excel 更新
+  // Illustrator 存檔後（勾「存 .ai 時寫回 Excel」）或按「現在寫回」：綁定的文字（含表格裡的字）內容跟上次從 Excel 更新
   // （或綁定）時不一樣的，寫回 Excel 對應的儲存格（Table.writeBackPlan 決定寫哪些，scripts/excel-write.ps1 寫）。
   // 存檔時：Excel 那邊也改過、不知道是哪邊改的，不寫、說明一下；「現在寫回」= 這些也用 Illustrator 的。
   // 公式不動；開著的 Excel 裡還沒存檔的修改不會被蓋掉。寫完後同一格的其他文字也換成新的內容，記下這次的內容
@@ -1097,7 +1160,7 @@
     if (plan.multi.length) lines.push(['warn', '同一格的好幾個文字改得不一樣，沒有寫回：' + refList(plan.multi)]);
     if (plan.missing.length) lines.push(['warn', '找不到工作表或儲存格：' + refList(plan.missing)]);
 
-    var step = Object.keys(apply).length ? host('es_apply', [JSON.stringify(apply)]) : Promise.resolve(null);
+    var step = Object.keys(apply).length ? host('es_apply', [JSON.stringify(apply), '', '1']) : Promise.resolve(null);
     return step.then(function () {
       var notes = lines.filter(function (l) { return l[0] !== 'time'; });
       if (!notes.length) { if (force) App.setStatus('Excel 已經是最新的'); return refreshContext(); }

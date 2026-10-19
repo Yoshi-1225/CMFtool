@@ -2006,6 +2006,164 @@ $.global.CMF = (function () {
         } catch (e) { return res(false, e.message); }
     }
 
+    // ---------- 取代文字（含工作區名稱）：一次換好幾組，例如版本號和日期 ----------
+    // o = { pairs: [{ find, rep }], scope: "all" | "artboard" | "sel", text, boards, cs 區分大小寫,
+    //       skipCmf 略過標註和尺寸, locked 也改鎖定、隱藏的, dry 只計算不取代 }
+    // 幾組同時取代（A→B、B→C 不會連鎖），同一個位置有好幾組符合時用最長的
+    // 回傳 counts：每一組符合幾處；frames、names：改了（或會改）幾個文字框、工作區名稱
+    function findMatches(s, keys, cs) {
+        var hay = cs ? s : s.toLowerCase(), out = [], pos = 0, k;
+        if (hay.length !== s.length) hay = s;   // 少數字元轉小寫後長度會變：改成區分大小寫，位置才對得上
+        while (pos < s.length) {
+            var best = -1, at = -1, len = 0;
+            for (k = 0; k < keys.length; k++) {
+                if (!keys[k]) continue;
+                var i = hay.indexOf(keys[k], pos);
+                if (i < 0) continue;
+                if (at < 0 || i < at || (i === at && keys[k].length > len)) { best = k; at = i; len = keys[k].length; }
+            }
+            if (best < 0) break;
+            out.push({ at: at, len: len, k: best });
+            pos = at + len;
+        }
+        return out;
+    }
+
+    function applyMatches(s, matches, pairs) {
+        var out = "", pos = 0;
+        for (var i = 0; i < matches.length; i++) {
+            out += s.substring(pos, matches[i].at) + pairs[matches[i].k].rep;
+            pos = matches[i].at + matches[i].len;
+        }
+        return out + s.substring(pos);
+    }
+
+    // 一段一段換，每段保留它原本的字型、顏色；對不上時（例如段落之間的換行）整個文字框一起換，格式跟第一個字
+    function replaceInFrame(tf, s, matches, pairs) {
+        var full = applyMatches(s, matches, pairs);
+        for (var i = matches.length - 1; i >= 0; i--) {
+            var m = matches[i], done = false;
+            try {
+                var r = tf.characters[m.at];
+                r.length = m.len;
+                if (r.contents === s.substr(m.at, m.len)) { r.contents = pairs[m.k].rep; done = true; }
+            } catch (e) {}
+            if (!done) break;
+        }
+        if (tf.contents !== full) tf.contents = full;
+    }
+
+    function inCmf(it) {
+        for (var p = it.parent; p && p.typename !== "Layer" && p.typename !== "Document"; p = p.parent) {
+            if (isCallout(p) || isDim(p)) return true;
+        }
+        return false;
+    }
+
+    // 自己或上層的圖層、群組是鎖定或隱藏的
+    function isBlocked(it) {
+        for (var p = it; p && p.typename !== "Document"; p = p.parent) {
+            try {
+                if (p.locked) return true;
+                if (p.typename === "Layer" ? !p.visible : p.hidden) return true;
+            } catch (e) {}
+        }
+        return false;
+    }
+
+    function collectFrames(items, out) {
+        for (var i = 0; i < items.length; i++) {
+            var it = items[i];
+            if (it.typename === "TextFrame") out.push(it);
+            else if (it.typename === "GroupItem") collectFrames(it.pageItems, out);
+        }
+    }
+
+    function replaceText(optStr) {
+        var coords = useDocCoords();
+        try {
+            var d = getDoc(), o = parse(optStr), cs = !!o.cs, dry = !!o.dry, i, k;
+            var pairs = [], keys = [], counts = [];
+            for (i = 0; i < (o.pairs || []).length; i++) {
+                var f = String(o.pairs[i].find || ""), r = String(o.pairs[i].rep || "");
+                pairs.push({ find: f, rep: r });
+                keys.push(f ? (cs ? f : f.toLowerCase()) : "");
+                counts.push(0);
+            }
+
+            // 範圍：要看的文字框、工作區
+            var frames = [], boards = [], items = o.scope === "sel" ? selectedItems(d) : [];
+            if (o.scope === "sel" && !items.length) return res(false, "請先選取要取代的物件");
+            if (o.text) {
+                if (o.scope === "sel") collectFrames(items, frames);
+                else {
+                    var abRect = o.scope === "artboard" ? d.artboards[d.artboards.getActiveArtboardIndex()].artboardRect : null;
+                    for (i = 0; i < d.textFrames.length; i++) {
+                        var t = d.textFrames[i];
+                        if (!abRect || overlapArea(t.geometricBounds, abRect, 0.01) > 0) frames.push(t);
+                    }
+                }
+            }
+            if (o.boards) {
+                if (o.scope === "all") { for (i = 0; i < d.artboards.length; i++) boards.push(i); }
+                else if (o.scope === "artboard") boards.push(d.artboards.getActiveArtboardIndex());
+                else {
+                    // 選取的物件所在的工作區
+                    var on = {};
+                    for (i = 0; i < items.length; i++) {
+                        for (k = 0; k < d.artboards.length; k++) {
+                            if (!on[k] && overlapArea(items[i].geometricBounds, d.artboards[k].artboardRect, 0.01) > 0) { on[k] = true; boards.push(k); }
+                        }
+                    }
+                }
+            }
+
+            var nFrames = 0, nNames = 0, skipCmf = 0, skipLocked = 0, failed = 0, err = "";
+            for (i = 0; i < frames.length; i++) {
+                var tf = frames[i], s;
+                try { s = tf.contents; } catch (e) { continue; }
+                var ms = findMatches(s, keys, cs);
+                if (!ms.length) continue;
+                if (o.skipCmf !== false && inCmf(tf)) { skipCmf++; continue; }
+                var blocked = isBlocked(tf);
+                if (blocked && !o.locked) { skipLocked++; continue; }
+                if (!dry) {
+                    var saved = blocked ? openAncestors(tf) : [];
+                    try { replaceInFrame(tf, s, ms, pairs); }
+                    catch (e) { failed++; err = e.message; restoreTemp(saved); continue; }
+                    restoreTemp(saved);
+                }
+                for (k = 0; k < ms.length; k++) counts[ms[k].k]++;
+                nFrames++;
+            }
+            for (i = 0; i < boards.length; i++) {
+                var ab = d.artboards[boards[i]], name = ab.name, mn = findMatches(name, keys, cs);
+                if (!mn.length) continue;
+                if (!dry) {
+                    try { ab.name = applyMatches(name, mn, pairs); }
+                    catch (e) { failed++; err = e.message; continue; }
+                }
+                for (k = 0; k < mn.length; k++) counts[mn[k].k]++;
+                nNames++;
+            }
+
+            var total = 0;
+            for (k = 0; k < counts.length; k++) total += counts[k];
+            var where = [];
+            if (nFrames) where.push(nFrames + " 個文字框");
+            if (nNames) where.push(nNames + " 個工作區名稱");
+            var msg = !total ? "找不到符合的文字" : (dry ? "找到 " : "已取代 ") + total + " 處（" + where.join("、") + "）";
+            var notes = [];
+            if (skipCmf) notes.push(skipCmf + " 個標註、尺寸裡的文字沒改");
+            if (skipLocked) notes.push(skipLocked + " 個在鎖定或隱藏的物件裡沒改");
+            if (failed) notes.push(failed + " 個無法修改：" + err);
+            if (notes.length) msg += "；" + notes.join("；");
+            return '{"ok":true,"msg":"' + esc(msg) + '","total":' + total + ',"counts":[' + counts.join(",") +
+                '],"frames":' + nFrames + ',"names":' + nNames + ',"failed":' + failed + "}";
+        } catch (e) { return res(false, e.message); }
+        finally { restoreCoords(coords); }
+    }
+
     // ---------- 設定檔（給快捷鍵腳本使用） ----------
     // 面板第一次開啟（還沒有自己的設定）時，沿用快捷鍵腳本用的設定檔
     function loadSettings() {
@@ -2057,6 +2215,7 @@ $.global.CMF = (function () {
         scaleInfo: scaleInfo,
         scaleDoc: scaleDoc,
         swapItems: swapItems,
+        replaceText: replaceText,
         dimAdd: dimAdd,
         dimInfo: dimInfo,
         dimSync: dimSync,

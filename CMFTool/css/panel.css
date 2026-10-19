@@ -470,3 +470,22 @@ html.scrubbing, html.scrubbing * { cursor: ew-resize !important; user-select: no
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .status.error { color: var(--error); }
+
+/* ---------- 取代分頁 ---------- */
+.rep-rows { display: flex; flex-direction: column; gap: 5px; margin: 6px 0 4px; }
+.rep-row { display: grid; grid-template-columns: minmax(0, 1fr) 10px minmax(0, 1fr) 22px 22px; align-items: center; gap: 3px; }
+.rep-row input { width: 100%; min-width: 0; }
+.rep-row.is-off .rep-to { border-color: var(--warn); }
+.rep-arrow { color: var(--muted); text-align: center; }
+.rep-cell { position: relative; min-width: 0; }
+.rep-cell input { padding-right: 22px; }
+.rep-n {
+  position: absolute; top: 0; right: 6px; bottom: 0;
+  display: flex; align-items: center;
+  color: var(--accent); font-size: 10px; font-variant-numeric: tabular-nums; pointer-events: none;
+}
+.rep-n.zero { color: var(--muted); }
+.rep-row .icon-btn { width: 22px; height: 22px; }
+.rep-row .icon-btn:disabled { opacity: .35; cursor: default; background: none; }
+.rep-add { margin: 2px 0 0; }
+.rep-opts .check { margin: 4px 0; }

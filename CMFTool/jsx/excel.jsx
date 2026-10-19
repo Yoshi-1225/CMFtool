@@ -5,6 +5,7 @@
  * 名稱會顯示在圖層面板，可以直接在那裡檢查或手動修改。
  * 綁定的文字的備註（note）記著上次從 Excel 更新（或綁定）時的內容：xlbase:內容
  *   Illustrator 存檔時，內容跟它不一樣的就是在 Illustrator 裡改過的，寫回 Excel（見 es_edited）
+ *   表格裡的字也一樣：內建方式畫的每格本來就綁定；從 Excel 複製貼上的，貼上後依位置和內容對到儲存格再綁定（es_bindTable）
  * 表格是一個群組，名稱為 xltable:範圍，備註（note）存 JSON：
  *   { mode: "excel" | "build", w, h, grid, cmf: { num, name, head, rest } }
  *   cmf：這個表格是 CMF 清單，依標註編號排序（見 js/table.js 的 cmfPlan）
@@ -177,10 +178,11 @@ function es_refs() {
 }
 
 /* 把值寫進文字物件。values = { "B3": "1,280", ... }
+ * tables = "1"：表格裡的字也改（寫回 Excel 之後記下新的內容用）；平常表格由 Excel 重建，不在這裡改
  * keepJson（從 Excel 更新、會寫回 Excel 時）= { "B3": 1, ... } 可以寫回的儲存格（不是公式）：
  *   這些格的文字在 Illustrator 裡改過、Excel 那格又沒變，就不換掉，等存檔時寫回 Excel（kept 列出這些儲存格）；
  *   Excel 那格也改了就用 Excel 的 */
-function es_apply(valuesJson, keepJson) {
+function es_apply(valuesJson, keepJson, tables) {
     if (app.documents.length === 0) return '{"error":"沒有開啟的文件"}';
     var values = eval("(" + valuesJson + ")");
     var keep = keepJson ? eval("(" + keepJson + ")") : {};
@@ -190,7 +192,7 @@ function es_apply(valuesJson, keepJson) {
     for (var i = 0; i < doc.textFrames.length; i++) {
         var tf = doc.textFrames[i];
         var ref = _refOf(tf);
-        if (ref === null || !values.hasOwnProperty(ref) || _inTable(tf)) continue;
+        if (ref === null || !values.hasOwnProperty(ref) || (tables !== "1" && _inTable(tf))) continue;
 
         // Illustrator 的換行是 \r
         var v = String(values[ref]).replace(/\r\n|\n/g, "\r");
@@ -212,7 +214,7 @@ function es_apply(valuesJson, keepJson) {
     return '{"changed":' + changed + ',"same":' + same + ',"failed":' + _arr(failed) + ',"kept":' + _arr(kept) + "}";
 }
 
-/* 寫回 Excel 用：在 Illustrator 裡改過的綁定文字（表格外）
+/* 寫回 Excel 用：在 Illustrator 裡改過的綁定文字（表格裡的也算）
  * items：[{ ref, text 現在的內容, base 上次從 Excel 更新或綁定時的內容（null = 沒有記錄）}]
  * 同一格有好幾個文字：只有一種改法就用它；改得不一樣 = { ref, multi: true } */
 function es_edited() {
@@ -220,7 +222,7 @@ function es_edited() {
     var doc = app.activeDocument, byRef = {}, order = [], i, k;
     for (i = 0; i < doc.textFrames.length; i++) {
         var tf = doc.textFrames[i], ref = _refOf(tf);
-        if (ref === null || _inTable(tf)) continue;
+        if (ref === null) continue;
         if (!byRef.hasOwnProperty(ref)) { byRef[ref] = []; order.push(ref); }
         byRef[ref].push({ text: tf.contents, base: _baseOf(tf) });
     }
@@ -482,6 +484,7 @@ function _buildTable(t, left, top, missing) {
         _applyText(tf.textRange, c, missing);
         if (text === "") tf.contents = "";
         tf.name = XL_PREFIX + c.ref;
+        _setBase(tf, tf.contents);                  // 之後在 Illustrator 裡改的才寫回 Excel
     }
     return group;
 }
@@ -666,4 +669,98 @@ function _pasteTable(label, mode) {
     doc.selection = null;
     app.redraw();
     return '{"count":' + done + ',"failed":' + _arr(failed) + "}";
+}
+
+/* ====================================================================
+ * 表格裡的字寫回 Excel：從 Excel 複製貼上的表格，文字物件依位置和內容對到儲存格再綁定
+ * ==================================================================== */
+function _framesIn(g, out) {
+    for (var i = 0; i < g.pageItems.length; i++) {
+        var it = g.pageItems[i];
+        if (it.typename === "TextFrame") out.push(it);
+        else if (it.typename === "GroupItem") _framesIn(it, out);
+    }
+    return out;
+}
+
+function _normText(s) { return String(s).replace(/\r\n|\r|\n|\u0003/g, "\n").replace(/^\s+|\s+$/g, ""); }
+
+function _sameText(a, b) {
+    a = _normText(a); b = _normText(b);
+    return a === b || a.replace(/\s+/g, " ") === b.replace(/\s+/g, " ");
+}
+
+/* tableJson = { width, height, cells: [{ ref, text, x, y, w, h }] }（js/table.js 的 buildTable 算的，單位 pt、從左上角起算）
+ * 貼上的表格等比對應到這個大小；文字物件跟哪一格重疊、內容又跟那一格一樣，就綁定到那一格。
+ * 已經綁定的不動（同一個範圍的其他表格，可能有還沒寫回的修改）；
+ * 對不到的（例如自動換行被拆成好幾段的字）不綁定，不會寫回 */
+function es_bindTable(label, tableJson) {
+    if (app.documents.length === 0) return '{"error":"沒有開啟的文件"}';
+    var t = eval("(" + tableJson + ")"), groups = _tableGroups(app.activeDocument);
+    var bound = 0, total = 0, i, k;
+    if (!(t.width > 0 && t.height > 0)) return '{"bound":0,"total":0}';
+    for (var g = 0; g < groups.length; g++) {
+        if (groups[g].name !== XL_TABLE + label) continue;
+        var gb = groups[g].geometricBounds, gw = gb[2] - gb[0], gh = gb[1] - gb[3];
+        if (!(gw > 0 && gh > 0)) continue;
+        var sx = t.width / gw, sy = t.height / gh, frames = _framesIn(groups[g], []);
+        for (i = 0; i < frames.length; i++) {
+            var tf = frames[i], text;
+            if (_refOf(tf) !== null) continue;
+            try { text = tf.contents; } catch (e) { continue; }
+            if (_normText(text) === "") continue;
+            total++;
+            var b = tf.geometricBounds;
+            var x0 = (b[0] - gb[0]) * sx, x1 = (b[2] - gb[0]) * sx, y0 = (gb[1] - b[1]) * sy, y1 = (gb[1] - b[3]) * sy;
+            var cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, best = null, bestD = 0;
+            for (k = 0; k < t.cells.length; k++) {
+                var c = t.cells[k];
+                if (c.x >= x1 || c.x + c.w <= x0 || c.y >= y1 || c.y + c.h <= y0) continue;   // 沒有重疊
+                if (!_sameText(text, c.text)) continue;
+                var dx = Math.max(c.x - cx, 0, cx - c.x - c.w), dy = Math.max(c.y - cy, 0, cy - c.y - c.h);
+                if (!best || dx * dx + dy * dy < bestD) { best = c; bestD = dx * dx + dy * dy; }
+            }
+            if (!best) continue;
+            try { tf.name = XL_PREFIX + best.ref; _setBase(tf, text); bound++; } catch (e) {}
+        }
+    }
+    return '{"bound":' + bound + ',"total":' + total + "}";
+}
+
+/* 從 Excel 更新表格之前：表格裡在 Illustrator 改過、還沒寫回的字 { 範圍: { 儲存格: { text, base } } } */
+function es_tableEdits() {
+    if (app.documents.length === 0) return "{}";
+    var out = {}, groups = _tableGroups(app.activeDocument);
+    for (var g = 0; g < groups.length; g++) {
+        var label = groups[g].name.substring(XL_TABLE.length), frames = _framesIn(groups[g], []);
+        for (var i = 0; i < frames.length; i++) {
+            var ref = _refOf(frames[i]), base = _baseOf(frames[i]), text;
+            try { text = frames[i].contents; } catch (e) { continue; }
+            if (ref === null || base === null || text === base) continue;
+            if (!out.hasOwnProperty(label)) out[label] = {};
+            out[label][ref] = { text: text, base: base };
+        }
+    }
+    return _json(out);
+}
+
+/* 表格換成新的之後：把還沒寫回的修改放回去（備註記著原本的內容，存檔時才會寫回）
+ * keepJson = { 儲存格: { text, base } }，只放 Excel 那格沒變的（js/excel.js 決定） */
+function es_keepTableEdits(label, keepJson) {
+    if (app.documents.length === 0) return '{"count":0}';
+    var keep = eval("(" + keepJson + ")"), groups = _tableGroups(app.activeDocument), n = 0;
+    for (var g = 0; g < groups.length; g++) {
+        if (groups[g].name !== XL_TABLE + label) continue;
+        var frames = _framesIn(groups[g], []);
+        for (var i = 0; i < frames.length; i++) {
+            var ref = _refOf(frames[i]);
+            if (ref === null || !keep.hasOwnProperty(ref)) continue;
+            try {
+                frames[i].contents = keep[ref].text;
+                frames[i].note = XL_BASE + keep[ref].base;
+                n++;
+            } catch (e) {}
+        }
+    }
+    return '{"count":' + n + "}";
 }
